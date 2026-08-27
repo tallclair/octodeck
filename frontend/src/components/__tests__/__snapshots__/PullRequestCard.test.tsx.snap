@@ -1,0 +1,140 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`PullRequestCard > renders correctly with Item 1`] = `
+<DocumentFragment>
+  <div
+    class="group relative border-b border-slate-200 dark:border-slate-800 p-4 transition-colors cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/30 border-l-4 border-l-transparent pl-3"
+  >
+    <div
+      class="flex items-start gap-3"
+    >
+      <div
+        class="mt-1 shrink-0"
+      >
+        <svg
+          aria-hidden="true"
+          class="lucide lucide-git-pull-request text-green-600 dark:text-green-500"
+          fill="none"
+          height="18"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+          width="18"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <circle
+            cx="18"
+            cy="18"
+            r="3"
+          />
+          <circle
+            cx="6"
+            cy="6"
+            r="3"
+          />
+          <path
+            d="M13 6h3a2 2 0 0 1 2 2v7"
+          />
+          <line
+            x1="6"
+            x2="6"
+            y1="9"
+            y2="21"
+          />
+        </svg>
+      </div>
+      <div
+        class="flex-1 min-w-0"
+      >
+        <div
+          class="flex justify-between items-start gap-2"
+        >
+          <div
+            class="flex-1 min-w-0 flex items-start gap-2"
+          >
+            <h3
+              class="text-sm font-medium truncate text-slate-800 dark:text-slate-200 group-hover:text-blue-600 dark:group-hover:text-white"
+            >
+              <a
+                class="hover:underline focus:outline-hidden"
+                href="https://github.com/owner/repo/pull/123"
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                Test PR
+              </a>
+            </h3>
+            <a
+              class="text-slate-400 hover:text-blue-600 dark:text-slate-500 dark:hover:text-blue-400 mt-0.5 shrink-0"
+              href="https://github.com/owner/repo/pull/123"
+              rel="noopener noreferrer"
+              target="_blank"
+              title="Open on GitHub (o)"
+            >
+              <svg
+                aria-hidden="true"
+                class="lucide lucide-external-link"
+                fill="none"
+                height="14"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                viewBox="0 0 24 24"
+                width="14"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M15 3h6v6"
+                />
+                <path
+                  d="M10 14 21 3"
+                />
+                <path
+                  d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"
+                />
+              </svg>
+            </a>
+          </div>
+          <div
+            class="flex items-center gap-1.5 shrink-0"
+          >
+            <div
+              class="flex items-center shrink-0"
+            >
+              <span
+                class="text-[10px] whitespace-nowrap font-bold flex items-center gap-1 shrink-0 text-blue-600 dark:text-blue-400"
+              >
+                New
+              </span>
+            </div>
+          </div>
+        </div>
+        <div
+          class="text-[11px] text-slate-500 dark:text-slate-500 mt-1 flex items-center gap-2 flex-wrap"
+        >
+          <span>
+            user
+          </span>
+          <span>
+            •
+          </span>
+          <span
+            class="font-mono"
+          >
+            owner/repo #123
+          </span>
+          <span>
+            •
+          </span>
+          <span>
+            Never
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+</DocumentFragment>
+`;

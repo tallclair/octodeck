@@ -1,0 +1,13 @@
+{
+  "name": "octodeck-api",
+  "private": true,
+  "scripts": {
+    "generate": "buf generate && go tool goimports -w ../backend/internal/api",
+    "lint": "buf lint"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "^1.64.0",
+    "@bufbuild/protoc-gen-es": "^2.2.2",
+    "@connectrpc/protoc-gen-connect-query": "^2.0.0"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "oss_reviewer",
+  "description": "Senior Open Source Software Engineer for identifying issues, reviewing code against community standards, security, performance, maintainability, and open source best practices.",
+  "subagent": true,
+  "mainAgent": false,
+  "configPath": {
+    "relativePathToConfig": "config.yaml"
+  }
+}

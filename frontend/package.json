@@ -1,0 +1,53 @@
+{
+  "name": "octodeck",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:webapp": "BUILD_TARGET=webapp vite",
+    "build:webapp": "tsc -b && BUILD_TARGET=webapp vite build --outDir ../backend/frontend_dist --emptyOutDir",
+    "build:extension": "tsc -b && BUILD_TARGET=extension vite build --outDir ../extension_dist --emptyOutDir && BUILD_TARGET=extension-content vite build --outDir ../extension_dist --emptyOutDir=false",
+    "build": "npm run build:webapp && npm run build:extension",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "test": "tsc -b && vitest run"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.2.2",
+    "@connectrpc/connect": "^2.0.0",
+    "@connectrpc/connect-query": "^2.0.0",
+    "@connectrpc/connect-web": "^2.0.0",
+    "@octokit/graphql": "^9.0.3",
+    "@tailwindcss/typography": "^0.5.20",
+    "@tailwindcss/vite": "^4.1.18",
+    "@tanstack/react-query": "^5.90.19",
+    "@types/chrome": "^0.1.32",
+    "lucide-react": "^0.562.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.1",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "autoprefixer": "^10.4.23",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "jsdom": "^27.3.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^7.0.2",
+    "typescript-eslint": "^8.46.4",
+    "vite": "^7.2.4",
+    "vitest": "^4.0.16"
+  }
+}

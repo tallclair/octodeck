@@ -1,0 +1,192 @@
+query InventorySync {
+  search(query: "is:open (assignee:@me OR author:@me) sort:updated-desc", type: ISSUE_ADVANCED, first: 2) {
+    nodes {
+      __typename
+      ... on Issue {
+        id
+        number
+        title
+        body
+        updatedAt
+        url
+        state
+        viewerSubscription
+        author {
+          login
+          avatarUrl
+        }
+        milestone {
+          title
+        }
+        labels(first: 50) {
+          nodes {
+            name
+            color
+          }
+        }
+        repository {
+          nameWithOwner
+        }
+        comments(last: 20) {
+          nodes {
+            createdAt
+            bodyText
+            url
+            author {
+              login
+              avatarUrl
+            }
+          }
+        }
+        assignees(first: 10) {
+          nodes {
+            login
+            avatarUrl
+          }
+        }
+        timelineItems(last: 10, itemTypes: [CLOSED_EVENT, REOPENED_EVENT, ASSIGNED_EVENT]) {
+          nodes {
+            __typename
+            ... on ClosedEvent {
+              createdAt
+              url
+              actor {
+                login
+                avatarUrl
+              }
+            }
+            ... on ReopenedEvent {
+              createdAt
+              actor {
+                login
+                avatarUrl
+              }
+            }
+            ... on AssignedEvent {
+              createdAt
+              actor {
+                login
+                avatarUrl
+              }
+              assignee {
+                ... on User {
+                  login
+                  avatarUrl
+                }
+                ... on Bot {
+                  login
+                  avatarUrl
+                }
+              }
+            }
+          }
+        }
+      }
+      ... on PullRequest {
+        id
+        number
+        title
+        body
+        updatedAt
+        url
+        state
+        isDraft
+        viewerSubscription
+        author {
+          login
+          avatarUrl
+        }
+        milestone {
+          title
+        }
+        labels(first: 50) {
+          nodes {
+            name
+            color
+          }
+        }
+        repository {
+          nameWithOwner
+        }
+        comments(last: 20) {
+          nodes {
+            createdAt
+            bodyText
+            url
+            author {
+              login
+              avatarUrl
+            }
+          }
+        }
+        assignees(first: 10) {
+          nodes {
+            login
+            avatarUrl
+          }
+        }
+        commits(last: 10) {
+          nodes {
+            commit {
+              committedDate
+              author {
+                user {
+                  login
+                }
+              }
+            }
+          }
+        }
+        timelineItems(last: 10, itemTypes: [CLOSED_EVENT, MERGED_EVENT, REOPENED_EVENT, ASSIGNED_EVENT]) {
+          nodes {
+            __typename
+            ... on ClosedEvent {
+              createdAt
+              url
+              actor {
+                login
+                avatarUrl
+              }
+            }
+            ... on MergedEvent {
+              createdAt
+              url
+              actor {
+                login
+                avatarUrl
+              }
+            }
+            ... on ReopenedEvent {
+              createdAt
+              actor {
+                login
+                avatarUrl
+              }
+            }
+            ... on AssignedEvent {
+              createdAt
+              actor {
+                login
+                avatarUrl
+              }
+              assignee {
+                ... on User {
+                  login
+                  avatarUrl
+                }
+                ... on Bot {
+                  login
+                  avatarUrl
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    pageInfo {
+      endCursor
+      hasNextPage
+    }
+  }
+}

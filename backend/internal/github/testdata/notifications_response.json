@@ -1,0 +1,170 @@
+[
+  {
+    "id": "25068083761",
+    "unread": true,
+    "reason": "subscribed",
+    "updated_at": "2026-08-14T01:54:16Z",
+    "last_read_at": null,
+    "subject": {
+      "title": "setup Helm chart publishing to kubernetes staging registry",
+      "url": "https://api.github.com/repos/kubernetes-sigs/node-readiness-controller/pulls/402",
+      "latest_comment_url": "https://api.github.com/repos/kubernetes-sigs/node-readiness-controller/issues/comments/5288507672",
+      "type": "PullRequest"
+    },
+    "repository": {
+      "id": 1085456479,
+      "node_id": "R_kgDOQLLAXw",
+      "name": "node-readiness-controller",
+      "full_name": "kubernetes-sigs/node-readiness-controller",
+      "private": false,
+      "owner": {
+        "login": "kubernetes-sigs",
+        "id": 36015203,
+        "avatar_url": "https://avatars.githubusercontent.com/u/36015203?v=4"
+      },
+      "html_url": "https://github.com/kubernetes-sigs/node-readiness-controller"
+    },
+    "url": "https://api.github.com/notifications/threads/25068083761",
+    "subscription_url": "https://api.github.com/notifications/threads/25068083761/subscription"
+  },
+  {
+    "id": "25034109724",
+    "unread": true,
+    "reason": "review_requested",
+    "updated_at": "2026-08-14T01:50:01Z",
+    "last_read_at": null,
+    "subject": {
+      "title": "feat(chart): expose controller tuning flags in Helm values",
+      "url": "https://api.github.com/repos/kubernetes-sigs/node-readiness-controller/pulls/392",
+      "latest_comment_url": "https://api.github.com/repos/kubernetes-sigs/node-readiness-controller/pulls/392",
+      "type": "PullRequest"
+    },
+    "repository": {
+      "id": 1085456479,
+      "node_id": "R_kgDOQLLAXw",
+      "name": "node-readiness-controller",
+      "full_name": "kubernetes-sigs/node-readiness-controller",
+      "private": false,
+      "owner": {
+        "login": "kubernetes-sigs",
+        "id": 36015203,
+        "avatar_url": "https://avatars.githubusercontent.com/u/36015203?v=4"
+      },
+      "html_url": "https://github.com/kubernetes-sigs/node-readiness-controller"
+    },
+    "url": "https://api.github.com/notifications/threads/25034109724",
+    "subscription_url": "https://api.github.com/notifications/threads/25034109724/subscription"
+  },
+  {
+    "id": "24987654321",
+    "unread": false,
+    "reason": "assign",
+    "updated_at": "2026-08-13T18:30:00Z",
+    "last_read_at": "2026-08-13T19:00:00Z",
+    "subject": {
+      "title": "Kubelet pod lifecycle event generator deadlock on cgroup v2",
+      "url": "https://api.github.com/repos/kubernetes/kubernetes/issues/12345",
+      "latest_comment_url": "https://api.github.com/repos/kubernetes/kubernetes/issues/comments/987654321",
+      "type": "Issue"
+    },
+    "repository": {
+      "id": 20580498,
+      "node_id": "MDEwOlJlcG9zaXRvcnkyMDU4MDQ5OA==",
+      "name": "kubernetes",
+      "full_name": "kubernetes/kubernetes",
+      "private": false,
+      "owner": {
+        "login": "kubernetes",
+        "id": 13629408,
+        "avatar_url": "https://avatars.githubusercontent.com/u/13629408?v=4"
+      },
+      "html_url": "https://github.com/kubernetes/kubernetes"
+    },
+    "url": "https://api.github.com/notifications/threads/24987654321",
+    "subscription_url": "https://api.github.com/notifications/threads/24987654321/subscription"
+  },
+  {
+    "id": "24987654322",
+    "unread": true,
+    "reason": "mention",
+    "updated_at": "2026-08-13T20:15:00Z",
+    "last_read_at": null,
+    "subject": {
+      "title": "Improve node allocatable memory calculation for swap",
+      "url": "https://api.github.com/repos/kubernetes/kubernetes/issues/67890",
+      "latest_comment_url": "https://api.github.com/repos/kubernetes/kubernetes/issues/comments/987654322",
+      "type": "Issue"
+    },
+    "repository": {
+      "id": 20580498,
+      "node_id": "MDEwOlJlcG9zaXRvcnkyMDU4MDQ5OA==",
+      "name": "kubernetes",
+      "full_name": "kubernetes/kubernetes",
+      "private": false,
+      "owner": {
+        "login": "kubernetes",
+        "id": 13629408,
+        "avatar_url": "https://avatars.githubusercontent.com/u/13629408?v=4"
+      },
+      "html_url": "https://github.com/kubernetes/kubernetes"
+    },
+    "url": "https://api.github.com/notifications/threads/24987654322",
+    "subscription_url": "https://api.github.com/notifications/threads/24987654322/subscription"
+  },
+  {
+    "id": "24987654323",
+    "unread": true,
+    "reason": "author",
+    "updated_at": "2026-08-13T21:00:00Z",
+    "last_read_at": null,
+    "subject": {
+      "title": "Release v1.31.0-alpha.1",
+      "url": "https://api.github.com/repos/kubernetes/kubernetes/releases/199999",
+      "latest_comment_url": "",
+      "type": "Release"
+    },
+    "repository": {
+      "id": 20580498,
+      "node_id": "MDEwOlJlcG9zaXRvcnkyMDU4MDQ5OA==",
+      "name": "kubernetes",
+      "full_name": "kubernetes/kubernetes",
+      "private": false,
+      "owner": {
+        "login": "kubernetes",
+        "id": 13629408,
+        "avatar_url": "https://avatars.githubusercontent.com/u/13629408?v=4"
+      },
+      "html_url": "https://github.com/kubernetes/kubernetes"
+    },
+    "url": "https://api.github.com/notifications/threads/24987654323",
+    "subscription_url": "https://api.github.com/notifications/threads/24987654323/subscription"
+  },
+  {
+    "id": "24987654324",
+    "unread": false,
+    "reason": "security_alert",
+    "updated_at": "2026-08-13T22:00:00Z",
+    "last_read_at": "2026-08-13T22:30:00Z",
+    "subject": {
+      "title": "Dependabot security advisory",
+      "url": "",
+      "latest_comment_url": "",
+      "type": "CheckSuite"
+    },
+    "repository": {
+      "id": 1085456479,
+      "node_id": "R_kgDOQLLAXw",
+      "name": "node-readiness-controller",
+      "full_name": "kubernetes-sigs/node-readiness-controller",
+      "private": false,
+      "owner": {
+        "login": "kubernetes-sigs",
+        "id": 36015203,
+        "avatar_url": "https://avatars.githubusercontent.com/u/36015203?v=4"
+      },
+      "html_url": "https://github.com/kubernetes-sigs/node-readiness-controller"
+    },
+    "url": "https://api.github.com/notifications/threads/24987654324",
+    "subscription_url": "https://api.github.com/notifications/threads/24987654324/subscription"
+  }
+]

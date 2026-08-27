@@ -1,0 +1,216 @@
+edition = "2023";
+
+package octodeck.v1;
+
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/timestamp.proto";
+import "octodeck/v1/resources.proto";
+
+option go_package = "github.com/tallclair/octodeck/backend/internal/api/v1;octodeckv1";
+
+service OctoDeckService {
+  // Main Dashboard Data
+  rpc GetItems(GetItemsRequest) returns (GetItemsResponse);
+  rpc GetItem(GetItemRequest) returns (GetItemResponse);
+
+  // Synchronization (Streaming)
+  rpc Sync(SyncRequest) returns (stream SyncResponse);
+
+  // Actions
+  rpc ViewItem(ViewItemRequest) returns (ViewItemResponse);
+  rpc AckItem(AckItemRequest) returns (AckItemResponse);
+  rpc StarItem(StarItemRequest) returns (StarItemResponse);
+  rpc SetNotes(SetNotesRequest) returns (SetNotesResponse);
+  rpc RefetchItem(RefetchItemRequest) returns (RefetchItemResponse);
+  rpc DeleteItem(DeleteItemRequest) returns (DeleteItemResponse);
+
+  // Synchronization Status & Traces
+  rpc GetSyncStatus(GetSyncStatusRequest) returns (GetSyncStatusResponse);
+  rpc GetSyncTraces(GetSyncTracesRequest) returns (GetSyncTracesResponse);
+
+  // Database & Storage Observability
+  rpc GetDatabaseStats(GetDatabaseStatsRequest) returns (GetDatabaseStatsResponse);
+
+  // Configuration
+  rpc GetConfig(GetConfigRequest) returns (GetConfigResponse);
+  rpc UpdateConfig(UpdateConfigRequest) returns (UpdateConfigResponse);
+}
+
+message GetItemsRequest {
+  Filter filter = 1;
+}
+
+message GetItemsResponse {
+  repeated Item items = 1;
+}
+
+message GetItemRequest {
+  string item_id = 1;
+}
+
+message GetItemResponse {
+  Item item = 1;
+}
+
+message Filter {
+  // Tri-state boolean filters
+  reserved 1;
+  bool is_viewed = 2;
+  bool is_assigned = 3;
+
+  // Enum filters
+  ItemType type = 4;
+  ItemState state = 5;
+  
+  // List filters (OR logic)
+  repeated ItemStatus status = 6;
+  repeated string repos = 7;
+  repeated string authors = 8;
+  repeated string milestones = 10;
+  repeated string labels = 11;
+
+  // Fuzzy search
+  string query = 9;
+}
+
+message SyncRequest {}
+
+message SyncResponse {
+  enum Stage {
+    STAGE_UNSPECIFIED = 0;
+    STAGE_FETCHING = 1;
+    STAGE_PROCESSING = 2;
+    STAGE_COMPLETE = 3;
+  }
+  Stage stage = 1;
+  string message = 2;
+  int32 items_processed = 3;
+}
+
+message ViewItemRequest {
+  string item_id = 1;
+}
+
+message ViewItemResponse {
+  Item item = 1;
+}
+
+message AckItemRequest {
+  string item_id = 1;
+  bool acked = 2;
+}
+
+message AckItemResponse {
+  Item item = 1;
+}
+
+message StarItemRequest {
+  string item_id = 1;
+  bool starred = 2;
+}
+
+message StarItemResponse {
+  Item item = 1;
+}
+
+message SetNotesRequest {
+  string item_id = 1;
+  string notes = 2;
+}
+
+message SetNotesResponse {
+  Item item = 1;
+}
+
+message RefetchItemRequest {
+  string item_id = 1;
+}
+
+message RefetchItemResponse {
+  Item item = 1;
+}
+
+message DeleteItemRequest {
+  string item_id = 1;
+}
+
+message DeleteItemResponse {}
+
+message Config {
+  repeated string watched_repos = 1;
+  repeated string pinned_repos = 2;
+  repeated string excluded_repos = 3;
+  int32 polling_interval_min = 4;
+  repeated string known_bots = 5;
+  bool auto_ack_own_activity = 6;
+  int32 port = 7;
+  string db_path = 8;
+  repeated string included_labels = 9;
+  repeated string excluded_labels = 10;
+}
+
+message GetConfigRequest {}
+
+message GetConfigResponse {
+  Config config = 1;
+  string current_user_login = 2;
+}
+
+message UpdateConfigRequest {
+  Config config = 1;
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message UpdateConfigResponse {
+  Config config = 1;
+}
+
+message GetSyncStatusRequest {}
+
+message SyncStatus {
+  google.protobuf.Timestamp last_successful_sync_at = 1;
+  google.protobuf.Timestamp last_sync_attempt_at = 2;
+  google.protobuf.Timestamp last_update_received_at = 3;
+  bool last_sync_failed = 4;
+  string last_error_message = 5;
+  int32 failed_attempts_count = 6;
+  bool is_syncing = 7;
+  double notification_rate_24h = 8;
+  double notification_rate_7d = 9;
+  double notification_rate_30d = 10;
+  int64 last_sync_duration_ms = 11;
+}
+
+message GetSyncStatusResponse {
+  SyncStatus status = 1;
+}
+
+message GetSyncTracesRequest {
+  int32 limit = 1;
+  string trace_type = 2;
+  bool include_payload = 3;
+}
+
+message GetSyncTracesResponse {
+  repeated SyncTrace traces = 1;
+}
+
+message DatabaseStats {
+  int64 total_items = 1;
+  int64 open_items = 2;
+  int64 closed_items = 3;
+  int64 pr_items = 4;
+  int64 issue_items = 5;
+  int64 unacked_items = 6;
+  int64 acked_items = 7;
+  int64 total_repos = 8;
+  int64 total_traces = 9;
+  int64 db_size_bytes = 10;
+  string db_path = 11;
+}
+
+message GetDatabaseStatsRequest {}
+
+message GetDatabaseStatsResponse {
+  DatabaseStats stats = 1;
+}

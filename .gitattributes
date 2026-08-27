@@ -1,0 +1,3 @@
+# Generated Protobuf & ConnectRPC API files
+backend/internal/api/** linguist-generated=true
+frontend/src/api/octodeck/** linguist-generated=true

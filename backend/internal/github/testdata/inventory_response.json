@@ -1,0 +1,201 @@
+{
+    "data": {
+        "search": {
+            "nodes": [
+                {
+                    "__typename": "PullRequest",
+                    "id": "PR_kwDOA3OuhM663P_7",
+                    "number": 5761,
+                    "title": "KEP-1287: Mark in-place pod resize as implemented",
+                    "updatedAt": "2026-01-07T01:04:25Z",
+                    "url": "https://github.com/kubernetes/enhancements/pull/5761",
+                    "state": "OPEN",
+                    "author": {
+                        "login": "natasha41575",
+                        "avatarUrl": "https://avatars.githubusercontent.com/u/16629434?u=718eee444131b88e538b3dd596212799dd514b44&v=4"
+                    },
+                    "repository": {
+                        "nameWithOwner": "kubernetes/enhancements"
+                    },
+                    "comments": {
+                        "nodes": [
+                            {
+                                "createdAt": "2025-12-29T19:08:29Z",
+                                "bodyText": "[APPROVALNOTIFIER] This PR is NOT APPROVED\nThis pull-request has been approved by: natasha41575\nOnce this PR has been reviewed and has the lgtm label, please assign dchen1107 for approval. For more information see the Code Review Process.\nThe full list of commands accepted by this bot can be found here.\nDetails\nNeeds approval from an approver in each of these files:\n\nkeps/sig-node/OWNERS\n\nApprovers can indicate their approval by writing /approve in a comment\nApprovers can cancel approval by writing /approve cancel in a comment",
+                                "url": "https://github.com/kubernetes/enhancements/pull/5761#issuecomment-3697286174",
+                                "author": {
+                                    "login": "k8s-ci-robot",
+                                    "avatarUrl": "https://avatars.githubusercontent.com/u/20407524?u=1098a3bebdff2ad8d1f45e208fa5b8ce76fac6b5&v=4"
+                                }
+                            },
+                            {
+                                "createdAt": "2026-01-04T18:28:28Z",
+                                "bodyText": "LGTM. Also, good work SIG Node people.",
+                                "url": "https://github.com/kubernetes/enhancements/pull/5761#issuecomment-3708315171",
+                                "author": {
+                                    "login": "lmktfy",
+                                    "avatarUrl": "https://avatars.githubusercontent.com/u/193443691?u=80ab05d26cca27bf46eb38371ae0156d4df5af8a&v=4"
+                                }
+                            },
+                            {
+                                "createdAt": "2026-01-07T01:04:20Z",
+                                "bodyText": "/lgtm",
+                                "url": "https://github.com/kubernetes/enhancements/pull/5761#issuecomment-3716919166",
+                                "author": {
+                                    "login": "tallclair",
+                                    "avatarUrl": "https://avatars.githubusercontent.com/u/29742491?u=ec4e9cb8523b1239f4e414f0b9e946c7ae3eb1e5&v=4"
+                                }
+                            }
+                        ]
+                    },
+                    "assignees": {
+                        "nodes": [
+                            {
+                                "login": "dchen1107",
+                                "avatarUrl": "https://avatars.githubusercontent.com/u/7740897?v=4"
+                            },
+                            {
+                                "login": "tallclair",
+                                "avatarUrl": "https://avatars.githubusercontent.com/u/29742491?u=ec4e9cb8523b1239f4e414f0b9e946c7ae3eb1e5&v=4"
+                            }
+                        ]
+                    },
+                    "commits": {
+                        "nodes": [
+                            {
+                                "commit": {
+                                    "committedDate": "2025-12-29T19:06:47Z",
+                                    "author": {
+                                        "user": {
+                                            "login": "natasha41575"
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                {
+                    "__typename": "PullRequest",
+                    "id": "PR_kwDOAToIks67m9e7",
+                    "number": 136043,
+                    "title": "[InPlacePodVerticalScaling] create an admission plugin to perform the OS and node capacity checks",
+                    "updatedAt": "2026-01-06T19:42:20Z",
+                    "url": "https://github.com/kubernetes/kubernetes/pull/136043",
+                    "state": "OPEN",
+                    "author": {
+                        "login": "natasha41575",
+                        "avatarUrl": "https://avatars.githubusercontent.com/u/16629434?u=718eee444131b88e538b3dd596212799dd514b44&v=4"
+                    },
+                    "repository": {
+                        "nameWithOwner": "kubernetes/kubernetes"
+                    },
+                    "comments": {
+                        "nodes": [
+                            {
+                                "createdAt": "2026-01-05T21:46:32Z",
+                                "bodyText": "This issue is currently awaiting triage.\nIf a SIG or subproject determines this is a relevant issue, they will accept it by applying the triage/accepted label and provide further guidance.\nThe triage/accepted label can be added by org members by writing /triage accepted in a comment.\nDetails\nInstructions for interacting with me using PR comments are available here.  If you have questions or suggestions related to my behavior, please file an issue against the kubernetes-sigs/prow repository.",
+                                "url": "https://github.com/kubernetes/kubernetes/pull/136043#issuecomment-3712197113",
+                                "author": {
+                                    "login": "k8s-ci-robot",
+                                    "avatarUrl": "https://avatars.githubusercontent.com/u/20407524?u=1098a3bebdff2ad8d1f45e208fa5b8ce76fac6b5&v=4"
+                                }
+                            },
+                            {
+                                "createdAt": "2026-01-05T21:46:44Z",
+                                "bodyText": "[APPROVALNOTIFIER] This PR is NOT APPROVED\nThis pull-request has been approved by: natasha41575\nOnce this PR has been reviewed and has the lgtm label, please assign deads2k, derekwaynecarr for approval. For more information see the Code Review Process.\nThe full list of commands accepted by this bot can be found here.\nDetails\nNeeds approval from an approver in each of these files:\n\npkg/kubeapiserver/OWNERS\npkg/kubelet/OWNERS\nplugin/pkg/admission/OWNERS\ntest/integration/pods/OWNERS\n\nApprovers can indicate their approval by writing /approve in a comment\nApprovers can cancel approval by writing /approve cancel in a comment",
+                                "url": "https://github.com/kubernetes/kubernetes/pull/136043#issuecomment-3712197656",
+                                "author": {
+                                    "login": "k8s-ci-robot",
+                                    "avatarUrl": "https://avatars.githubusercontent.com/u/20407524?u=1098a3bebdff2ad8d1f45e208fa5b8ce76fac6b5&v=4"
+                                }
+                            },
+                            {
+                                "createdAt": "2026-01-06T15:04:31Z",
+                                "bodyText": "From a VPA perspective, I have concerns about the error handling here (please correct me if I’m missing something).\nVPA needs to be able to programmatically distinguish between different failure modes, such as:\n\ninfeasible resizes (requests exceed node allocatable),\nunsupported platforms (e.g., non-Linux nodes),\ntransient errors, etc.\n\nEach of these cases should be handled differently. However, they all currently return admission.NewForbidden() with only different error messages. This forces consumers to parse error strings, which is fragile - any change in the message text could cause VPA to break silently.\n\nToday, all \"infeasible\" resizes -- i.e. exceeding node allocatable, the node is on an unsupported platform, or the node has a feature enabled that is not compatible with resize like swap or static cpu/memory manager -- are all surfaced in the API the same way through a PodResizePending condition in the status with the Reason set to Infeasible and the only differentiation between the different failure modes being a human-readable message in the Message field. How does VPA distinguish them today?\n(I'll also think on what options we have to make it easier to programatically distinguish them)",
+                                "url": "https://github.com/kubernetes/kubernetes/pull/136043#issuecomment-3715047457",
+                                "author": {
+                                    "login": "natasha41575",
+                                    "avatarUrl": "https://avatars.githubusercontent.com/u/16629434?u=718eee444131b88e538b3dd596212799dd514b44&v=4"
+                                }
+                            },
+                            {
+                                "createdAt": "2026-01-06T15:42:12Z",
+                                "bodyText": "From a VPA perspective, I have concerns about the error handling here (please correct me if I’m missing something).\nVPA needs to be able to programmatically distinguish between different failure modes, such as:\n\ninfeasible resizes (requests exceed node allocatable),\nunsupported platforms (e.g., non-Linux nodes),\ntransient errors, etc.\n\nEach of these cases should be handled differently. However, they all currently return admission.NewForbidden() with only different error messages. This forces consumers to parse error strings, which is fragile - any change in the message text could cause VPA to break silently.\n\nToday, all \"infeasible\" resizes -- i.e. exceeding node allocatable, the node is on an unsupported platform, or the node has a feature enabled that is not compatible with resize like swap or static cpu/memory manager -- are all surfaced in the API the same way through a PodResizePending condition in the status with the Reason set to Infeasible and the only differentiation between the different failure modes being a human-readable message in the Message field. How does VPA distinguish them today?\n(I'll also think on what options we have to make it easier to programatically distinguish them)\n\nIt doesn't, the VPA checks if the pod is in PodResizePending state with a Reason set to PodReasonInfeasible and evicts based on that (we have some logic to skip evictions in some cases but that's irrelevant ).\nBut we can't follow the same pattern in admission and we want to have some logic based on that error.\n/cc @maxcao13",
+                                "url": "https://github.com/kubernetes/kubernetes/pull/136043#issuecomment-3715188728",
+                                "author": {
+                                    "login": "omerap12",
+                                    "avatarUrl": "https://avatars.githubusercontent.com/u/61663422?u=96a4b7bffc214a3e25a7d8357772b6910cfeb25f&v=4"
+                                }
+                            },
+                            {
+                                "createdAt": "2026-01-06T16:39:28Z",
+                                "bodyText": "From a VPA perspective, I have concerns about the error handling here (please correct me if I’m missing something).\nVPA needs to be able to programmatically distinguish between different failure modes, such as:\n\ninfeasible resizes (requests exceed node allocatable),\nunsupported platforms (e.g., non-Linux nodes),\ntransient errors, etc.\n\nEach of these cases should be handled differently. However, they all currently return admission.NewForbidden() with only different error messages. This forces consumers to parse error strings, which is fragile - any change in the message text could cause VPA to break silently.\n\nToday, all \"infeasible\" resizes -- i.e. exceeding node allocatable, the node is on an unsupported platform, or the node has a feature enabled that is not compatible with resize like swap or static cpu/memory manager -- are all surfaced in the API the same way through a PodResizePending condition in the status with the Reason set to Infeasible and the only differentiation between the different failure modes being a human-readable message in the Message field. How does VPA distinguish them today?\n(I'll also think on what options we have to make it easier to programatically distinguish them)\n\nIt doesn't, the VPA checks if the pod is in PodResizePending state with a Reason set to PodReasonInfeasible and evicts based on that (we have some logic to skip evictions in some cases but that's irrelevant ). But we can't follow the same pattern in admission and we want to have some logic based on that error. /cc @maxcao13\n\nUnderstood.\nTransient errors would not return admission.NewForbidden(). VPA should be able to filter that out programatically, so from that perspective this PR does not introduce any behavior that is worse than what exists today.\nDistinguishing the node capacity check from the other feasibility checks (like OS) is a net-new feature request that I don't necessarily think this change needs to be blocked on... but let me circle back on this. I have an idea but I'm not 100% sure about it so I need to double check and might need to ask some other folks about it too. I see how this could be useful for InPlace mode.\nETA: I pushed a change. See my comment below: #136043 (comment)",
+                                "url": "https://github.com/kubernetes/kubernetes/pull/136043#issuecomment-3715417781",
+                                "author": {
+                                    "login": "natasha41575",
+                                    "avatarUrl": "https://avatars.githubusercontent.com/u/16629434?u=718eee444131b88e538b3dd596212799dd514b44&v=4"
+                                }
+                            },
+                            {
+                                "createdAt": "2026-01-06T18:09:18Z",
+                                "bodyText": "@natasha41575: The following tests failed, say /retest to rerun all failed tests or /retest-required to rerun all mandatory failed tests:\n\n\n\nTest name\nCommit\nDetails\nRequired\nRerun command\n\n\n\n\npull-kubernetes-integration-go-compatibility\nb472849\nlink\ntrue\n/test pull-kubernetes-integration-go-compatibility\n\n\npull-kubernetes-unit\n45c2557\nlink\ntrue\n/test pull-kubernetes-unit\n\n\npull-kubernetes-linter-hints\n45c2557\nlink\nfalse\n/test pull-kubernetes-linter-hints\n\n\npull-kubernetes-verify\n45c2557\nlink\ntrue\n/test pull-kubernetes-verify\n\n\npull-kubernetes-unit-windows-master\n45c2557\nlink\nfalse\n/test pull-kubernetes-unit-windows-master\n\n\npull-kubernetes-e2e-capz-windows-master\n45c2557\nlink\nfalse\n/test pull-kubernetes-e2e-capz-windows-master\n\n\npull-kubernetes-integration\n45c2557\nlink\ntrue\n/test pull-kubernetes-integration\n\n\n\nFull PR test history. Your PR dashboard. Please help us cut down on flakes by linking to an open issue when you hit one in your PR.\nDetails\nInstructions for interacting with me using PR comments are available here.  If you have questions or suggestions related to my behavior, please file an issue against the kubernetes-sigs/prow repository. I understand the commands that are listed here.",
+                                "url": "https://github.com/kubernetes/kubernetes/pull/136043#issuecomment-3715754784",
+                                "author": {
+                                    "login": "k8s-ci-robot",
+                                    "avatarUrl": "https://avatars.githubusercontent.com/u/20407524?u=1098a3bebdff2ad8d1f45e208fa5b8ce76fac6b5&v=4"
+                                }
+                            }
+                        ]
+                    },
+                    "assignees": {
+                        "nodes": [
+                            {
+                                "login": "tallclair",
+                                "avatarUrl": "https://avatars.githubusercontent.com/u/29742491?u=ec4e9cb8523b1239f4e414f0b9e946c7ae3eb1e5&v=4"
+                            }
+                        ]
+                    },
+                    "commits": {
+                        "nodes": [
+                            {
+                                "commit": {
+                                    "committedDate": "2026-01-06T17:19:58Z",
+                                    "author": {
+                                        "user": {
+                                            "login": "natasha41575"
+                                        }
+                                    }
+                                }
+                            },
+                            {
+                                "commit": {
+                                    "committedDate": "2026-01-06T17:20:27Z",
+                                    "author": {
+                                        "user": {
+                                            "login": "natasha41575"
+                                        }
+                                    }
+                                }
+                            },
+                            {
+                                "commit": {
+                                    "committedDate": "2026-01-06T17:20:40Z",
+                                    "author": {
+                                        "user": {
+                                            "login": "natasha41575"
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            ],
+            "pageInfo": {
+                "endCursor": "Y3Vyc29yOjI=",
+                "hasNextPage": true
+            }
+        }
+    }
+}

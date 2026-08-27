@@ -1,0 +1,25 @@
+version: v2
+clean: false
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/tallclair/octodeck/backend/internal/api
+plugins:
+  # Go Generation
+  - local: ["go", "tool", "protoc-gen-go"]
+    out: ../backend/internal/api
+    opt:
+      - paths=source_relative
+      - default_api_level=API_OPAQUE
+  - local: ["go", "tool", "protoc-gen-connect-go"]
+    out: ../backend/internal/api
+    opt: paths=source_relative
+
+  # TypeScript Generation (Connect-ES)
+  - local: protoc-gen-es
+    out: ../frontend/src/api
+    opt: target=ts
+  - local: protoc-gen-connect-query
+    out: ../frontend/src/api
+    opt: target=ts

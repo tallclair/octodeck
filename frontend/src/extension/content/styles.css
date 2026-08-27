@@ -1,0 +1,614 @@
+/* OctoDeck GitHub Enhancement Styles */
+
+.octodeck-gh-sidebar-section {
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--borderColor-muted, var(--color-border-muted, #d0d7de));
+}
+
+.octodeck-gh-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.octodeck-gh-header-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fgColor-muted, var(--color-fg-muted, #656d76));
+  background: transparent;
+  border: none;
+  padding: 2px 6px;
+  margin-left: -6px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color 100ms ease, background-color 100ms ease;
+  line-height: 1;
+}
+
+.octodeck-gh-header-btn:hover:not(:disabled) {
+  color: var(--fgColor-accent, var(--color-accent-fg, #0969da));
+  background-color: var(--bgColor-muted, var(--color-canvas-subtle, #f6f8fa));
+}
+
+.octodeck-gh-header-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: inherit;
+}
+
+.octodeck-gh-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.octodeck-gh-star-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--fgColor-muted, var(--color-fg-muted, #656d76));
+  border-radius: 4px;
+  transition: color 100ms ease, transform 100ms ease, background-color 100ms ease;
+  line-height: 1;
+}
+
+.octodeck-gh-star-btn:hover:not(:disabled) {
+  color: #d4a72c;
+  background-color: var(--bgColor-muted, var(--color-canvas-subtle, #f6f8fa));
+}
+
+.octodeck-gh-star-btn.octodeck-gh-star-active {
+  color: #d4a72c;
+}
+
+.octodeck-gh-star-btn:active:not(:disabled) {
+  transform: scale(0.9);
+}
+
+.octodeck-gh-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 12px;
+  line-height: 1.4;
+  text-transform: none;
+}
+
+.octodeck-gh-badge-tracked {
+  background-color: rgba(9, 105, 218, 0.15);
+  color: #0969da;
+  border: 1px solid rgba(9, 105, 218, 0.3);
+}
+
+.octodeck-gh-badge-untracked {
+  background-color: rgba(101, 109, 118, 0.15);
+  color: #656d76;
+  border: 1px solid rgba(101, 109, 118, 0.3);
+}
+
+.octodeck-gh-badge-offline,
+.octodeck-gh-badge-error {
+  background-color: var(--bgColor-danger-muted, rgba(248, 81, 73, 0.2)) !important;
+  color: var(--fgColor-danger, var(--color-danger-fg, #cf222e)) !important;
+  border: 1px solid var(--borderColor-danger-muted, rgba(248, 81, 73, 0.5)) !important;
+  font-weight: 700 !important;
+  cursor: help;
+}
+
+[data-color-mode="dark"] .octodeck-gh-badge-offline,
+[data-dark-theme] .octodeck-gh-badge-offline,
+[data-color-mode="dark"] .octodeck-gh-badge-error,
+[data-dark-theme] .octodeck-gh-badge-error {
+  color: #ff7b72 !important;
+  background-color: rgba(248, 81, 73, 0.25) !important;
+  border-color: rgba(248, 81, 73, 0.6) !important;
+}
+
+/* Comment Form Actions Container Background Reset */
+#partial-new-comment-form-actions,
+.form-actions.color-bg-subtle,
+.js-new-comment-form .form-actions,
+.timeline-comment .form-actions,
+.octodeck-gh-comment-actions-clean {
+  background-color: transparent !important;
+}
+
+/* Comment Form Ack Button */
+.octodeck-gh-comment-ack-btn {
+  margin-left: 16px !important;
+  margin-right: 6px !important;
+  min-width: 92px !important;
+  box-sizing: border-box !important;
+  cursor: pointer !important;
+  user-select: none !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  vertical-align: middle !important;
+  background-color: var(--button-default-bgColor-rest, var(--color-btn-bg, #f6f8fa)) !important;
+  border: 1px solid var(--button-default-borderColor-rest, var(--color-btn-border, #d0d7de)) !important;
+  border-radius: 6px !important;
+  color: var(--button-default-fgColor-rest, var(--color-btn-text, #24292f)) !important;
+  box-shadow: var(--shadow-resting-xsmall, 0 1px 0 rgba(31, 35, 40, 0.04)) !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  line-height: 20px !important;
+  padding: 5px 12px !important;
+  text-align: center !important;
+}
+
+.Footer-module__childrenStyling__XjmP5 .octodeck-gh-comment-ack-btn,
+[class*="childrenStyling"] .octodeck-gh-comment-ack-btn {
+  margin-left: 12px !important;
+  margin-right: 0 !important;
+}
+
+.octodeck-gh-comment-ack-btn:hover {
+  background-color: var(--button-default-bgColor-hover, var(--color-btn-hover-bg, #f3f4f6)) !important;
+  border-color: var(--button-default-borderColor-hover, var(--color-btn-hover-border, #1b1f2426)) !important;
+}
+
+.octodeck-gh-comment-ack-btn.octodeck-gh-btn-acked {
+  color: #1a7f37 !important;
+  font-weight: 600 !important;
+}
+
+/* Disabled States when Offline */
+.octodeck-gh-disabled,
+button.octodeck-gh-disabled,
+.octodeck-gh-star-btn:disabled,
+.octodeck-gh-comment-ack-btn:disabled,
+.octodeck-gh-notes-trigger:disabled,
+.octodeck-gh-jump-btn:disabled {
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+}
+
+/* General Button Styles (Private Notes Save/Cancel, etc.) */
+.octodeck-gh-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  padding: 3px 10px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  border-radius: 6px !important;
+  border: 1px solid var(--button-default-borderColor-rest, var(--color-btn-border, #d0d7de)) !important;
+  background-color: var(--button-default-bgColor-rest, var(--color-btn-bg, #f6f8fa)) !important;
+  color: var(--button-default-fgColor-rest, var(--color-btn-text, #24292f)) !important;
+  cursor: pointer !important;
+  text-decoration: none !important;
+  transition: 80ms cubic-bezier(0.33, 1, 0.68, 1) !important;
+  line-height: 20px !important;
+  user-select: none !important;
+  box-shadow: var(--shadow-resting-xsmall, 0 1px 0 rgba(31, 35, 40, 0.04)) !important;
+  font-family: inherit !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+}
+
+.octodeck-gh-btn:hover {
+  background-color: var(--button-default-bgColor-hover, var(--color-btn-hover-bg, #f3f4f6)) !important;
+  border-color: var(--button-default-borderColor-hover, var(--color-btn-hover-border, #1b1f2426)) !important;
+}
+
+.octodeck-gh-btn:active {
+  background-color: var(--button-default-bgColor-active, var(--color-btn-active-bg, #ebecf0)) !important;
+}
+
+.octodeck-gh-btn-sm {
+  padding: 3px 8px !important;
+  font-size: 11px !important;
+  line-height: 18px !important;
+}
+
+.octodeck-gh-btn-primary {
+  background-color: #1f883d !important;
+  border-color: rgba(31, 35, 40, 0.15) !important;
+  color: #ffffff !important;
+  box-shadow: var(--shadow-resting-xsmall, 0 1px 0 rgba(31, 35, 40, 0.1)) !important;
+}
+
+.octodeck-gh-btn-primary:hover {
+  background-color: #1a7f37 !important;
+  border-color: rgba(31, 35, 40, 0.15) !important;
+  color: #ffffff !important;
+}
+
+.octodeck-gh-btn-primary:active {
+  background-color: #176f30 !important;
+}
+
+.octodeck-gh-notes-section {
+  width: 100%;
+}
+
+.octodeck-gh-notes-box {
+  background-color: var(--bgColor-muted, var(--color-canvas-subtle, #f6f8fa));
+  border: 1px solid var(--borderColor-muted, var(--color-border-muted, #d0d7de));
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  position: relative;
+  transition: border-color 120ms ease;
+}
+
+.octodeck-gh-notes-box:hover {
+  border-color: var(--borderColor-default, var(--color-border-default, #8c959f));
+}
+
+.octodeck-gh-notes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.octodeck-gh-notes-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fgColor-muted, var(--color-fg-muted, #656d76));
+}
+
+.octodeck-gh-notes-text {
+  color: var(--fgColor-default, var(--color-fg-default, #1f2328));
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.45;
+  font-size: 12px;
+}
+
+/* Edit icon visible only on hover */
+.octodeck-gh-notes-edit-btn {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 120ms ease, visibility 120ms ease;
+  color: var(--fgColor-muted, var(--color-fg-muted, #656d76));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 4px;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+.octodeck-gh-notes-box:hover .octodeck-gh-notes-edit-btn {
+  opacity: 1;
+  visibility: visible;
+}
+
+.octodeck-gh-notes-edit-btn:hover {
+  color: var(--fgColor-accent, var(--color-accent-fg, #0969da));
+  background: transparent;
+}
+
+.octodeck-gh-notes-trigger {
+  color: var(--fgColor-muted, var(--color-fg-muted, #656d76));
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  padding: 4px 0;
+}
+
+.octodeck-gh-notes-trigger:hover {
+  color: var(--fgColor-accent, var(--color-accent-fg, #0969da));
+  text-decoration: underline;
+}
+
+.octodeck-gh-notes-edit-container {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.octodeck-gh-notes-textarea {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  display: block;
+  min-height: 72px;
+  padding: 6px 8px;
+  font-size: 12px;
+  border: 1px solid var(--borderColor-default, var(--color-border-default, #d0d7de));
+  border-radius: 6px;
+  background-color: var(--bgColor-default, var(--color-canvas-default, #ffffff));
+  color: var(--fgColor-default, var(--color-fg-default, #1f2328));
+  resize: vertical;
+  margin-bottom: 6px;
+  font-family: inherit;
+  line-height: 1.4;
+}
+
+.octodeck-gh-notes-textarea:focus {
+  outline: none;
+  border-color: var(--fgColor-accent, var(--color-accent-fg, #0969da));
+  box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.2);
+}
+
+.octodeck-gh-notes-edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* Sidebar Filter Row (Hide Events) */
+.octodeck-gh-filter-row {
+  margin-top: 10px;
+}
+
+.octodeck-gh-filter-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--fgColor-muted, var(--color-fg-muted, #656d76));
+  cursor: pointer;
+  user-select: none;
+}
+
+.octodeck-gh-filter-label:hover {
+  color: var(--fgColor-default, var(--color-fg-default, #1f2328));
+}
+
+.octodeck-gh-filter-checkbox {
+  cursor: pointer;
+  margin: 0;
+  accent-color: var(--fgColor-accent, var(--color-accent-fg, #0969da));
+}
+
+.octodeck-gh-filter-text {
+  font-weight: 400;
+}
+
+/* Extra-Dense Noise Collapsing Display */
+
+.octodeck-gh-dense-timeline-item .TimelineItem-body {
+  margin-top: calc(var(--base-size-12, 12px) + 1px) !important;
+  margin-bottom: calc(var(--base-size-12, 12px) + 1px) !important;
+}
+
+.octodeck-gh-dense-box {
+  position: relative;
+  z-index: 1;
+  background-color: var(--bgColor-muted, var(--color-canvas-subtle, #f6f8fa));
+  border: 1px solid var(--borderColor-muted, var(--color-border-muted, #d0d7de));
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--fgColor-default, var(--color-fg-default, #1f2328));
+  box-sizing: border-box;
+  width: auto;
+}
+
+.octodeck-gh-dense-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.octodeck-gh-dense-row {
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.octodeck-gh-dense-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 20px;
+  min-height: 20px;
+}
+
+.octodeck-gh-dense-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+
+.octodeck-gh-dense-author {
+  font-weight: 600;
+  color: var(--fgColor-default, var(--color-fg-default, #1f2328));
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.octodeck-gh-dense-text {
+  color: var(--fgColor-muted, var(--color-fg-muted, #656d76));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.octodeck-gh-dense-expand-btn {
+  background: none;
+  border: none;
+  color: var(--fgColor-muted, var(--color-fg-muted, #656d76));
+  cursor: pointer;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  padding: 0 2px;
+  flex-shrink: 0;
+  font-weight: 500;
+  line-height: 1;
+  transition: color 80ms ease;
+}
+
+.octodeck-gh-dense-expand-btn:hover {
+  color: var(--fgColor-accent, var(--color-accent-fg, #0969da));
+  text-decoration: none;
+}
+
+.octodeck-gh-dense-rest {
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--fgColor-muted, var(--color-fg-muted, #656d76));
+  margin: 0;
+  padding: 0;
+  word-break: break-word;
+}
+
+.octodeck-gh-dense-rest * {
+  font-size: 12px;
+}
+
+.octodeck-gh-dense-rest p {
+  margin: 2px 0 0 0;
+  line-height: 20px;
+}
+
+.octodeck-gh-dense-rest ul,
+.octodeck-gh-dense-rest ol {
+  margin: 2px 0 0 0;
+  padding-left: 20px;
+}
+
+.octodeck-gh-dense-rest li {
+  line-height: 20px;
+}
+
+.octodeck-gh-dense-rest pre {
+  margin: 2px 0 0 0;
+  padding: 4px 8px;
+  background-color: var(--bgColor-inset, var(--color-canvas-inset, #eaeef2));
+  border-radius: 4px;
+  overflow-x: auto;
+  line-height: 18px;
+}
+
+.octodeck-gh-dense-rest code {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.octodeck-gh-dense-rest a,
+.octodeck-gh-dense-link {
+  color: var(--fgColor-accent, var(--color-accent-fg, #0969da)) !important;
+  text-decoration: underline !important;
+}
+
+.octodeck-gh-dense-rest a:hover,
+.octodeck-gh-dense-link:hover {
+  text-decoration: underline !important;
+}
+
+.octodeck-gh-dense-rest table {
+  margin: 2px 0 0 0;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.octodeck-gh-dense-rest th,
+.octodeck-gh-dense-rest td {
+  padding: 2px 8px;
+  border: 1px solid var(--borderColor-muted, var(--color-border-muted, #d0d7de));
+}
+
+.octodeck-gh-collapsed-comment {
+  display: none !important;
+}
+
+.octodeck-gh-hidden-event {
+  display: none !important;
+}
+
+/* Timeline Markers (Acknowledged & Last Viewed) */
+
+.octodeck-gh-timeline-marker {
+  display: flex !important;
+  position: relative;
+  z-index: 2;
+}
+
+/* Issue-specific timeline container alignment */
+#issue-timeline .octodeck-gh-dense-timeline-item,
+[data-testid="issue-timeline-container"] .octodeck-gh-dense-timeline-item,
+[data-testid="issue-viewer-issue-container"] .octodeck-gh-dense-timeline-item,
+.octodeck-gh-page-issue .octodeck-gh-dense-timeline-item,
+#issue-timeline .octodeck-gh-timeline-marker,
+[data-testid="issue-timeline-container"] .octodeck-gh-timeline-marker,
+[data-testid="issue-viewer-issue-container"] .octodeck-gh-timeline-marker,
+.octodeck-gh-page-issue .octodeck-gh-timeline-marker {
+  margin-left: var(--base-size-20, 20px) !important;
+}
+
+.octodeck-gh-timeline-marker .TimelineItem-body {
+  margin-top: 0 !important;
+  width: 100%;
+}
+
+.octodeck-gh-timeline-marker-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding-left: 8px;
+  box-sizing: border-box;
+}
+
+.octodeck-gh-timeline-marker-line {
+  flex: 1;
+  height: 1px;
+}
+
+.octodeck-gh-timeline-marker-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  user-select: none;
+  white-space: nowrap;
+  line-height: 16px;
+}
+
+/* Acknowledged / Acked Marker Colors */
+.octodeck-gh-timeline-marker-acked .octodeck-gh-timeline-marker-line {
+  background-color: var(--borderColor-success-muted, rgba(16, 185, 129, 0.4));
+}
+
+.octodeck-gh-timeline-marker-acked .octodeck-gh-timeline-marker-label {
+  color: var(--fgColor-success, var(--color-success-fg, #1a7f37));
+  background-color: var(--bgColor-success-muted, rgba(16, 185, 129, 0.1));
+  border: 1px solid var(--borderColor-success-muted, rgba(16, 185, 129, 0.3));
+}
+
+/* Last Viewed Marker Colors */
+.octodeck-gh-timeline-marker-viewed .octodeck-gh-timeline-marker-line {
+  background-color: var(--borderColor-attention-muted, rgba(234, 179, 8, 0.4));
+}
+
+.octodeck-gh-timeline-marker-viewed .octodeck-gh-timeline-marker-label {
+  color: var(--fgColor-attention, var(--color-attention-fg, #9a6700));
+  background-color: var(--bgColor-attention-muted, rgba(234, 179, 8, 0.1));
+  border: 1px solid var(--borderColor-attention-muted, rgba(234, 179, 8, 0.3));
+}

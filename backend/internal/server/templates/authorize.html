@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Authorize OctoDeck</title>
+		<style>
+			body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: #f0f2f5; }
+			.card { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
+			button { background: #2ea44f; color: white; border: none; padding: 10px 20px; border-radius: 6px; font-size: 16px; cursor: pointer; }
+			button:hover { background: #2c974b; }
+		</style>
+	</head>
+	<body>
+		<div class="card">
+			<h1>Authorize OctoDeck Extension</h1>
+			<p>Do you want to allow the extension to access your local OctoDeck data?</p>
+			<form action="/auth/approve" method="POST">
+				<button type="submit">Approve Connection</button>
+			</form>
+		</div>
+	</body>
+</html>

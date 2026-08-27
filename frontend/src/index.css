@@ -1,0 +1,175 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Central Theme Overrides: GitHub Primer Blue Palette (removes Tailwind indigo/purple bias) */
+@theme {
+  --color-blue-50: #ddf4ff;
+  --color-blue-100: #b6e3ff;
+  --color-blue-200: #80ccff;
+  --color-blue-300: #54aeff;
+  --color-blue-400: #4493f8;
+  --color-blue-500: #2f81f7;
+  --color-blue-600: #0969da;
+  --color-blue-700: #0550ae;
+  --color-blue-800: #033d8b;
+  --color-blue-900: #0a3069;
+  --color-blue-950: #041f4d;
+}
+
+/* Standardized GitHub-style selection */
+::selection {
+  background-color: #0969da;
+  color: #ffffff;
+}
+
+.dark ::selection {
+  background-color: #1f6feb;
+  color: #ffffff;
+}
+
+/* Markdown prose link colors */
+.prose a {
+  color: #0969da;
+  text-decoration: none;
+}
+
+.prose a:hover {
+  text-decoration: underline;
+}
+
+.dark .prose a {
+  color: #4493f8;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  /* slate-100 */
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: #0f172a;
+  /* slate-900 */
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  /* slate-300 */
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+  /* slate-700 */
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+  /* slate-400 */
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+  /* slate-600 */
+}
+
+/* Standard Markdown comment styling (14px font size for prose elements) */
+.prose-normal p,
+.prose-normal ul,
+.prose-normal ol,
+.prose-normal li,
+.prose-normal blockquote,
+.prose-normal td,
+.prose-normal th {
+  font-size: 0.875rem; /* 14px */
+  line-height: 1.35rem;
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+/* Compact Review comment styling (12px font size for prose elements) */
+.prose-compact p,
+.prose-compact ul,
+.prose-compact ol,
+.prose-compact li,
+.prose-compact blockquote,
+.prose-compact td,
+.prose-compact th {
+  font-size: 0.75rem; /* 12px */
+  line-height: 1.15rem;
+  margin-top: 0.2rem;
+  margin-bottom: 0.2rem;
+}
+
+.prose-normal code,
+.prose-compact code {
+  font-size: 0.85em;
+}
+
+/* Smooth insertion animation for newly received in-view dashboard items */
+@keyframes itemInsertInView {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px);
+    max-height: 0;
+    overflow: hidden;
+  }
+  40% {
+    opacity: 0.4;
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+    max-height: 500px;
+    overflow: visible;
+  }
+}
+
+.animate-item-insert {
+  animation: itemInsertInView 350ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity, max-height;
+}
+
+/* Smooth exit animation for acked/dismissed dashboard items */
+@keyframes itemAckExit {
+  0% {
+    opacity: 1;
+    max-height: 300px;
+    transform: translateX(0);
+    overflow: hidden;
+  }
+  30% {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  100% {
+    opacity: 0;
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    border-width: 0;
+    overflow: hidden;
+    transform: translateX(12px);
+  }
+}
+
+.animate-item-ack {
+  animation: itemAckExit 280ms cubic-bezier(0.2, 0, 0, 1) forwards;
+  will-change: transform, opacity, max-height;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-item-insert,
+  .animate-item-ack {
+    animation: none !important;
+  }
+}

@@ -1,0 +1,171 @@
+edition = "2023";
+
+package octodeck.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/tallclair/octodeck/backend/internal/api/v1;octodeckv1";
+
+enum ItemType {
+  option features.enum_type = OPEN;
+  ITEM_TYPE_UNSPECIFIED = 0;
+  ITEM_TYPE_ISSUE = 1;
+  ITEM_TYPE_PR = 2;
+}
+
+enum ItemState {
+  ITEM_STATE_UNSPECIFIED = 0;
+  ITEM_STATE_OPEN = 1;
+  ITEM_STATE_CLOSED = 2;
+  ITEM_STATE_MERGED = 3;
+}
+
+enum UserType {
+  USER_TYPE_UNSPECIFIED = 0;
+  USER_TYPE_USER = 1;
+  USER_TYPE_BOT = 2;
+}
+
+enum ItemStatus {
+  ITEM_STATUS_UNSPECIFIED = 0;
+  ITEM_STATUS_NEW = 1;
+  ITEM_STATUS_IDLE = 2;
+  ITEM_STATUS_NEW_ACTIVITY = 3;
+  ITEM_STATUS_NEW_CODE = 4;
+  ITEM_STATUS_ACKED = 5;
+  ITEM_STATUS_NOISE = 6;
+}
+
+enum CommentNoiseType {
+  option features.enum_type = OPEN;
+  COMMENT_NOISE_TYPE_UNSPECIFIED = 0;
+  COMMENT_NOISE_TYPE_BOT_AUTHOR = 1;
+  COMMENT_NOISE_TYPE_SLASH_COMMAND = 2;
+}
+
+message User {
+  string login = 1;
+  string avatar_url = 2;
+  UserType type = 3;
+}
+
+message Comment {
+  google.protobuf.Timestamp created_at = 1;
+  string body_text = 2;
+  int64 comment_id = 3;
+  User author = 4;
+  CommentNoiseType noise_type = 5;
+}
+
+message ReviewComment {
+  string id = 1;
+  string body = 2;
+  string path = 3;
+  string url = 4;
+  User author = 5;
+  google.protobuf.Timestamp created_at = 6;
+  string reply_to_id = 7;
+}
+
+message Review {
+  google.protobuf.Timestamp submitted_at = 1;
+  string state = 2;
+  User author = 3;
+  string body = 4;
+  int32 comment_count = 5;
+  string url = 6;
+  int32 new_threads_count = 7;
+  int32 reply_count = 8;
+  repeated ReviewComment comments = 9;
+}
+
+message Commit {
+  google.protobuf.Timestamp committed_date = 1;
+  string author_login = 2;
+}
+
+message Milestone {
+  string title = 1;
+}
+
+enum StateChangeType {
+  option features.enum_type = OPEN;
+  STATE_CHANGE_TYPE_UNSPECIFIED = 0;
+  STATE_CHANGE_TYPE_CLOSED = 1;
+  STATE_CHANGE_TYPE_MERGED = 2;
+  STATE_CHANGE_TYPE_REOPENED = 3;
+  STATE_CHANGE_TYPE_ASSIGNED = 4;
+}
+
+enum SubscriptionState {
+  option features.enum_type = OPEN;
+  SUBSCRIPTION_STATE_UNSPECIFIED = 0;
+  SUBSCRIPTION_STATE_SUBSCRIBED = 1;
+  SUBSCRIPTION_STATE_UNSUBSCRIBED = 2;
+  SUBSCRIPTION_STATE_IGNORED = 3;
+}
+
+message StateEvent {
+  StateChangeType type = 1;
+  google.protobuf.Timestamp created_at = 2;
+  User actor = 3;
+  string url = 4;
+}
+
+message Label {
+  string name = 1;
+  string color = 2;
+  string description = 3;
+}
+
+message ItemLocalState {
+  ItemStatus computed_status = 1;
+  google.protobuf.Timestamp last_viewed_at = 2;
+  google.protobuf.Timestamp acked_at = 3;
+  reserved 4;
+  string private_notes = 5;
+  bool starred = 6;
+  string sync_error = 7;
+}
+
+message Item {
+  string id = 1;
+  string repo = 2;
+  int32 number = 3;
+  ItemType type = 4;
+  string title = 5;
+  ItemState state = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  google.protobuf.Timestamp last_synced_at = 8;
+  string url = 9;
+  User author = 10;
+  repeated Commit commits = 11;
+  repeated Comment comments = 12;
+  repeated Review reviews = 13;
+  repeated User assignees = 14;
+  ItemLocalState local = 15;
+  string body = 16;
+  google.protobuf.Timestamp created_at = 17;
+  Milestone milestone = 18;
+  repeated Label labels = 19;
+  repeated StateEvent state_events = 20;
+  SubscriptionState viewer_subscription = 21;
+  bool is_draft = 22;
+}
+
+message SyncTrace {
+  string id = 1;
+  string trace_type = 2;
+  string trigger_source = 3;
+  string query_string = 4;
+  repeated string repos_evaluated = 5;
+  string since_timestamp = 6;
+  int64 duration_ms = 7;
+  int64 pages_count = 8;
+  int64 items_fetched = 9;
+  int64 items_persisted = 10;
+  int32 rate_limit_remaining = 11;
+  string error_message = 12;
+  string raw_payload = 13;
+  google.protobuf.Timestamp created_at = 14;
+}

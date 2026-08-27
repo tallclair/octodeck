@@ -1,0 +1,233 @@
+{
+  "data": {
+    "search": {
+      "nodes": [
+        {
+          "__typename": "PullRequest",
+          "id": "PR_kwDOAToIks6zimkN",
+          "number": 135309,
+          "title": "Enhance content negotiation for zpages",
+          "updatedAt": "2026-01-07T04:49:35Z",
+          "url": "https://github.com/kubernetes/kubernetes/pull/135309",
+          "state": "OPEN",
+          "author": {
+            "login": "richabanker",
+            "avatarUrl": "https://avatars.githubusercontent.com/u/26771552?u=cdc40a01a1dad52e991f4be7dfa1a23d3123bad1&v=4"
+          },
+          "repository": {
+            "nameWithOwner": "kubernetes/kubernetes"
+          },
+          "comments": {
+            "nodes": [
+              {
+                "createdAt": "2025-11-17T01:28:12Z",
+                "bodyText": "I think this needs a changelog entry. If not, what's the thinking behind not including one?",
+                "url": "https://github.com/kubernetes/kubernetes/pull/135309#issuecomment-3539614203",
+                "author": {
+                  "login": "lmktfy",
+                  "avatarUrl": "https://avatars.githubusercontent.com/u/193443691?u=80ab05d26cca27bf46eb38371ae0156d4df5af8a&v=4"
+                }
+              },
+              {
+                "createdAt": "2025-11-17T15:59:31Z",
+                "bodyText": "If CBOR is enabled, can you fetch z pages as CBOR?",
+                "url": "https://github.com/kubernetes/kubernetes/pull/135309#issuecomment-3542636858",
+                "author": {
+                  "login": "lmktfy",
+                  "avatarUrl": "https://avatars.githubusercontent.com/u/193443691?u=80ab05d26cca27bf46eb38371ae0156d4df5af8a&v=4"
+                }
+              },
+              {
+                "createdAt": "2025-11-28T15:39:33Z",
+                "bodyText": "/triage accepted\n/assign",
+                "url": "https://github.com/kubernetes/kubernetes/pull/135309#issuecomment-3589752306",
+                "author": {
+                  "login": "dgrisonnet",
+                  "avatarUrl": "https://avatars.githubusercontent.com/u/22327577?u=b0c319f7ed87bbff4247a17417da986ed880dc88&v=4"
+                }
+              },
+              {
+                "createdAt": "2025-12-13T23:30:48Z",
+                "bodyText": "I think this needs a changelog entry. If not, what's the thinking behind not including one?\n\nAdded it, thanks for noticing.",
+                "url": "https://github.com/kubernetes/kubernetes/pull/135309#issuecomment-3649924245",
+                "author": {
+                  "login": "richabanker",
+                  "avatarUrl": "https://avatars.githubusercontent.com/u/26771552?u=cdc40a01a1dad52e991f4be7dfa1a23d3123bad1&v=4"
+                }
+              },
+              {
+                "createdAt": "2025-12-16T19:52:06Z",
+                "bodyText": "This prevents erroneous 500 http code returned earlier for Accept: application/yaml;v=v1alpha1;g=config.k8s.io;as=Statusz\n\nunsupported requested type should return a 406 error, not a 5xx, by fixing the default case of our switch statement:\n\t\tswitch serializerInfo.MediaType {\n...\n\t\tdefault:\n\nI'm open to accepting application/json, application/yaml, and application/cbor if it's as simple as expanding our switch statement here (I think all three serializers should be able to serialize resulting object):\n\t\tswitch serializerInfo.MediaType {\n\t\tcase \"application/json\",\"application/yaml\",\"application/cbor\":",
+                "url": "https://github.com/kubernetes/kubernetes/pull/135309#issuecomment-3662135271",
+                "author": {
+                  "login": "liggitt",
+                  "avatarUrl": "https://avatars.githubusercontent.com/u/980082?u=e6d3a90de563c894207290d21eb6987a1d45391a&v=4"
+                }
+              },
+              {
+                "createdAt": "2025-12-17T23:50:01Z",
+                "bodyText": "[APPROVALNOTIFIER] This PR is NOT APPROVED\nThis pull-request has been approved by: richabanker\nOnce this PR has been reviewed and has the lgtm label, please assign deads2k for approval. For more information see the Code Review Process.\nThe full list of commands accepted by this bot can be found here.\nDetails\nNeeds approval from an approver in each of these files:\n\nstaging/src/k8s.io/apiserver/pkg/server/flagz/OWNERS [richabanker]\nstaging/src/k8s.io/apiserver/pkg/server/statusz/OWNERS [richabanker]\ntest/OWNERS\n\nApprovers can indicate their approval by writing /approve in a comment\nApprovers can cancel approval by writing /approve cancel in a comment",
+                "url": "https://github.com/kubernetes/kubernetes/pull/135309#issuecomment-3667620839",
+                "author": {
+                  "login": "k8s-ci-robot",
+                  "avatarUrl": "https://avatars.githubusercontent.com/u/20407524?u=1098a3bebdff2ad8d1f45e208fa5b8ce76fac6b5&v=4"
+                }
+              },
+              {
+                "createdAt": "2025-12-18T00:18:41Z",
+                "bodyText": "Also, I noticed another thing, the error message returned for an unsupported media was the following:\nroot@zpages-test-control-plane:/# curl --cacert /etc/kubernetes/pki/ca.crt   --cert /etc/kubernetes/pki/apiserver-kubelet-client.crt  --key /etc/kubernetes/pki/apiserver-kubelet-client.key -H \"Accept: application/foo;v=v1alpha1;g=config.k8s.io;as=Statusz\" https://localhost:6443/statusz\n{\n  \"kind\": \"Status\",\n  \"apiVersion\": \"v1\",\n  \"metadata\": {},\n  \"status\": \"Failure\",\n  \"message\": \"only the following media types are accepted: application/json, application/yaml, application/vnd.kubernetes.protobuf, text/plain, application/cbor\",\n  \"reason\": \"NotAcceptable\",\n  \"code\": 406\n}\n\nThe error included application/vnd.kubernetes.protobuf as a supported media type which is incorrect. I have tried to fix this by adding a wrapper around CodecFactory (statuszCodecFactory & flagzCodecFactory), and exclude protobuf from this wrapper's SupportedMediaTypes() implementation. With this, the error now shows:\ncurl --cacert /etc/kubernetes/pki/ca.crt   --cert /etc/kubernetes/pki/apiserver-kubelet-client.crt  --key /etc/kubernetes/pki/apiserver-kubelet-client.key -H \"Accept: application/foo;v=v1alpha1;g=config.k8s.io;as=Statusz\" https://localhost:6443/statusz\n{\n  \"kind\": \"Status\",\n  \"apiVersion\": \"v1\",\n  \"metadata\": {},\n  \"status\": \"Failure\",\n  \"message\": \"only the following media types are accepted: application/json, application/yaml, text/plain, application/cbor\",\n  \"reason\": \"NotAcceptable\",\n  \"code\": 406\n}\n\nHappy to also revise this if this is not the preferred approach to fix the wrong list of supported types in the error.",
+                "url": "https://github.com/kubernetes/kubernetes/pull/135309#issuecomment-3667678678",
+                "author": {
+                  "login": "richabanker",
+                  "avatarUrl": "https://avatars.githubusercontent.com/u/26771552?u=cdc40a01a1dad52e991f4be7dfa1a23d3123bad1&v=4"
+                }
+              }
+            ]
+          },
+          "assignees": {
+            "nodes": [
+              {
+                "login": "dgrisonnet",
+                "avatarUrl": "https://avatars.githubusercontent.com/u/22327577?u=b0c319f7ed87bbff4247a17417da986ed880dc88&v=4"
+              }
+            ]
+          },
+          "commits": {
+            "nodes": [
+              {
+                "commit": {
+                  "committedDate": "2025-12-17T23:57:29Z",
+                  "author": {
+                    "user": {
+                      "login": "richabanker",
+                      "avatarUrl": "https://avatars.githubusercontent.com/u/26771552?u=cdc40a01a1dad52e991f4be7dfa1a23d3123bad1&v=4"
+                    }
+                  }
+                }
+              },
+              {
+                "commit": {
+                  "committedDate": "2026-01-07T04:00:58Z",
+                  "author": {
+                    "user": {
+                      "login": "richabanker",
+                      "avatarUrl": "https://avatars.githubusercontent.com/u/26771552?u=cdc40a01a1dad52e991f4be7dfa1a23d3123bad1&v=4"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "__typename": "Issue",
+          "id": "I_kwDOAToIks7gNKvx",
+          "number": 135929,
+          "title": "globalmount path may be residual while pod creation-deletion",
+          "updatedAt": "2026-01-07T03:27:52Z",
+          "url": "https://github.com/kubernetes/kubernetes/issues/135929",
+          "state": "OPEN",
+          "author": {
+            "login": "249043822",
+            "avatarUrl": "https://avatars.githubusercontent.com/u/18046309?u=0241b39d32986e81e74ef4b0532202e00821648f&v=4"
+          },
+          "repository": {
+            "nameWithOwner": "kubernetes/kubernetes"
+          },
+          "comments": {
+            "nodes": [
+              {
+                "createdAt": "2025-12-25T07:24:53Z",
+                "bodyText": "This issue is currently awaiting triage.\nIf a SIG or subproject determines this is a relevant issue, they will accept it by applying the triage/accepted label and provide further guidance.\nThe triage/accepted label can be added by org members by writing /triage accepted in a comment.\nDetails\nInstructions for interacting with me using PR comments are available here.  If you have questions or suggestions related to my behavior, please file an issue against the kubernetes-sigs/prow repository.",
+                "url": "https://github.com/kubernetes/kubernetes/issues/135929#issuecomment-3691066612",
+                "author": {
+                  "login": "k8s-ci-robot",
+                  "avatarUrl": "https://avatars.githubusercontent.com/u/20407524?u=1098a3bebdff2ad8d1f45e208fa5b8ce76fac6b5&v=4"
+                }
+              },
+              {
+                "createdAt": "2025-12-25T07:25:16Z",
+                "bodyText": "/cc @gnufied @jingxu97 @jsafrane",
+                "url": "https://github.com/kubernetes/kubernetes/issues/135929#issuecomment-3691066962",
+                "author": {
+                  "login": "249043822",
+                  "avatarUrl": "https://avatars.githubusercontent.com/u/18046309?u=0241b39d32986e81e74ef4b0532202e00821648f&v=4"
+                }
+              },
+              {
+                "createdAt": "2025-12-26T01:22:55Z",
+                "bodyText": "/sig storage",
+                "url": "https://github.com/kubernetes/kubernetes/issues/135929#issuecomment-3691890365",
+                "author": {
+                  "login": "249043822",
+                  "avatarUrl": "https://avatars.githubusercontent.com/u/18046309?u=0241b39d32986e81e74ef4b0532202e00821648f&v=4"
+                }
+              },
+              {
+                "createdAt": "2026-01-06T15:08:57Z",
+                "bodyText": "Yeah, the volume should stay \"uncertain\" and not \"unmounted\" after NodeSupportsStageUnstage failure. Or, in  better words, it should keep the volume as it was - if it was uncertain, it should stay uncertain. If it was unmounted, it should stay so.\nAny volunteer to fix it?",
+                "url": "https://github.com/kubernetes/kubernetes/issues/135929#issuecomment-3715063711",
+                "author": {
+                  "login": "jsafrane",
+                  "avatarUrl": "https://avatars.githubusercontent.com/u/1745006?v=4"
+                }
+              },
+              {
+                "createdAt": "2026-01-06T20:57:38Z",
+                "bodyText": "I think that while a volume was uncertain, kubelet retried to mount it again, althrough kubelet may received a not UncertainProgressError, we should not change it's status to unmounted, it should be always uncertain until called unmountDevice successfully\n\nThat is what the code currently does, isn't it? If volume was marked as uncertain and on retry it failed with uncertain error again, then it will NOT mark volume as unmounted - https://github.com/kubernetes/kubernetes/blob/master/pkg/volume/util/operationexecutor/operation_generator.go#L674\nOnly if on retry the plugin return a final error, then uncertain state gets flipped to unmounted. So, that means - some CSI operation on retry must have returned a final error for the volume and that cause volume be to marked as unmounted.\nUnavailable is NOT a final error and will not do that. Something else may have happened.",
+                "url": "https://github.com/kubernetes/kubernetes/issues/135929#issuecomment-3716320580",
+                "author": {
+                  "login": "gnufied",
+                  "avatarUrl": "https://avatars.githubusercontent.com/u/278?u=dfb04d9dc9273952f44310dc5c719667a61f2880&v=4"
+                }
+              },
+              {
+                "createdAt": "2026-01-07T00:18:50Z",
+                "bodyText": "I think that while a volume was uncertain, kubelet retried to mount it again, althrough kubelet may received a not UncertainProgressError, we should not change it's status to unmounted, it should be always uncertain until called unmountDevice successfully\n\nThat is what the code currently does, isn't it? If volume was marked as uncertain and on retry it failed with uncertain error again, then it will NOT mark volume as unmounted - https://github.com/kubernetes/kubernetes/blob/master/pkg/volume/util/operationexecutor/operation_generator.go#L674\nOnly if on retry the plugin return a final error, then uncertain state gets flipped to unmounted. So, that means - some CSI operation on retry must have returned a final error for the volume and that cause volume be to marked as unmounted.\nUnavailable is NOT a final error and will not do that. Something else may have happened.\n\n@gnufied Now the problem is that the  nodeClient.NodeStageVolume and the nodeClient.NodeGetCapabilities have inconsistent action for processing grpc error,  for nodeClient.NodeStageVolume, Unavailable is NOT a final error, it will return UncertainProgressError,  but the nodeClient.NodeGetCapabilities doesn't have the codes.\n_, err = nodeClient.NodeStageVolume(ctx, req)\nif err != nil && !isFinalError(err) {\nreturn volumetypes.NewUncertainProgressError(err.Error())\nresp, err := nodeClient.NodeGetCapabilities(ctx, req)\nif err != nil {\nreturn []*csipbv1.NodeServiceCapability{}, err\nso the volume device changes uncertain to unmounted  after NodeSupportsStageUnstage failure",
+                "url": "https://github.com/kubernetes/kubernetes/issues/135929#issuecomment-3716816835",
+                "author": {
+                  "login": "249043822",
+                  "avatarUrl": "https://avatars.githubusercontent.com/u/18046309?u=0241b39d32986e81e74ef4b0532202e00821648f&v=4"
+                }
+              },
+              {
+                "createdAt": "2026-01-07T00:21:11Z",
+                "bodyText": "Yeah, the volume should stay \"uncertain\" and not \"unmounted\" after NodeSupportsStageUnstage failure. Or, in better words, it should keep the volume as it was - if it was uncertain, it should stay uncertain. If it was unmounted, it should stay so.\nAny volunteer to fix it?\n\n@jsafrane I have given a fix for this issue: #135930, can you make a review to see if it make sense to you? thx",
+                "url": "https://github.com/kubernetes/kubernetes/issues/135929#issuecomment-3716821091",
+                "author": {
+                  "login": "249043822",
+                  "avatarUrl": "https://avatars.githubusercontent.com/u/18046309?u=0241b39d32986e81e74ef4b0532202e00821648f&v=4"
+                }
+              },
+              {
+                "createdAt": "2026-01-07T03:04:51Z",
+                "bodyText": "Should we not fix that inconsistency first?",
+                "url": "https://github.com/kubernetes/kubernetes/issues/135929#issuecomment-3717141562",
+                "author": {
+                  "login": "gnufied",
+                  "avatarUrl": "https://avatars.githubusercontent.com/u/278?u=dfb04d9dc9273952f44310dc5c719667a61f2880&v=4"
+                }
+              },
+              {
+                "createdAt": "2026-01-07T03:27:52Z",
+                "bodyText": "Should we not fix that inconsistency first?\n\n@gnufied did you mean that we only fix the  nodeClient.NodeGetCapabilities 's  error return same with the nodeClient.NodeStageVolume to solve the bug?   it seems also make sense.  I just want to completely solve these problems.",
+                "url": "https://github.com/kubernetes/kubernetes/issues/135929#issuecomment-3717177800",
+                "author": {
+                  "login": "249043822",
+                  "avatarUrl": "https://avatars.githubusercontent.com/u/18046309?u=0241b39d32986e81e74ef4b0532202e00821648f&v=4"
+                }
+              }
+            ]
+          },
+          "assignees": {
+            "nodes": []
+          }
+        }
+      ],
+      "pageInfo": {
+        "endCursor": "Y3Vyc29yOjE=",
+        "hasNextPage": true
+      }
+    }
+  }
+}
