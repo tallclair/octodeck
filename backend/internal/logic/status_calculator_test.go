@@ -42,14 +42,14 @@ func TestCalculateStatus(t *testing.T) {
 		item := createBaseItem()
 		item.GetLocal().ClearLastViewedAt()
 		result := CalculateStatus(item, currentUser, knownBots)
-		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW, result.Status, "expected NEW")
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW, result, "expected NEW")
 	})
 
 	t.Run("returns IDLE if updated before or at lastViewedAt", func(t *testing.T) {
 		item := createBaseItem()
 		item.SetUpdatedAt(timestamppb.New(lastViewed)) // Exactly equal
 		result := CalculateStatus(item, currentUser, knownBots)
-		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_IDLE, result.Status, "expected IDLE")
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_IDLE, result, "expected IDLE")
 	})
 
 	t.Run("prioritizes NEW_ACTIVITY over NEW_CODE", func(t *testing.T) {
@@ -65,7 +65,7 @@ func TestCalculateStatus(t *testing.T) {
 			}.Build(),
 		})
 		result := CalculateStatus(item, currentUser, knownBots)
-		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, result.Status, "expected NEW_ACTIVITY")
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, result, "expected NEW_ACTIVITY")
 	})
 
 	t.Run("returns NEW_CODE if there are new commits and no new activity", func(t *testing.T) {
@@ -75,8 +75,7 @@ func TestCalculateStatus(t *testing.T) {
 			octodeckv1.Commit_builder{CommittedDate: timestamppb.New(newDate)}.Build(), // New!
 		})
 		result := CalculateStatus(item, currentUser, knownBots)
-		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_CODE, result.Status, "expected NEW_CODE")
-		assert.Equal(t, 1, result.NewCommitsCount, "expected 1 new commit")
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_CODE, result, "expected NEW_CODE")
 	})
 
 	t.Run("prioritizes NEW_CODE over NOISE", func(t *testing.T) {
@@ -92,7 +91,7 @@ func TestCalculateStatus(t *testing.T) {
 			}.Build(),
 		})
 		result := CalculateStatus(item, currentUser, knownBots)
-		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_CODE, result.Status, "expected NEW_CODE")
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_CODE, result, "expected NEW_CODE")
 	})
 
 	t.Run("returns NEW_ACTIVITY for new human comments", func(t *testing.T) {
@@ -110,8 +109,7 @@ func TestCalculateStatus(t *testing.T) {
 			}.Build(),
 		})
 		result := CalculateStatus(item, currentUser, knownBots)
-		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, result.Status, "expected NEW_ACTIVITY")
-		assert.Equal(t, 1, result.NewCommentsCount, "expected 1 new comment")
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, result, "expected NEW_ACTIVITY")
 	})
 
 	t.Run("returns NOISE if new comments are only bots", func(t *testing.T) {
@@ -124,8 +122,7 @@ func TestCalculateStatus(t *testing.T) {
 			}.Build(),
 		})
 		result := CalculateStatus(item, currentUser, knownBots)
-		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NOISE, result.Status, "expected NOISE")
-		assert.Equal(t, 1, result.NewCommentsCount, "expected 1 new noise comment")
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NOISE, result, "expected NOISE")
 	})
 
 	t.Run("returns NOISE if new comments are only slash commands", func(t *testing.T) {
@@ -138,14 +135,14 @@ func TestCalculateStatus(t *testing.T) {
 			}.Build(),
 		})
 		result := CalculateStatus(item, currentUser, knownBots)
-		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NOISE, result.Status, "expected NOISE")
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NOISE, result, "expected NOISE")
 	})
 
 	t.Run("returns IDLE if updated but no commits, comments, or reviews", func(t *testing.T) {
 		item := createBaseItem()
 		item.SetUpdatedAt(timestamppb.New(newDate))
 		result := CalculateStatus(item, currentUser, knownBots)
-		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_IDLE, result.Status, "expected IDLE")
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_IDLE, result, "expected IDLE")
 	})
 
 	t.Run("returns NEW_ACTIVITY for new human PR reviews", func(t *testing.T) {
@@ -163,8 +160,7 @@ func TestCalculateStatus(t *testing.T) {
 			}.Build(),
 		})
 		result := CalculateStatus(item, currentUser, knownBots)
-		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, result.Status, "expected NEW_ACTIVITY")
-		assert.Equal(t, 1, result.NewCommentsCount, "expected 1 new review activity")
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, result, "expected NEW_ACTIVITY")
 	})
 
 	t.Run("ignores self-reviews by currentUser for NEW_ACTIVITY", func(t *testing.T) {
@@ -177,7 +173,7 @@ func TestCalculateStatus(t *testing.T) {
 			}.Build(),
 		})
 		result := CalculateStatus(item, currentUser, knownBots)
-		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_IDLE, result.Status, "expected IDLE for self review")
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_IDLE, result, "expected IDLE for self review")
 	})
 
 	t.Run("returns NOISE for bot PR reviews", func(t *testing.T) {
@@ -190,7 +186,7 @@ func TestCalculateStatus(t *testing.T) {
 			}.Build(),
 		})
 		result := CalculateStatus(item, currentUser, knownBots)
-		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NOISE, result.Status, "expected NOISE for bot review")
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NOISE, result, "expected NOISE for bot review")
 	})
 
 	t.Run("returns NEW_ACTIVITY when acked item receives new PR review", func(t *testing.T) {
@@ -204,11 +200,10 @@ func TestCalculateStatus(t *testing.T) {
 			}.Build(),
 		})
 		result := CalculateStatus(item, currentUser, knownBots)
-		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, result.Status, "expected NEW_ACTIVITY")
-		assert.Equal(t, 1, result.NewCommentsCount, "expected 1 new review count")
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, result, "expected NEW_ACTIVITY")
 	})
 
-	t.Run("combines comments and reviews count in NEW_ACTIVITY", func(t *testing.T) {
+	t.Run("combines comments and reviews in NEW_ACTIVITY", func(t *testing.T) {
 		item := createBaseItem()
 		item.SetComments([]*octodeckv1.Comment{
 			octodeckv1.Comment_builder{
@@ -225,8 +220,7 @@ func TestCalculateStatus(t *testing.T) {
 			}.Build(),
 		})
 		result := CalculateStatus(item, currentUser, knownBots)
-		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, result.Status, "expected NEW_ACTIVITY")
-		assert.Equal(t, 2, result.NewCommentsCount, "expected 2 total new activities (1 comment + 1 review)")
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, result, "expected NEW_ACTIVITY")
 	})
 
 	t.Run("returns NEW_ACTIVITY when item receives new state event (closed/merged/reopened)", func(t *testing.T) {
@@ -240,9 +234,8 @@ func TestCalculateStatus(t *testing.T) {
 		})
 		result := CalculateStatus(item, currentUser, knownBots)
 		assert.Equal(
-			t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, result.Status, "expected NEW_ACTIVITY for merged event",
+			t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, result, "expected NEW_ACTIVITY for merged event",
 		)
-		assert.Equal(t, 1, result.NewCommentsCount)
 	})
 
 	t.Run("returns NEW_ACTIVITY when acked item receives new state event", func(t *testing.T) {
@@ -257,7 +250,7 @@ func TestCalculateStatus(t *testing.T) {
 		})
 		result := CalculateStatus(item, currentUser, knownBots)
 		assert.Equal(
-			t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, result.Status,
+			t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, result,
 			"expected NEW_ACTIVITY for reopened event",
 		)
 	})
@@ -274,10 +267,9 @@ func TestCalculateStatus(t *testing.T) {
 		})
 		result := CalculateStatus(item, currentUser, knownBots)
 		assert.Equal(
-			t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, result.Status,
+			t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, result,
 			"expected NEW_ACTIVITY when assigned by another user",
 		)
-		assert.Equal(t, 1, result.NewCommentsCount)
 	})
 
 	t.Run("does not un-ack when self-assigned", func(t *testing.T) {
@@ -292,9 +284,106 @@ func TestCalculateStatus(t *testing.T) {
 		})
 		result := CalculateStatus(item, currentUser, knownBots)
 		assert.Equal(
-			t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, result.Status,
+			t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, result,
 			"expected ACKED when self-assigned",
 		)
-		assert.Equal(t, 0, result.NewCommentsCount)
+	})
+
+	t.Run("returns IDLE when un-acked item is viewed (lastViewedAt after un-acking activity)", func(t *testing.T) {
+		// Simulates PR_kwDOA3OuhM7jxvDA:
+		// 1. Acked at tAck
+		// 2. Review received at tActivity (un-acking item)
+		// 3. User views item at tView (tView > tActivity > tAck)
+		tAck := time.Date(2026, 8, 28, 18, 12, 18, 0, time.UTC)
+		tActivity := time.Date(2026, 8, 28, 18, 38, 37, 0, time.UTC)
+		tView := time.Date(2026, 9, 2, 19, 13, 38, 0, time.UTC)
+
+		item := createBaseItem()
+		item.SetUpdatedAt(timestamppb.New(tActivity))
+		item.GetLocal().SetAckedAt(timestamppb.New(tAck))
+		item.GetLocal().SetLastViewedAt(timestamppb.New(tView))
+		item.SetReviews([]*octodeckv1.Review{
+			octodeckv1.Review_builder{
+				SubmittedAt: timestamppb.New(tActivity),
+				State:       config.Ptr("COMMENTED"),
+				Author:      octodeckv1.User_builder{Login: config.Ptr("kannon92")}.Build(),
+			}.Build(),
+		})
+
+		result := CalculateStatus(item, currentUser, knownBots)
+		assert.Equal(
+			t, octodeckv1.ItemStatus_ITEM_STATUS_IDLE, result,
+			"viewing un-acked item should reset status to IDLE",
+		)
+	})
+
+	t.Run("remains ACKED when acked item is viewed without new activity", func(t *testing.T) {
+		tAck := time.Date(2026, 8, 28, 18, 12, 18, 0, time.UTC)
+		tView := time.Date(2026, 9, 2, 19, 13, 38, 0, time.UTC)
+
+		item := createBaseItem()
+		item.SetUpdatedAt(timestamppb.New(tAck))
+		item.GetLocal().SetAckedAt(timestamppb.New(tAck))
+		item.GetLocal().SetLastViewedAt(timestamppb.New(tView))
+
+		result := CalculateStatus(item, currentUser, knownBots)
+		assert.Equal(
+			t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, result,
+			"viewing acked item without activity should remain ACKED",
+		)
+	})
+
+	t.Run("returns NEW_ACTIVITY when un-acked item receives new activity after being viewed", func(t *testing.T) {
+		tAck := time.Date(2026, 8, 28, 18, 12, 18, 0, time.UTC)
+		tActivity1 := time.Date(2026, 8, 28, 18, 38, 37, 0, time.UTC)
+		tView := time.Date(2026, 9, 2, 19, 13, 38, 0, time.UTC)
+		tActivity2 := time.Date(2026, 9, 2, 20, 0, 0, 0, time.UTC)
+
+		item := createBaseItem()
+		item.SetUpdatedAt(timestamppb.New(tActivity2))
+		item.GetLocal().SetAckedAt(timestamppb.New(tAck))
+		item.GetLocal().SetLastViewedAt(timestamppb.New(tView))
+		item.SetReviews([]*octodeckv1.Review{
+			octodeckv1.Review_builder{
+				SubmittedAt: timestamppb.New(tActivity1),
+				State:       config.Ptr("COMMENTED"),
+				Author:      octodeckv1.User_builder{Login: config.Ptr("kannon92")}.Build(),
+			}.Build(),
+		})
+		item.SetComments([]*octodeckv1.Comment{
+			octodeckv1.Comment_builder{
+				CreatedAt: timestamppb.New(tActivity2),
+				BodyText:  config.Ptr("Subsequent comment after view"),
+				Author:    octodeckv1.User_builder{Login: config.Ptr("reviewer")}.Build(),
+			}.Build(),
+		})
+
+		result := CalculateStatus(item, currentUser, knownBots)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, result)
+	})
+
+	t.Run("returns NEW_CODE when un-acked item receives new commit after being viewed", func(t *testing.T) {
+		tAck := time.Date(2026, 8, 28, 18, 12, 18, 0, time.UTC)
+		tActivity1 := time.Date(2026, 8, 28, 18, 38, 37, 0, time.UTC)
+		tView := time.Date(2026, 9, 2, 19, 13, 38, 0, time.UTC)
+		tCommit := time.Date(2026, 9, 2, 20, 0, 0, 0, time.UTC)
+
+		item := createBaseItem()
+		item.SetUpdatedAt(timestamppb.New(tCommit))
+		item.GetLocal().SetAckedAt(timestamppb.New(tAck))
+		item.GetLocal().SetLastViewedAt(timestamppb.New(tView))
+		item.SetComments([]*octodeckv1.Comment{
+			octodeckv1.Comment_builder{
+				CreatedAt: timestamppb.New(tActivity1),
+				BodyText:  config.Ptr("Old comment"),
+				Author:    octodeckv1.User_builder{Login: config.Ptr("reviewer")}.Build(),
+			}.Build(),
+		})
+		item.SetCommits([]*octodeckv1.Commit{
+			octodeckv1.Commit_builder{CommittedDate: timestamppb.New(tCommit)}.Build(),
+		})
+
+		result := CalculateStatus(item, currentUser, knownBots)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_CODE, result)
 	})
 }

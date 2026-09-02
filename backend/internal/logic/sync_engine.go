@@ -1201,8 +1201,8 @@ func (s *SyncEngine) handleGapResolution(ctx context.Context, existing, item *oc
 func (s *SyncEngine) calculateItemState(item *octodeckv1.Item) {
 	// Auto-Ack
 	if s.cfg.GetAutoAckOwnActivity() {
-		statusRes := CalculateStatus(item, s.currentUser, s.cfg.GetKnownBots())
-		if statusRes.Status != octodeckv1.ItemStatus_ITEM_STATUS_ACKED {
+		status := CalculateStatus(item, s.currentUser, s.cfg.GetKnownBots())
+		if status != octodeckv1.ItemStatus_ITEM_STATUS_ACKED {
 			if shouldAck, ackTime := ShouldAutoAck(item, s.currentUser, s.cfg.GetKnownBots()); shouldAck {
 				slog.Info("Auto-acking item (last action was me)", "id", item.GetId(), "ackTime", ackTime)
 				item.GetLocal().SetAckedAt(timestamppb.New(ackTime))

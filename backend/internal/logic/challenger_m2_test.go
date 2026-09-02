@@ -52,8 +52,7 @@ func TestChallenger_StatusCalculation_AssignmentInterleaving(t *testing.T) {
 			}.Build(),
 		})
 		res := CalculateStatus(item, currentUser, knownBots)
-		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, res.Status)
-		assert.Equal(t, 1, res.NewCommentsCount)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, res)
 	})
 
 	t.Run("Assigned by self after ack -> stays ACKED", func(t *testing.T) {
@@ -65,8 +64,7 @@ func TestChallenger_StatusCalculation_AssignmentInterleaving(t *testing.T) {
 			}.Build(),
 		})
 		res := CalculateStatus(item, currentUser, knownBots)
-		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, res.Status)
-		assert.Equal(t, 0, res.NewCommentsCount)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, res)
 	})
 
 	t.Run("Assigned by other dev before ack -> stays ACKED", func(t *testing.T) {
@@ -78,7 +76,7 @@ func TestChallenger_StatusCalculation_AssignmentInterleaving(t *testing.T) {
 			}.Build(),
 		})
 		res := CalculateStatus(item, currentUser, knownBots)
-		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, res.Status)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, res)
 	})
 
 	t.Run("Multiple assignments by different actors", func(t *testing.T) {
@@ -103,8 +101,7 @@ func TestChallenger_StatusCalculation_AssignmentInterleaving(t *testing.T) {
 			}.Build(),
 		})
 		res := CalculateStatus(item, currentUser, knownBots)
-		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, res.Status)
-		assert.Equal(t, 1, res.NewCommentsCount, "Only lead's assignment after ack counts as valid new state event")
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, res)
 	})
 }
 

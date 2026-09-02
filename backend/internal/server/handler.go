@@ -119,8 +119,7 @@ func (h *octoDeckHandler) populateComputedStatus(ctx context.Context, items ...*
 		if item.GetLocal() == nil {
 			item.SetLocal(octodeckv1.ItemLocalState_builder{}.Build())
 		}
-		statusResult := logic.CalculateStatus(item, currentUser, knownBots)
-		item.GetLocal().SetComputedStatus(statusResult.Status)
+		item.GetLocal().SetComputedStatus(logic.CalculateStatus(item, currentUser, knownBots))
 	}
 }
 

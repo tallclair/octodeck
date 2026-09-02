@@ -94,6 +94,6 @@ func TestSyncEngine_AutoAck(t *testing.T) {
 	// Last comment was from "me", so it should be auto-acked at the comment time (2024-01-02T00:00:00Z)
 	require.NotNil(t, items[0].GetLocal().GetAckedAt())
 	assert.Equal(t, "2024-01-02T00:00:00Z", items[0].GetLocal().GetAckedAt().AsTime().Format("2006-01-02T15:04:05Z"))
-	statusRes := CalculateStatus(items[0], "me", nil)
-	assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, statusRes.Status)
+	status := CalculateStatus(items[0], "me", nil)
+	assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, status)
 }

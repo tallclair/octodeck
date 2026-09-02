@@ -136,7 +136,7 @@ func TestRunInventorySync_NewItem(t *testing.T) {
 
 	assert.Equal(t, expectedID, items[0].GetId())
 	status := CalculateStatus(items[0], "", nil)
-	assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW, status.Status)
+	assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW, status)
 }
 
 func TestRunIncrementalSync_304NotModified(t *testing.T) {
@@ -329,8 +329,8 @@ func TestRunIncrementalSync_200OK_HydrationAndTrace(t *testing.T) {
 	assert.Equal(t, octodeckv1.StateChangeType_STATE_CHANGE_TYPE_ASSIGNED, saved.GetStateEvents()[0].GetType())
 
 	// Status should be NEW for a freshly synced unread item
-	statusResult := CalculateStatus(saved, "testuser", nil)
-	assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW, statusResult.Status)
+	status := CalculateStatus(saved, "testuser", nil)
+	assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW, status)
 
 	// Check cursors in DB
 	lastModInDB, err := db.GetMetadata(t.Context(), KeyLastNotificationModified)

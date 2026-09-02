@@ -230,8 +230,8 @@ var debugItemCmd = &cobra.Command{
 		if ghClient, err := github.NewClient(); err == nil {
 			currentUser, _, _ = ghClient.CheckAuth(cmd.Context())
 		}
-		statusResult := logic.CalculateStatus(item, currentUser, cfg.GetKnownBots())
-		item.GetLocal().SetComputedStatus(statusResult.Status)
+		status := logic.CalculateStatus(item, currentUser, cfg.GetKnownBots())
+		item.GetLocal().SetComputedStatus(status)
 
 		if asJSON {
 			marshaller := protojson.MarshalOptions{

@@ -53,6 +53,19 @@ export function isItemAcked(item: Item | null | undefined): boolean {
     return true;
   }
 
+  // If computedStatus is explicitly specified (and not ACKED), trust it over historical ackedAt.
+  if (
+    rawStatus !== undefined &&
+    rawStatus !== null &&
+    rawStatus !== ItemStatus.UNSPECIFIED &&
+    rawStatus !== 0 &&
+    rawStatus !== '0' &&
+    rawStatus !== 'ITEM_STATUS_UNSPECIFIED' &&
+    rawStatus !== 'UNSPECIFIED'
+  ) {
+    return false;
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ackedAt = (item.local as any).ackedAt;
   if (ackedAt) {
