@@ -1,9 +1,12 @@
 # OctoDeck (placeholder name)
 
 > [!CAUTION]
-> This is a primarily vibe-coded **alpha** project.
+> This is an **alpha** project.
 >
 > If you encounter issues, please file them [here](https://github.com/tallclair/octodeck/issues/new).
+
+> [!WARNING]
+> **Single-User Security Model:** OctoDeck is designed strictly for individual maintainer use and does not provide multi-user isolation or authentication. Its security model relies entirely on network-level boundaries (such as binding to localhost or accessing via an SSH tunnel). Never expose the backend daemon directly to untrusted networks or shared environments.
 
 **High-volume GitHub maintainer dashboard & companion toolkit.**
 
