@@ -58,6 +58,7 @@
   - **Release Notes Preview**: Generates and displays release notes preview via `scripts/release-notes.sh`.
   - **Verification Gate**: Executes `./verify.sh --force`, aborting release creation if any test, linter, or build check fails.
   - **Tagging & Publishing**: Creates an annotated git tag (`git tag -a <version> -m "Release <version>"`) and pushes the tag to the remote origin repository.
+- **GitHub Actions Release Pipeline (`.github/workflows/release.yml`)**: Automated CI/CD release workflow triggered by pushing a version tag (`v*`). Builds the Web App UI, compiles the Go backend binary (`dist/octodeck-<version>-linux-amd64`), packages the companion extension (`dist/octodeck-extension-<version>.zip`) and standalone web app assets (`dist/octodeck-webapp-<version>.zip`), generates commit-based release notes via `scripts/release-notes.sh`, and publishes an authenticated draft release with assets attached via the GitHub CLI.
 
 ---
 
@@ -95,6 +96,8 @@ The backend exposes a ConnectRPC API alongside HTTP REST endpoints. See `api/oct
 
 ```
 /
+├── .github/                # GitHub Actions automated workflows
+│   └── workflows/          # CI/CD workflow configurations (release.yml)
 ├── .githooks/              # Version-controlled Git hooks
 │   ├── commit-msg          # Conventional Commits and backtick restriction validator
 │   └── pre-commit          # Automated pre-commit verification runner

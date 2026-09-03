@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Grant write permission to the workflow's GITHUB_TOKEN so it can create releases and upload assets
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Pinned to specific SHAs to defend against tag poisoning
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0 # Full history needed for git describe & release notes
+
+      - name: Setup Node.js
+        uses: actions/setup-node@1e60f620b9541d16bce96c5465dc8ee9832e0b53 # v4.0.3
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Setup Go
+        uses: actions/setup-go@41dfa10bad2bb2aeab737c4436573c683b5ed11a # v5.1.0
+        with:
+          go-version-file: 'go.work'
+          cache: true
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build WebApp & Extension
+        env:
+          OCTODECK_VERSION: ${{ github.ref_name }}
+        run: |
+          npm run build:webapp
+          npm run build:extension
+
+      - name: Package Distributions
+        env:
+          OCTODECK_VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          mkdir -p dist
+
+          # 1. Backend Binary (Linux AMD64)
+          ./scripts/build-backend.sh -o "dist/octodeck-${VERSION}-linux-amd64"
+
+          # 2. Extension Bundle (.zip)
+          (cd extension_dist && zip -q -r "../dist/octodeck-extension-${VERSION}.zip" .)
+
+          # 3. Standalone Web App Distribution (.zip)
+          (cd backend/frontend_dist && zip -q -r "../../dist/octodeck-webapp-${VERSION}.zip" .)
+
+      - name: Generate Release Notes
+        run: |
+          PREV_TAG=$(git tag -l --sort=-v:refname "v*" | sed -n '2p' || true)
+          if [ -n "$PREV_TAG" ]; then
+            ./scripts/release-notes.sh "$PREV_TAG" HEAD > RELEASE_NOTES.md
+          else
+            ./scripts/release-notes.sh "" HEAD > RELEASE_NOTES.md
+          fi
+
+      - name: Create Draft Release (Official GitHub CLI)
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --draft \
+            --title "OctoDeck ${GITHUB_REF_NAME}" \
+            --notes-file RELEASE_NOTES.md \
+            dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
