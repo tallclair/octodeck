@@ -14,20 +14,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Pinned to specific SHAs to defend against tag poisoning
       - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Full history needed for git describe & release notes
 
       - name: Setup Node.js
-        uses: actions/setup-node@1e60f620b9541d16bce96c5465dc8ee9832e0b53 # v4.0.3
+        uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: 'npm'
 
       - name: Setup Go
-        uses: actions/setup-go@41dfa10bad2bb2aeab737c4436573c683b5ed11a # v5.1.0
+        uses: actions/setup-go@v5
         with:
           go-version-file: 'go.work'
           cache: true
