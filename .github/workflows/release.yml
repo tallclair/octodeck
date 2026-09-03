@@ -37,9 +37,7 @@ jobs:
       - name: Build WebApp & Extension
         env:
           OCTODECK_VERSION: ${{ github.ref_name }}
-        run: |
-          npm run build:webapp
-          npm run build:extension
+        run: npm run build:frontend
 
       - name: Package Distributions
         env:
