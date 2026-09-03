@@ -647,4 +647,45 @@ describe('Settings Component', () => {
       );
     });
   });
+
+  describe('Version Surfacing in Settings', () => {
+    it('surfaces daemon version in footer', () => {
+      vi.mocked(connectQuery.useQuery).mockReturnValue({
+        data: { config: mockConfig },
+        isLoading: false,
+        isError: false,
+        isFetching: false,
+        refetch: vi.fn(),
+      } as any);
+
+      render(
+        <Settings
+          onClose={vi.fn()}
+          daemonVersion="v0.0.1"
+        />
+      );
+
+      expect(screen.getByText(/Version:/)).toBeDefined();
+      expect(screen.getByText('v0.0.1')).toBeDefined();
+    });
+
+    it('falls back to default app version or dev if daemonVersion is not provided', () => {
+      vi.mocked(connectQuery.useQuery).mockReturnValue({
+        data: { config: mockConfig },
+        isLoading: false,
+        isError: false,
+        isFetching: false,
+        refetch: vi.fn(),
+      } as any);
+
+      render(
+        <Settings
+          onClose={vi.fn()}
+        />
+      );
+
+      expect(screen.getByText(/Version:/)).toBeDefined();
+      expect(screen.getByText(__APP_VERSION__)).toBeDefined();
+    });
+  });
 });

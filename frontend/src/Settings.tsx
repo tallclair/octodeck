@@ -21,6 +21,7 @@ export interface SettingsProps {
   onToggleDebugMode?: (enabled: boolean) => void;
   showItemIds?: boolean;
   onToggleShowItemIds?: (enabled: boolean) => void;
+  daemonVersion?: string;
 }
 
 function getInitialKnownBots(bots?: string[]): string {
@@ -38,6 +39,7 @@ export function Settings({
   onToggleDebugMode,
   showItemIds,
   onToggleShowItemIds,
+  daemonVersion,
 }: SettingsProps) {
   const queryClient = useQueryClient();
   const { data, isLoading, isError, refetch } = useQuery(getConfig, {});
@@ -649,47 +651,58 @@ export function Settings({
           </div>
         </div>
 
-        {/* Footer with Status, Defaults Link, and Action Buttons */}
-        <div className="px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-4 min-w-0 pr-4">
-            <button
-              type="button"
-              onClick={() => setShowDefaultsConfirm(true)}
-              className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 underline underline-offset-2 transition-colors cursor-pointer shrink-0"
-            >
-              Restore defaults
-            </button>
-            {status && (
-              <div
-                className={`flex items-center gap-1.5 text-xs font-medium truncate ${
-                  status.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
-                }`}
-              >
-                {status.type === 'error' ? <AlertCircle size={14} className="shrink-0" /> : <CheckCircle size={14} className="shrink-0" />}
-                <span className="truncate">{status.message}</span>
+        {/* Footer with Version, Status, Defaults Link, and Action Buttons */}
+        {(() => {
+          const effectiveDaemonVersion = daemonVersion || (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev');
+          return (
+            <div className="px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+              <div className="flex flex-wrap items-center gap-3 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setShowDefaultsConfirm(true)}
+                  className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 underline underline-offset-2 transition-colors cursor-pointer shrink-0"
+                >
+                  Restore defaults
+                </button>
+                <span className="text-slate-300 dark:text-slate-700 hidden sm:inline">•</span>
+                <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400" data-testid="settings-versions-container">
+                  <span>
+                    Version: <code className="font-mono text-slate-700 dark:text-slate-300">{effectiveDaemonVersion}</code>
+                  </span>
+                </div>
+                {status && (
+                  <div
+                    className={`flex items-center gap-1.5 text-xs font-medium truncate ${
+                      status.type === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
+                    }`}
+                  >
+                    {status.type === 'error' ? <AlertCircle size={14} className="shrink-0" /> : <CheckCircle size={14} className="shrink-0" />}
+                    <span className="truncate">{status.message}</span>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          <div className="flex items-center gap-3 shrink-0">
-            <button
-              type="button"
-              onClick={handleRequestClose}
-              className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={isSaving}
-              className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-            >
-              {isSaving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
-              <span>{isSaving ? 'Saving...' : 'Save Settings'}</span>
-            </button>
-          </div>
-        </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleRequestClose}
+                  className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {isSaving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
+                  <span>{isSaving ? 'Saving...' : 'Save Settings'}</span>
+                </button>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Unsaved Changes Confirmation Modal */}
         {showDiscardConfirm && (

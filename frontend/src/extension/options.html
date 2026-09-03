@@ -232,6 +232,55 @@
     .toast.show {
       opacity: 1;
     }
+
+    .version-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      font-size: 13px;
+    }
+
+    .version-label {
+      color: var(--text-muted);
+    }
+
+    .version-val {
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-weight: 600;
+      margin-left: 6px;
+    }
+
+    .version-mismatch-banner {
+      display: none;
+      margin-top: 14px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      background: rgba(249, 115, 22, 0.15);
+      border: 1px solid rgba(249, 115, 22, 0.4);
+      color: #fed7aa;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .version-mismatch-content {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .version-mismatch-title {
+      font-weight: 600;
+      color: #fb923c;
+    }
+
+    .version-mismatch-val {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
@@ -254,6 +303,27 @@
         <span id="daemon-badge" class="status-badge status-offline">Connecting...</span>
       </div>
       <div id="daemon-info" class="form-desc">Checking local daemon on 127.0.0.1:38274...</div>
+
+      <div class="version-row">
+        <div>
+          <span class="version-label">Extension Version:</span>
+          <code id="extension-version" class="version-val">Loading...</code>
+        </div>
+        <div>
+          <span class="version-label">Daemon Version:</span>
+          <code id="daemon-version" class="version-val">Loading...</code>
+        </div>
+      </div>
+
+      <div id="version-mismatch-warning" class="version-mismatch-banner">
+        <div class="version-mismatch-content">
+          <span style="font-size: 15px; line-height: 1;">⚠️</span>
+          <div>
+            <span class="version-mismatch-title">Version Mismatch Warning:</span>
+            Extension (<span id="warn-ext-version" class="version-mismatch-val"></span>) and daemon (<span id="warn-daemon-version" class="version-mismatch-val"></span>) versions differ. Please reload or update the extension.
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Icon Badge Count Card -->

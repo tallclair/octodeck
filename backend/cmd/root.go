@@ -4,6 +4,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/tallclair/octodeck/backend/internal/server"
 )
 
 var configPath string
@@ -24,6 +26,7 @@ func Execute() {
 }
 
 func init() {
+	rootCmd.Version = server.Version
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", "",
 		"Path to config file (default ~/.octodeck/config.json)")
 }

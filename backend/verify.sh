@@ -11,6 +11,12 @@ if [ "$1" = "--force" ]; then
     FORCE=true
 fi
 
+# Ensure fallback placeholder exists for Go embed on fresh checkouts
+if [ ! -f "frontend_dist/index.html" ]; then
+    mkdir -p frontend_dist
+    echo "<!-- placeholder -->" > frontend_dist/index.html
+fi
+
 echo "Running backend build..."
 if ! go build -o /dev/null ./...; then
     echo "Error: Backend build failed."

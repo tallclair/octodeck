@@ -38,7 +38,7 @@ import {
   type Item,
   type Label,
 } from '../api/octodeck/v1/resources_pb';
-import { client } from '../api/client';
+import { client, checkStatus } from '../api/client';
 import { PullRequestCard } from './PullRequestCard';
 import { DetailsPane } from './DetailsPane';
 import { SyncStatusDisplay } from './SyncStatusDisplay';
@@ -85,6 +85,24 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   const { mutateAsync: viewItemMutate } = useMutation(viewItem);
 
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Daemon version state for Settings
+  const [daemonVersion, setDaemonVersion] = useState<string>(() => {
+    return typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
+  });
+
+  // Fetch daemon version for Settings
+  useEffect(() => {
+    checkStatus()
+      .then((status) => {
+        if (status.version) {
+          setDaemonVersion(status.version);
+        }
+      })
+      .catch(() => {
+        // Retain fallback version if status query fails
+      });
+  }, []);
   const [showSettings, setShowSettings] = useState(false);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const [stateMenuOpen, setStateMenuOpen] = useState(false);
@@ -668,6 +686,8 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
         </div>
       )}
 
+
+
       {/* Top Navigation */}
       <nav className="h-14 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 bg-white/80 dark:bg-slate-950/80 backdrop-blur sticky top-0 z-40">
         <div className="flex items-center gap-2 shrink-0">
@@ -715,6 +735,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
           }}
           debugMode={debugMode}
           onToggleDebugMode={handleToggleDebugMode}
+          daemonVersion={daemonVersion}
         />
       )}
 

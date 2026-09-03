@@ -1,9 +1,21 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { render, screen, fireEvent, act, within } from '@testing-library/react';
+import { render, screen, fireEvent, act, within, waitFor } from '@testing-library/react';
 import { Dashboard } from '../Dashboard';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as connectQuery from '@connectrpc/connect-query';
 import { ItemType, ItemState, ItemStatus, type Item, type User } from '../../api/octodeck/v1/resources_pb';
+import { checkStatus } from '../../api/client';
+
+vi.mock('../../api/client', async () => {
+  const actual = await vi.importActual<typeof import('../../api/client')>('../../api/client');
+  return {
+    ...actual,
+    checkStatus: vi.fn().mockResolvedValue({
+      gh_authenticated: true,
+      version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'v0.0.1',
+    }),
+  };
+});
 
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({
@@ -1670,6 +1682,27 @@ describe('Dashboard Component - Generalized Filters & URL Sync', () => {
       });
     });
   });
+
+  describe('Daemon Version Surfacing in Settings', () => {
+    it('passes daemon version from checkStatus to Settings modal', async () => {
+      vi.mocked(checkStatus).mockResolvedValue({
+        gh_authenticated: true,
+        version: 'v1.2.3-test',
+      });
+      render(<Dashboard />);
+
+      const settingsBtn = screen.getByRole('button', { name: /^Settings$/i });
+      fireEvent.click(settingsBtn);
+
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toBeDefined();
+      await waitFor(() => {
+        expect(within(dialog).getByText(/Version:/)).toBeDefined();
+        expect(within(dialog).getByText('v1.2.3-test')).toBeDefined();
+      });
+    });
+  });
 });
+
 
 

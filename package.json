@@ -9,6 +9,8 @@
     "generate": "npm run generate --workspace=api",
     "lint": "npm run lint --workspace=frontend && npm run lint --workspace=api",
     "test": "npm run test --workspace=frontend",
-    "build": "npm run build --workspace=frontend && go build -o octodeck ./backend"
+    "build:frontend": "npm run build --workspace=frontend",
+    "build:backend": "./scripts/build-backend.sh",
+    "build": "npm run build:frontend && npm run build:backend"
   }
 }

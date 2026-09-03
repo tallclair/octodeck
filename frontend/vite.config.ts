@@ -3,11 +3,36 @@ import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { resolve } from 'path'
-import { copyFileSync, existsSync, mkdirSync, rmSync } from 'fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { execSync } from 'child_process'
 
 const isWebApp = process.env.BUILD_TARGET === 'webapp';
 const isContent = process.env.BUILD_TARGET === 'extension-content';
 const isExtension = !isWebApp && !isContent;
+
+function getAppVersion(): { full: string; numeric: string } {
+  let full = process.env.APP_VERSION || process.env.OCTODECK_VERSION || '';
+  if (!full) {
+    try {
+      full = execSync('git describe --tags --match "v*" --always --dirty', {
+        cwd: __dirname,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+    } catch {
+      full = 'dev';
+    }
+  }
+  if (!full) {
+    full = 'dev';
+  }
+
+  const match = full.match(/^v?(\d+\.\d+\.\d+)/);
+  const numeric = match ? match[1] : '0.0.0';
+  return { full, numeric };
+}
+
+const { full: appVersion, numeric: numericVersion } = getAppVersion();
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -25,7 +50,11 @@ export default defineConfig({
             mkdirSync(outDir, { recursive: true });
           }
           if (existsSync(manifestSrc)) {
-            copyFileSync(manifestSrc, resolve(outDir, 'manifest.json'));
+            const manifestRaw = readFileSync(manifestSrc, 'utf8');
+            const manifest = JSON.parse(manifestRaw);
+            manifest.version = numericVersion;
+            manifest.version_name = appVersion;
+            writeFileSync(resolve(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
           }
           if (existsSync(stylesSrc)) {
             copyFileSync(stylesSrc, resolve(outDir, 'content.css'));
@@ -41,6 +70,7 @@ export default defineConfig({
   ],
   define: {
     __IS_EXTENSION__: JSON.stringify(isExtension || isContent),
+    __APP_VERSION__: JSON.stringify(appVersion),
   },
   server: {
     port: 5173,

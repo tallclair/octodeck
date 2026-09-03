@@ -1,0 +1,63 @@
+#!/bin/sh
+set -e
+
+# .githooks/commit-msg
+# Enforces Conventional Commits format and forbids backticks in commit messages.
+
+if [ $# -lt 1 ] || [ -z "$1" ]; then
+    echo "Error: Commit message file not specified." >&2
+    exit 1
+fi
+
+COMMIT_MSG_FILE="$1"
+
+if [ ! -f "$COMMIT_MSG_FILE" ]; then
+    echo "Error: Commit message file \"$COMMIT_MSG_FILE\" not found." >&2
+    exit 1
+fi
+
+# 1. Filter out comments starting with #
+NON_COMMENT_LINES=$(grep -v '^[[:space:]]*#' "$COMMIT_MSG_FILE" || true)
+
+# 2. Check ALL non-comment lines for backticks
+if printf '%s\n' "$NON_COMMENT_LINES" | grep -F -q '`'; then
+    echo "Error: Backticks (\`) are strictly forbidden in commit messages." >&2
+    echo "Please use single quotes ('...'), double quotes (\"...\"), or plain text instead." >&2
+    echo "" >&2
+    echo "Offending lines:" >&2
+    printf '%s\n' "$NON_COMMENT_LINES" | grep -F '`' | sed 's/^/  > /' >&2
+    exit 1
+fi
+
+# 3. Extract the subject line (first non-empty, non-comment line)
+SUBJECT=$(printf '%s\n' "$NON_COMMENT_LINES" | grep -v '^[[:space:]]*$' | head -n 1 || true)
+
+if [ -z "$SUBJECT" ]; then
+    echo "Error: Commit message cannot be empty." >&2
+    exit 1
+fi
+
+# 4. Enforce Conventional Commits regex
+# Scope allows alphanumeric, underscore, hyphen, dot, forward slash: [-a-zA-Z0-9_./]
+CONVENTIONAL_REGEX="^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([-a-zA-Z0-9_./]+\))?!?: .+"
+
+if ! printf '%s\n' "$SUBJECT" | grep -E -q "$CONVENTIONAL_REGEX"; then
+    echo "Error: Commit message subject does not follow Conventional Commits format." >&2
+    echo "" >&2
+    echo "  Subject: \"$SUBJECT\"" >&2
+    echo "" >&2
+    echo "Format:" >&2
+    echo "  <type>(<scope>)!: <description>" >&2
+    echo "" >&2
+    echo "Allowed types:" >&2
+    echo "  feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert" >&2
+    echo "" >&2
+    echo "Examples:" >&2
+    echo "  feat: add versioning" >&2
+    echo "  fix(backend): resolve node id error" >&2
+    echo "  feat(api)!: breaking change to status endpoint" >&2
+    echo "  chore(ci/deploy): update build workflow" >&2
+    exit 1
+fi
+
+exit 0

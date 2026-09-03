@@ -31,7 +31,9 @@ backend/*.db
 backend/*.db-journal
 
 # Build Artifacts
-frontend/dist
+frontend/dist/
+extension_dist/
+backend/frontend_dist/
 
 .agents/*
 !.agents/agents/

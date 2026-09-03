@@ -98,26 +98,78 @@ function setMode(mode: 'include' | 'exclude') {
   saveFilters();
 }
 
-function updateDaemonUI(status: DaemonStatus) {
+export function getExtensionVersion(): string {
+  try {
+    const manifest = typeof chrome !== 'undefined' ? chrome.runtime?.getManifest?.() : undefined;
+    return (
+      manifest?.version_name ||
+      manifest?.version ||
+      (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'unknown')
+    );
+  } catch {
+    return typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'unknown';
+  }
+}
+
+export function updateDaemonUI(status: DaemonStatus): void {
   const badge = document.getElementById('daemon-badge');
   const info = document.getElementById('daemon-info');
+  const extVerEl = document.getElementById('extension-version');
+  const daemonVerEl = document.getElementById('daemon-version');
+  const mismatchWarn = document.getElementById('version-mismatch-warning');
+  const warnExtVer = document.getElementById('warn-ext-version');
+  const warnDaemonVer = document.getElementById('warn-daemon-version');
 
-  if (!badge || !info) return;
+  const extVersion = getExtensionVersion();
+  if (extVerEl) {
+    extVerEl.textContent = extVersion;
+  }
+
+  if (daemonVerEl) {
+    daemonVerEl.textContent = status.online ? (status.version || 'unknown') : 'Unavailable';
+  }
 
   if (status.online) {
-    badge.className = 'status-badge status-online';
-    badge.textContent = `Online (v${status.version || 'unknown'})`;
-    info.textContent = status.ghAuthenticated
-      ? 'Connected to local daemon. GitHub authenticated.'
-      : 'Connected to local daemon. Upstream GitHub authentication required.';
+    if (badge) {
+      badge.className = 'status-badge status-online';
+      badge.textContent = `Online (v${status.version || 'unknown'})`;
+    }
+    if (info) {
+      info.textContent = status.ghAuthenticated
+        ? 'Connected to local daemon. GitHub authenticated.'
+        : 'Connected to local daemon. Upstream GitHub authentication required.';
+    }
+
+    if (mismatchWarn) {
+      if (status.version && status.version !== extVersion) {
+        mismatchWarn.style.display = 'block';
+        if (warnExtVer) warnExtVer.textContent = extVersion;
+        if (warnDaemonVer) warnDaemonVer.textContent = status.version;
+      } else {
+        mismatchWarn.style.display = 'none';
+      }
+    }
   } else {
-    badge.className = 'status-badge status-offline';
-    badge.textContent = 'Offline';
-    info.textContent = `Unable to connect to local OctoDeck daemon: ${status.error || 'Connection refused'}. Run 'octodeck serve'.`;
+    if (badge) {
+      badge.className = 'status-badge status-offline';
+      badge.textContent = 'Offline';
+    }
+    if (info) {
+      info.textContent = `Unable to connect to local OctoDeck daemon: ${status.error || 'Connection refused'}. Run 'octodeck serve'.`;
+    }
+    if (mismatchWarn) {
+      mismatchWarn.style.display = 'none';
+    }
   }
 }
 
 async function init() {
+  // Populate extension version immediately
+  const extVerEl = document.getElementById('extension-version');
+  if (extVerEl) {
+    extVerEl.textContent = getExtensionVersion();
+  }
+
   // Check Daemon Status
   chrome.runtime.sendMessage({ type: 'GET_DAEMON_STATUS' }, (res: ExtensionResponse<DaemonStatus> | undefined) => {
     if (res && res.ok) {

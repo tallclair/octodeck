@@ -62,4 +62,7 @@ This project is a **Monorepo**.
 
 ### Git
 
-* Never use backticks in commit messages.
+* **No Backticks:** Never use backticks in commit messages (neither in the subject nor in the body). Use single quotes or double quotes when referencing code symbols, file names, or identifiers (e.g. 'server.Version' or "status.go").
+* **Conventional Commits:** All commit messages must strictly adhere to the Conventional Commits specification documented in `CONTRIBUTING.md`. Format commit messages as type(scope): description or type: description. Allowed types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert.
+* **Automated Release Notes:** Commit messages directly drive automated release notes generation via `scripts/release-notes.sh` (feat maps to Features, fix maps to Fixes). Write clear, imperative, user-facing descriptions.
+* **Git Hooks:** Ensure repository git hooks are enabled via `git config core.hooksPath .githooks` so that pre-commit verification (`./verify.sh`) and commit message validation (`.githooks/commit-msg`) run automatically.

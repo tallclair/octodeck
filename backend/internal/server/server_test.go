@@ -58,9 +58,9 @@ func (m *mockSyncEngine) ResetTicker() {
 }
 
 func TestStatusHandler(t *testing.T) {
+	expectedVersion := Version
 	const (
-		expectedVersion = "dev"
-		authError       = "UPSTREAM_AUTH_REQUIRED"
+		authError = "UPSTREAM_AUTH_REQUIRED"
 	)
 
 	tests := []struct {

@@ -1,12 +1,9 @@
-import './content/styles.css';
 import { initViewTracker, parseCurrentGitHubItem } from './content/viewTracker';
 import { NoiseCollapser } from './content/noiseCollapser';
 import { SidebarSection } from './content/sidebarSection';
 import { TimelineMarkers } from './content/timelineMarkers';
 import { initActionTracker } from './content/actionTracker';
 import type { ExtensionMessage, ExtensionResponse } from './types';
-
-console.log('[OctoDeck] Companion content script initialized on', window.location.href);
 
 let activeSidebar: SidebarSection | null = null;
 let activeCollapser: NoiseCollapser | null = null;
@@ -15,6 +12,7 @@ let currentItemId: string | null = null;
 let debounceTimeout: number | null = null;
 
 const STORAGE_KEY_HIDE_EVENTS = 'octodeck_hide_events';
+
 
 function getLocalHideEventsPreference(): boolean {
   try {
@@ -158,34 +156,47 @@ function onNavigate(itemId: string | null) {
   }, 50);
 }
 
-// Listen for global storage changes from other tabs or background
-if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName === 'local') {
-      if (changes.hide_events !== undefined) {
-        const newHide = Boolean(changes.hide_events.newValue);
-        setLocalHideEventsPreference(newHide);
-        activeSidebar?.setHideEvents(newHide);
-        activeCollapser?.setHideNonCommentEvents(newHide);
+export function initGitHubFeatures(): void {
+  console.log('[OctoDeck] Companion content script initialized on', window.location.href);
+
+  // Listen for global storage changes from other tabs or background
+  if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName === 'local') {
+        if (changes.hide_events !== undefined) {
+          const newHide = Boolean(changes.hide_events.newValue);
+          setLocalHideEventsPreference(newHide);
+          activeSidebar?.setHideEvents(newHide);
+          activeCollapser?.setHideNonCommentEvents(newHide);
+        }
+        if (changes.known_bots !== undefined) {
+          const newBots = Array.isArray(changes.known_bots.newValue) ? changes.known_bots.newValue : [];
+          activeCollapser?.setKnownBots(newBots);
+        }
       }
-      if (changes.known_bots !== undefined) {
-        const newBots = Array.isArray(changes.known_bots.newValue) ? changes.known_bots.newValue : [];
-        activeCollapser?.setKnownBots(newBots);
-      }
-    }
+    });
+  }
+
+  // Initialize navigation tracking
+  initViewTracker((itemId) => {
+    onNavigate(itemId);
   });
+
+  // Initialize action tracking for PR/issue user actions
+  initActionTracker();
+
+  // Run once immediately
+  const initialItem = parseCurrentGitHubItem();
+  if (initialItem) {
+    onNavigate(initialItem.itemId);
+  }
 }
 
-// Initialize navigation tracking
-initViewTracker((itemId) => {
-  onNavigate(itemId);
-});
+export function initContentScript(): void {
+  initGitHubFeatures();
+}
 
-// Initialize action tracking for PR/issue user actions
-initActionTracker();
-
-// Run once immediately
-const initialItem = parseCurrentGitHubItem();
-if (initialItem) {
-  onNavigate(initialItem.itemId);
+// Auto-run if loaded in browser context
+if (typeof window !== 'undefined') {
+  initContentScript();
 }

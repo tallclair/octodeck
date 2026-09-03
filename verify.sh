@@ -8,12 +8,18 @@ if [ "$1" = "--force" ]; then
     FORCE=true
 fi
 
+# Ensure fallback placeholder exists for Go embed on fresh checkouts
+if [ ! -f "backend/frontend_dist/index.html" ]; then
+    mkdir -p backend/frontend_dist
+    echo "<!-- placeholder -->" > backend/frontend_dist/index.html
+fi
+
 # Get all changed files (staged, unstaged, and untracked)
 CHANGED_FILES=$(git status --porcelain)
 
 # Check if specific directories have changes
 API_CHANGED=$(echo "$CHANGED_FILES" | grep -E "api/|buf.gen.yaml")
-BACKEND_CHANGED=$(echo "$CHANGED_FILES" | grep "backend/")
+BACKEND_CHANGED=$(echo "$CHANGED_FILES" | grep "backend/" | grep -v "backend/frontend_dist/")
 FRONTEND_CHANGED=$(echo "$CHANGED_FILES" | grep "frontend/")
 
 EXIT_CODE=0
