@@ -11,6 +11,7 @@ import {
   MIN_DISCOVERY_INTERVAL_MIN,
 } from './utils/constants';
 import { useTheme } from './context/ThemeContext';
+import { useToast } from './context/ToastContext';
 import { validateLabelFilterPatterns } from './utils/labels';
 import {
   validateRepoFilterPatterns,
@@ -57,6 +58,7 @@ export function Settings({
   const { data, isLoading, isError, refetch } = useQuery(getConfig, {});
   const { mutateAsync: updateConfigMutate, isPending: isSaving } = useMutation(updateConfig);
   const { theme, setTheme } = useTheme();
+  const { showError } = useToast();
 
   const [localDebugMode, setLocalDebugMode] = useState<boolean>(() => {
     try {
@@ -340,6 +342,7 @@ export function Settings({
     } catch (err) {
       console.error(err);
       setStatus({ type: 'error', message: 'Failed to save configuration.' });
+      showError(err, 'Failed to save configuration');
     }
   };
 

@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/cli/go-gh/v2/pkg/api"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	octodeckv1 "github.com/tallclair/octodeck/backend/internal/api/octodeck/v1"
@@ -477,6 +479,16 @@ func (h *octoDeckHandler) UpdateSubscription(
 	nodeID := existing.GetId()
 	if h.ghClient != nil {
 		if err := h.ghClient.UpdateSubscription(ctx, nodeID, targetState); err != nil {
+			if isGitHubScopeError(err) {
+				return nil, connect.NewError(
+					connect.CodePermissionDenied,
+					fmt.Errorf(
+						"GitHub token lacks 'notifications' scope; run 'gh auth refresh -s notifications' "+
+							"to grant permissions: %w",
+						err,
+					),
+				)
+			}
 			return nil, connect.NewError(
 				connect.CodeInternal,
 				fmt.Errorf("failed to update subscription on GitHub: %w", err),
@@ -498,6 +510,108 @@ func (h *octoDeckHandler) UpdateSubscription(
 	return connect.NewResponse(octodeckv1.UpdateSubscriptionResponse_builder{
 		Item: item,
 	}.Build()), nil
+}
+
+// isGitHubScopeError checks whether an error returned from the GitHub client is due to
+// missing OAuth scopes (specifically 'notifications') or organization SAML enforcement.
+func isGitHubScopeError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Immediate exclusions for known non-scope errors to avoid false positives
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "rate limit") ||
+		strings.Contains(msg, "could not resolve to a node") ||
+		strings.Contains(msg, "not found") {
+		return false
+	}
+
+	if isHTTPErrorScope(err) {
+		return true
+	}
+
+	if isGraphQLErrorScope(err) {
+		return true
+	}
+
+	return isErrorMessageScope(msg)
+}
+
+func isHTTPErrorScope(err error) bool {
+	var httpErr *api.HTTPError
+	if !errors.As(err, &httpErr) {
+		return false
+	}
+
+	if httpErr.StatusCode != http.StatusForbidden && httpErr.StatusCode != http.StatusUnauthorized {
+		return false
+	}
+
+	if httpErr.Headers != nil {
+		accepted := strings.ToLower(httpErr.Headers.Get("X-Accepted-Oauth-Scopes"))
+		current := strings.ToLower(httpErr.Headers.Get("X-Oauth-Scopes"))
+		if strings.Contains(accepted, "notifications") && !strings.Contains(current, "notifications") {
+			return true
+		}
+	}
+
+	httpMsg := strings.ToLower(httpErr.Message)
+	if strings.Contains(httpMsg, "rate limit") {
+		return false
+	}
+
+	return strings.Contains(httpMsg, "resource not accessible by integration") ||
+		strings.Contains(httpMsg, "scope") ||
+		strings.Contains(httpMsg, "permission") ||
+		strings.Contains(httpMsg, "saml")
+}
+
+func isGraphQLErrorScope(err error) bool {
+	var gqlErr *api.GraphQLError
+	if !errors.As(err, &gqlErr) {
+		return false
+	}
+
+	for _, item := range gqlErr.Errors {
+		if strings.EqualFold(item.Type, "FORBIDDEN") {
+			return true
+		}
+		itemMsg := strings.ToLower(item.Message)
+		if strings.Contains(itemMsg, "notifications") &&
+			(strings.Contains(itemMsg, "scope") || strings.Contains(itemMsg, "permission")) {
+			return true
+		}
+		if strings.Contains(itemMsg, "saml") ||
+			strings.Contains(itemMsg, "required scope") ||
+			strings.Contains(itemMsg, "insufficient scope") {
+			return true
+		}
+	}
+	return false
+}
+
+func isErrorMessageScope(msg string) bool {
+	if strings.Contains(msg, "gh auth refresh -s notifications") {
+		return true
+	}
+	if strings.Contains(msg, "saml enforcement") || strings.Contains(msg, "organization saml") {
+		return true
+	}
+	if strings.Contains(msg, "notifications") &&
+		(strings.Contains(msg, "scope") || strings.Contains(msg, "permission") || strings.Contains(msg, "forbidden")) {
+		return true
+	}
+	if strings.Contains(msg, "required scope") ||
+		strings.Contains(msg, "insufficient scope") ||
+		strings.Contains(msg, "missing required oauth scope") {
+		return true
+	}
+	return strings.Contains(msg, "resource not accessible by integration")
 }
 
 func (h *octoDeckHandler) GetSyncStatus(_ context.Context,

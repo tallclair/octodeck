@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState, Fragment } from 'react';
+import { useToast } from '../context/ToastContext';
 import {
     GitPullRequest, GitPullRequestDraft, GitPullRequestClosed, AlertCircle,
     CheckCircle2, GitCommit, X,
@@ -46,6 +47,7 @@ export function DetailsPane({
     onOpenDebug,
 }: DetailsPaneProps) {
     const [isSubscribing, setIsSubscribing] = useState(false);
+    const { showError } = useToast();
     const repoName = item.repo;
     const number = item.number;
     const title = item.title;
@@ -134,6 +136,7 @@ export function DetailsPane({
                                             await onSubscribe(item.id);
                                         } catch (err) {
                                             console.error('Failed to subscribe:', err);
+                                            showError(err, 'Failed to subscribe to item on GitHub');
                                         } finally {
                                             setIsSubscribing(false);
                                         }

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/cli/go-gh/v2/pkg/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
@@ -1487,4 +1489,294 @@ func TestOctoDeckHandler_UpdateSubscription(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED, item.GetViewerSubscription())
 	})
+
+	t.Run("GitHub scope errors return PermissionDenied and preserve DB state", func(t *testing.T) {
+		headersWithMissingScope := make(http.Header)
+		headersWithMissingScope.Set("X-Accepted-Oauth-Scopes", "notifications")
+		headersWithMissingScope.Set("X-Oauth-Scopes", "repo, read:org")
+
+		testCases := []struct {
+			name     string
+			ghErr    error
+			checkMsg string
+		}{
+			{
+				name: "GraphQL FORBIDDEN error with notifications message",
+				ghErr: &api.GraphQLError{
+					Errors: []api.GraphQLErrorItem{
+						{
+							Type: "FORBIDDEN",
+							Message: "Your token has not been granted the required scopes to execute this query. " +
+								"The 'notifications' scope is required to access the 'updateSubscription' field.",
+						},
+					},
+				},
+				checkMsg: "The 'notifications' scope is required",
+			},
+			{
+				name: "GraphQL error without FORBIDDEN type but containing scope requirement",
+				ghErr: &api.GraphQLError{
+					Errors: []api.GraphQLErrorItem{
+						{
+							Type:    "ERROR",
+							Message: "Resource requires the 'notifications' scope to access",
+						},
+					},
+				},
+				checkMsg: "requires the 'notifications' scope",
+			},
+			{
+				name: "HTTP 403 Forbidden with OAuth scope headers",
+				ghErr: &api.HTTPError{
+					StatusCode: http.StatusForbidden,
+					Headers:    headersWithMissingScope,
+					Message:    "Forbidden",
+				},
+				checkMsg: "Forbidden",
+			},
+			{
+				name: "HTTP 403 Forbidden with resource not accessible message",
+				ghErr: &api.HTTPError{
+					StatusCode: http.StatusForbidden,
+					Message:    "Resource not accessible by integration",
+				},
+				checkMsg: "Resource not accessible by integration",
+			},
+			{
+				name: "Organization SAML enforcement error",
+				ghErr: errors.New("Resource protected by organization SAML enforcement. " +
+					"You must grant your OAuth token access to this organization."),
+				checkMsg: "SAML enforcement",
+			},
+			{
+				name: "Wrapped scope error simulating client error wrapping",
+				ghErr: fmt.Errorf("failed to update subscription: %w", &api.GraphQLError{
+					Errors: []api.GraphQLErrorItem{
+						{
+							Type:    "FORBIDDEN",
+							Message: "Missing required scope: notifications",
+						},
+					},
+				}),
+				checkMsg: "Missing required scope: notifications",
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				mockGH := &mockGitHubClient{
+					authenticated: true,
+					updateSubscriptionFn: func(_ context.Context, _ string, _ octodeckv1.SubscriptionState) error {
+						return tc.ghErr
+					},
+				}
+
+				db, client, addHeaders, _ := setupTestHandlerWithGH(t, mockGH)
+
+				initialItem := octodeckv1.Item_builder{
+					Id:                 config.Ptr("PR_scope_test"),
+					Repo:               config.Ptr("owner/repo"),
+					Number:             config.Ptr(int32(103)),
+					Type:               config.Ptr(octodeckv1.ItemType_ITEM_TYPE_PR),
+					ViewerSubscription: config.Ptr(octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED),
+					UpdatedAt:          timestamppb.Now(),
+				}.Build()
+				require.NoError(t, db.SaveItems(t.Context(), []*octodeckv1.Item{initialItem}))
+
+				req := connect.NewRequest(octodeckv1.UpdateSubscriptionRequest_builder{
+					ItemId: config.Ptr("PR_scope_test"),
+					State:  config.Ptr(octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED),
+				}.Build())
+				addHeaders(req)
+
+				_, err := client.UpdateSubscription(t.Context(), req)
+				require.Error(t, err)
+
+				// 1. Assert returned connect error code is CodePermissionDenied
+				assert.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+
+				// 2. Assert error message contains actionable remediation instructions
+				assert.Contains(t, err.Error(), "GitHub token lacks 'notifications' scope")
+				assert.Contains(t, err.Error(), "gh auth refresh -s notifications")
+				assert.Contains(t, err.Error(), tc.checkMsg)
+
+				// 3. Confirm local DB state was NOT modified
+				persisted, err := db.GetItem(t.Context(), "PR_scope_test")
+				require.NoError(t, err)
+				assert.Equal(t,
+					octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED,
+					persisted.GetViewerSubscription(),
+				)
+			})
+		}
+	})
+}
+
+func TestIsGitHubScopeError(t *testing.T) {
+	headersWithMissingScope := make(http.Header)
+	headersWithMissingScope.Set("X-Accepted-Oauth-Scopes", "notifications")
+	headersWithMissingScope.Set("X-Oauth-Scopes", "repo, read:org")
+
+	headersWithSufficientScope := make(http.Header)
+	headersWithSufficientScope.Set("X-Accepted-Oauth-Scopes", "notifications")
+	headersWithSufficientScope.Set("X-Oauth-Scopes", "repo, notifications")
+
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "context canceled",
+			err:      context.Canceled,
+			expected: false,
+		},
+		{
+			name:     "context deadline exceeded",
+			err:      context.DeadlineExceeded,
+			expected: false,
+		},
+		{
+			name:     "rate limit string error",
+			err:      errors.New("API rate limit exceeded for user"),
+			expected: false,
+		},
+		{
+			name: "rate limit HTTP 403 error",
+			err: &api.HTTPError{
+				StatusCode: http.StatusForbidden,
+				Message:    "API rate limit exceeded for user ID 12345",
+			},
+			expected: false,
+		},
+		{
+			name:     "item not found string error",
+			err:      errors.New("Could not resolve to a node with the global id of 'PR_123'"),
+			expected: false,
+		},
+		{
+			name: "GraphQL NOT_FOUND error",
+			err: &api.GraphQLError{
+				Errors: []api.GraphQLErrorItem{
+					{
+						Type:    "NOT_FOUND",
+						Message: "Could not resolve to a node with the global id of 'PR_123'",
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "HTTP 404 Not Found",
+			err: &api.HTTPError{
+				StatusCode: http.StatusNotFound,
+				Message:    "Not Found",
+			},
+			expected: false,
+		},
+		{
+			name: "HTTP 500 Internal Server Error",
+			err: &api.HTTPError{
+				StatusCode: http.StatusInternalServerError,
+				Message:    "Internal Server Error",
+			},
+			expected: false,
+		},
+		{
+			name:     "generic network error",
+			err:      errors.New("connection reset by peer"),
+			expected: false,
+		},
+		{
+			name: "HTTP 403 with sufficient scopes in headers",
+			err: &api.HTTPError{
+				StatusCode: http.StatusForbidden,
+				Headers:    headersWithSufficientScope,
+				Message:    "Forbidden",
+			},
+			expected: false,
+		},
+		{
+			name: "GraphQL FORBIDDEN type error",
+			err: &api.GraphQLError{
+				Errors: []api.GraphQLErrorItem{
+					{
+						Type: "FORBIDDEN",
+						Message: "Your token has not been granted the required scopes to execute this query. " +
+							"The 'notifications' scope is required to access the 'updateSubscription' field.",
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "GraphQL error with notifications scope in message",
+			err: &api.GraphQLError{
+				Errors: []api.GraphQLErrorItem{
+					{
+						Type:    "ERROR",
+						Message: "The 'notifications' scope is required to access this resource",
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "HTTP 403 with missing notifications in OAuth headers",
+			err: &api.HTTPError{
+				StatusCode: http.StatusForbidden,
+				Headers:    headersWithMissingScope,
+				Message:    "Forbidden",
+			},
+			expected: true,
+		},
+		{
+			name: "HTTP 403 with Resource not accessible by integration",
+			err: &api.HTTPError{
+				StatusCode: http.StatusForbidden,
+				Message:    "Resource not accessible by integration",
+			},
+			expected: true,
+		},
+		{
+			name: "organization SAML enforcement text error",
+			err: errors.New("Resource protected by organization SAML enforcement. " +
+				"You must grant your OAuth token access to this organization."),
+			expected: true,
+		},
+		{
+			name:     "plain string scope error",
+			err:      errors.New("The 'notifications' scope is required to access the 'updateSubscription' field."),
+			expected: true,
+		},
+		{
+			name:     "plain string missing required oauth scope",
+			err:      errors.New("missing required oauth scope: notifications"),
+			expected: true,
+		},
+		{
+			name: "wrapped scope error",
+			err: fmt.Errorf("failed to update subscription: %w", &api.GraphQLError{
+				Errors: []api.GraphQLErrorItem{
+					{
+						Type:    "FORBIDDEN",
+						Message: "Forbidden access to updateSubscription",
+					},
+				},
+			}),
+			expected: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			actual := isGitHubScopeError(tc.err)
+			assert.Equal(t, tc.expected, actual, "isGitHubScopeError(%v)", tc.err)
+		})
+	}
 }

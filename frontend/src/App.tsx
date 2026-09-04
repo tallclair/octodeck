@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TransportProvider } from '@connectrpc/connect-query';
 import { transport, onAuthError } from './api/client';
 import { ThemeProvider } from './context/ThemeContext';
+import { ToastProvider } from './context/ToastContext';
 import { Dashboard } from './components/Dashboard';
 import { DataBrowser } from './components/DataBrowser';
 import { AlertTriangle, Terminal } from 'lucide-react';
@@ -132,11 +133,13 @@ function AppContent() {
 function App() {
   return (
     <ThemeProvider>
-      <TransportProvider transport={transport}>
+      <ToastProvider>
+        <TransportProvider transport={transport}>
         <QueryClientProvider client={queryClient}>
           <AppContent />
         </QueryClientProvider>
       </TransportProvider>
+      </ToastProvider>
     </ThemeProvider>
   );
 }

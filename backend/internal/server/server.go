@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 
+	"connectrpc.com/connect"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
@@ -94,7 +95,7 @@ func (s *Server) routes() {
 		syncEngine: s.syncEngine,
 		cfg:        s.cfg,
 		ghClient:   s.ghClient,
-	})
+	}, connect.WithInterceptors(NewLoggingInterceptor()))
 
 	s.router.Route("/api/v1", func(r chi.Router) {
 		r.Handle("/*", http.StripPrefix("/api/v1", handler))
