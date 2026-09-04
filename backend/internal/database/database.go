@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"embed"
 	"errors"
@@ -125,10 +126,12 @@ func Init(ctx context.Context, dbPath string) (*DB, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// In SQLite WAL mode, restrict write/open pool connections to prevent SQLITE_BUSY contention
-	if dbPath != InMemoryDSN {
-		db.SetMaxOpenConns(1)
-	}
+	// In SQLite, restrict open pool connections to 1.
+	// For disk-based WAL databases, this prevents SQLITE_BUSY write lock contention.
+	// For in-memory databases (":memory:"), this ensures all goroutines share the single
+	// migrated database connection rather than opening isolated, empty in-memory instances.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 
 	const pragmaQuery = "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; " +
 		"PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL;"
@@ -222,6 +225,19 @@ func (d *DB) GetDistinctRepos(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("failed to query distinct repos: %w", err)
 	}
 	return repos, nil
+}
+
+// GetAllItemIDs returns a set of all item IDs currently present in the database.
+func (d *DB) GetAllItemIDs(ctx context.Context) (map[string]struct{}, error) {
+	var ids []string
+	if err := d.SelectContext(ctx, &ids, "SELECT id FROM items"); err != nil {
+		return nil, fmt.Errorf("failed to query all item IDs: %w", err)
+	}
+	idSet := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		idSet[id] = struct{}{}
+	}
+	return idSet, nil
 }
 
 // GetItems retrieves items from the database matching the provided filter.
@@ -660,4 +676,64 @@ func (d *DB) GetDatabaseStats(ctx context.Context, dbPath string) (*octodeckv1.D
 		DbSizeBytes:  ptr(dbSizeBytes),
 		DbPath:       ptr(dbPath),
 	}.Build(), nil
+}
+
+// discoveryCursorKey returns the metadata key for tracking a query's discovery cursor.
+func discoveryCursorKey(query string) string {
+	hash := sha256.Sum256([]byte(strings.TrimSpace(query)))
+	return fmt.Sprintf("discovery:cursor:%x", hash)
+}
+
+// GetDiscoveryCursor retrieves the last search time or added time recorded for a tracked query.
+func (d *DB) GetDiscoveryCursor(ctx context.Context, query string) (time.Time, bool, error) {
+	key := discoveryCursorKey(query)
+	val, err := d.GetMetadata(ctx, key)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return time.Time{}, false, nil
+		}
+		return time.Time{}, false, err
+	}
+	t, err := time.Parse(time.RFC3339, val)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("failed to parse discovery cursor timestamp %q: %w", val, err)
+	}
+	return t, true, nil
+}
+
+// SetDiscoveryCursor records the discovery cursor timestamp for a tracked query.
+func (d *DB) SetDiscoveryCursor(ctx context.Context, query string, t time.Time) error {
+	key := discoveryCursorKey(query)
+	val := t.UTC().Format(time.RFC3339)
+	return d.SetMetadata(ctx, key, val)
+}
+
+// DeleteDiscoveryCursor removes the discovery cursor for a query.
+func (d *DB) DeleteDiscoveryCursor(ctx context.Context, query string) error {
+	key := discoveryCursorKey(query)
+	_, err := d.ExecContext(ctx, "DELETE FROM metadata WHERE key = ?", key)
+	return err
+}
+
+// PruneDiscoveryCursors removes discovery cursors for any queries not in the active list.
+func (d *DB) PruneDiscoveryCursors(ctx context.Context, activeQueries []string) error {
+	activeKeys := make(map[string]struct{}, len(activeQueries))
+	for _, q := range activeQueries {
+		activeKeys[discoveryCursorKey(q)] = struct{}{}
+	}
+
+	var storedKeys []string
+	err := d.SelectContext(ctx, &storedKeys, "SELECT key FROM metadata WHERE key LIKE 'discovery:cursor:%'")
+	if err != nil {
+		return fmt.Errorf("failed to query discovery cursor keys: %w", err)
+	}
+
+	for _, k := range storedKeys {
+		if _, keep := activeKeys[k]; !keep {
+			if _, delErr := d.ExecContext(ctx, "DELETE FROM metadata WHERE key = ?", k); delErr != nil {
+				return fmt.Errorf("failed to delete stale discovery cursor %q: %w", k, delErr)
+			}
+		}
+	}
+	return nil
 }

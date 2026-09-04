@@ -4,7 +4,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import { getConfig, updateConfig } from './api/octodeck/v1/service-OctoDeckService_connectquery';
 import { Save, CheckCircle, AlertCircle, AlertTriangle, RefreshCw, X, Settings as SettingsIcon, Terminal, Sun, Moon, Monitor, ChevronDown, ChevronUp } from 'lucide-react';
 import type { Config } from './api/octodeck/v1/service_pb';
-import { DEFAULT_POLLING_INTERVAL_MIN, DEFAULT_AUTO_ACK_OWN_ACTIVITY } from './utils/constants';
+import {
+  DEFAULT_POLLING_INTERVAL_MIN,
+  DEFAULT_AUTO_ACK_OWN_ACTIVITY,
+  DEFAULT_DISCOVERY_INTERVAL_MIN,
+  MIN_DISCOVERY_INTERVAL_MIN,
+} from './utils/constants';
 import { useTheme } from './context/ThemeContext';
 import { validateLabelFilterPatterns } from './utils/labels';
 import {
@@ -27,6 +32,13 @@ export interface SettingsProps {
 function getInitialKnownBots(bots?: string[]): string {
   if (bots && bots.length > 0) {
     return bots.join('\n');
+  }
+  return '';
+}
+
+function getInitialTrackedQueries(queries?: string[]): string {
+  if (queries && queries.length > 0) {
+    return queries.join('\n');
   }
   return '';
 }
@@ -107,6 +119,16 @@ export function Settings({
   const [labelPatterns, setLabelPatterns] = useState(initialLabelPatterns);
   const [labelValidationError, setLabelValidationError] = useState<string | null>(null);
 
+  const [trackedQueries, setTrackedQueries] = useState(
+    getInitialTrackedQueries(data?.config?.trackedQueries)
+  );
+  const [queriesValidationError, setQueriesValidationError] = useState<string | null>(null);
+
+  const [discoveryInterval, setDiscoveryInterval] = useState<number | string>(
+    data?.config?.discoveryIntervalMin || DEFAULT_DISCOVERY_INTERVAL_MIN
+  );
+  const [discoveryIntervalError, setDiscoveryIntervalError] = useState<string | null>(null);
+
   const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [showDefaultsConfirm, setShowDefaultsConfirm] = useState(false);
@@ -127,6 +149,12 @@ export function Settings({
 
     setLabelPatterns(serializeFilterPatterns(cfg.includedLabels, cfg.excludedLabels));
     setLabelValidationError(null);
+
+    setTrackedQueries(getInitialTrackedQueries(cfg.trackedQueries));
+    setQueriesValidationError(null);
+
+    setDiscoveryInterval(cfg.discoveryIntervalMin || DEFAULT_DISCOVERY_INTERVAL_MIN);
+    setDiscoveryIntervalError(null);
   }
 
   const isDirty = useMemo(() => {
@@ -142,6 +170,9 @@ export function Settings({
       data?.config?.includedLabels,
       data?.config?.excludedLabels
     );
+    const savedTrackedQueries = getInitialTrackedQueries(data?.config?.trackedQueries);
+    const savedDiscoveryInterval =
+      data?.config?.discoveryIntervalMin || DEFAULT_DISCOVERY_INTERVAL_MIN;
 
     return (
       Number(pollingInterval) !== savedPolling ||
@@ -149,7 +180,9 @@ export function Settings({
       pinnedRepos !== savedPinned ||
       knownBots !== savedBots ||
       autoAckOwnActivity !== savedAutoAck ||
-      labelPatterns !== savedLabelPatterns
+      labelPatterns !== savedLabelPatterns ||
+      trackedQueries !== savedTrackedQueries ||
+      Number(discoveryInterval) !== savedDiscoveryInterval
     );
   }, [
     data?.config,
@@ -159,6 +192,8 @@ export function Settings({
     knownBots,
     autoAckOwnActivity,
     labelPatterns,
+    trackedQueries,
+    discoveryInterval,
   ]);
 
   const handleRequestClose = useCallback(() => {
@@ -183,6 +218,10 @@ export function Settings({
     setAutoAckOwnActivity(DEFAULT_AUTO_ACK_OWN_ACTIVITY);
     setLabelPatterns('');
     setLabelValidationError(null);
+    setTrackedQueries('');
+    setQueriesValidationError(null);
+    setDiscoveryInterval(DEFAULT_DISCOVERY_INTERVAL_MIN);
+    setDiscoveryIntervalError(null);
     setShowDefaultsConfirm(false);
     setStatus({ type: 'success', message: 'Default values restored. Click Save to persist.' });
   };
@@ -229,8 +268,43 @@ export function Settings({
       }
       setLabelValidationError(null);
 
+      // Validate Tracked Queries
+      const rawQueries = trackedQueries.split('\n').map((q) => q.trim()).filter(Boolean);
+      for (const q of rawQueries) {
+        if (q.includes('\0')) {
+          const err = 'Search query cannot contain null characters.';
+          setQueriesValidationError(err);
+          setStatus({ type: 'error', message: err });
+          return;
+        }
+        if (/(?:^|[\s(])(?:-)?updated:/i.test(q)) {
+          const err = "Tracked queries cannot contain an 'updated' filter (updated filter is managed automatically).";
+          setQueriesValidationError(err);
+          setStatus({ type: 'error', message: err });
+          return;
+        }
+        if (q.length > 500) {
+          const err = 'Search query cannot exceed 500 characters.';
+          setQueriesValidationError(err);
+          setStatus({ type: 'error', message: err });
+          return;
+        }
+      }
+      setQueriesValidationError(null);
+
+      // Validate Discovery Interval
+      const parsedDiscoveryInterval = Number(discoveryInterval);
+      if (isNaN(parsedDiscoveryInterval) || parsedDiscoveryInterval < MIN_DISCOVERY_INTERVAL_MIN) {
+        const err = `Discovery interval must be at least ${MIN_DISCOVERY_INTERVAL_MIN} minute.`;
+        setDiscoveryIntervalError(err);
+        setStatus({ type: 'error', message: err });
+        return;
+      }
+      setDiscoveryIntervalError(null);
+
       const parsedRepos = parseFilterPatterns(repoPatterns);
       const parsedLabels = parseFilterPatterns(labelPatterns);
+      const dedupedQueries = Array.from(new Set(rawQueries));
 
       const currentCfg = data?.config;
       const newConfig = {
@@ -243,6 +317,8 @@ export function Settings({
         autoAckOwnActivity,
         includedLabels: parsedLabels.includes,
         excludedLabels: parsedLabels.excludes,
+        trackedQueries: dedupedQueries,
+        discoveryIntervalMin: Math.max(MIN_DISCOVERY_INTERVAL_MIN, Math.round(parsedDiscoveryInterval)),
       };
 
       await updateConfigMutate({
@@ -571,6 +647,38 @@ export function Settings({
             </div>
           </div>
 
+          {/* Tracked Queries Section */}
+          <div className="pt-6 border-t border-slate-200 dark:border-slate-800">
+            <div>
+              <label htmlFor="trackedQueries" className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                Tracked Queries
+              </label>
+              <textarea
+                id="trackedQueries"
+                className={`w-full p-2.5 bg-white dark:bg-slate-800 border rounded-lg text-slate-900 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition placeholder-slate-400 dark:placeholder-slate-500 font-mono text-xs ${
+                  queriesValidationError ? 'border-red-500 dark:border-red-500 ring-1 ring-red-500/50' : 'border-slate-300 dark:border-slate-700'
+                }`}
+                placeholder="is:issue is:open label:security&#10;repo:kubernetes/kubernetes is:open label:sig/node"
+                rows={4}
+                value={trackedQueries}
+                onChange={(e) => {
+                  setTrackedQueries(e.target.value);
+                  setQueriesValidationError(null);
+                }}
+              />
+              {queriesValidationError ? (
+                <p className="text-xs text-red-600 dark:text-red-400 mt-1 flex items-center gap-1">
+                  <AlertCircle size={13} className="shrink-0" />
+                  <span>{queriesValidationError}</span>
+                </p>
+              ) : (
+                <p className="text-xs text-slate-500 dark:text-slate-500 mt-1">
+                  Enter one GitHub search query per line (e.g., <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">is:issue is:open label:security</code>). The <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">updated</code> filter is managed automatically. Discovered candidate items appear on your dashboard with an Untracked badge.
+                </p>
+              )}
+            </div>
+          </div>
+
           {/* Developer Tools / Debug Browser (Visible outside Advanced when onOpenDebug provided) */}
           {onOpenDebug && (
             <div className="pt-6 border-t border-slate-200 dark:border-slate-800">
@@ -625,6 +733,36 @@ export function Settings({
                   <p className="text-xs text-slate-500 dark:text-slate-500 mt-1">
                     Interval for background polling of GitHub notifications.
                   </p>
+                </div>
+
+                {/* Discovery Interval */}
+                <div>
+                  <label htmlFor="discoveryInterval" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Discovery Interval (minutes)
+                  </label>
+                  <input
+                    id="discoveryInterval"
+                    type="number"
+                    min="1"
+                    className={`w-full p-2.5 bg-white dark:bg-slate-800 border rounded-lg text-slate-900 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm ${
+                      discoveryIntervalError ? 'border-red-500 dark:border-red-500 ring-1 ring-red-500/50' : 'border-slate-300 dark:border-slate-700'
+                    }`}
+                    value={discoveryInterval}
+                    onChange={(e) => {
+                      setDiscoveryInterval(e.target.value);
+                      setDiscoveryIntervalError(null);
+                    }}
+                  />
+                  {discoveryIntervalError ? (
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-1 flex items-center gap-1">
+                      <AlertCircle size={13} className="shrink-0" />
+                      <span>{discoveryIntervalError}</span>
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-500 dark:text-slate-500 mt-1">
+                      Interval for periodic background discovery of candidate items matching tracked queries (default: 10 minutes, minimum: 1 minute).
+                    </p>
+                  )}
                 </div>
 
                 {/* Enable Debug Mode */}

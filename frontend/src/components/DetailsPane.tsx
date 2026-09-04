@@ -3,7 +3,7 @@ import {
     GitPullRequest, GitPullRequestDraft, GitPullRequestClosed, AlertCircle,
     CheckCircle2, GitCommit, X,
     ChevronDown, ChevronRight, FileCode, XCircle, Star, CornerDownRight, ExternalLink, Milestone,
-    GitMerge, CircleSlash, RotateCcw, AlertTriangle, UserCheck
+    GitMerge, CircleSlash, RotateCcw, AlertTriangle, UserCheck, RefreshCw
 } from 'lucide-react';
 import type { Item } from '../api/octodeck/v1/resources_pb';
 import {
@@ -19,12 +19,13 @@ import { getLabelStyle } from '../utils/labels';
 import { stripHtmlComments } from '../utils/text';
 import { buildTimeline, getProtoTimestampMs, getLatestNonNoiseActivityMs, getCiFailureSummary, formatReviewCommentSummary, getFilesViewUrl } from '../logic/timeline';
 
-interface DetailsPaneProps {
+export interface DetailsPaneProps {
     item: Item;
     onAck: (id: string) => Promise<void> | void;
     onUnack: (id: string) => Promise<void> | void;
     onStar?: (id: string, starred: boolean) => Promise<void> | void;
     onSetNotes?: (id: string, notes: string) => Promise<void> | void;
+    onSubscribe?: (id: string) => Promise<void> | void;
     knownBots?: string[];
     onClose: () => void;
     showItemId?: boolean;
@@ -39,10 +40,12 @@ export function DetailsPane({
     onUnack,
     onStar,
     onSetNotes,
+    onSubscribe,
     onClose,
     showItemId = false,
     onOpenDebug,
 }: DetailsPaneProps) {
+    const [isSubscribing, setIsSubscribing] = useState(false);
     const repoName = item.repo;
     const number = item.number;
     const title = item.title;
@@ -120,13 +123,40 @@ export function DetailsPane({
                             {stateText}
                         </span>
                         {isUntracked && (
-                            <span
-                                className="px-1.5 py-0.5 rounded text-[10px] font-bold border bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-700 font-sans"
-                                title="You are unsubscribed from notifications on this item (untracked)"
-                                data-testid="details-untracked-badge"
-                            >
-                                Untracked
-                            </span>
+                            onSubscribe ? (
+                                <button
+                                    type="button"
+                                    disabled={isSubscribing}
+                                    onClick={async () => {
+                                        if (isSubscribing) return;
+                                        setIsSubscribing(true);
+                                        try {
+                                            await onSubscribe(item.id);
+                                        } catch (err) {
+                                            console.error('Failed to subscribe:', err);
+                                        } finally {
+                                            setIsSubscribing(false);
+                                        }
+                                    }}
+                                    className="px-1.5 py-0.5 rounded text-[10px] font-bold border bg-slate-100 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/60 text-slate-600 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 border-slate-300 hover:border-blue-400 dark:border-slate-700 dark:hover:border-blue-500 font-sans flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-60"
+                                    title="Not subscribed on GitHub. Live updates won't be received automatically unless you subscribe or are mentioned."
+                                    aria-label="Subscribe to item (untracked)"
+                                    data-testid="details-untracked-badge"
+                                >
+                                    {isSubscribing && (
+                                        <RefreshCw size={10} className="animate-spin text-blue-500 shrink-0" data-testid="details-untracked-spinner" />
+                                    )}
+                                    <span>Untracked</span>
+                                </button>
+                            ) : (
+                                <span
+                                    className="px-1.5 py-0.5 rounded text-[10px] font-bold border bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-700 font-sans"
+                                    title="Not subscribed on GitHub. Live updates won't be received automatically unless you subscribe or are mentioned."
+                                    data-testid="details-untracked-badge"
+                                >
+                                    Untracked
+                                </span>
+                            )
                         )}
                         {item.milestone?.title && (
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-sans">

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -46,6 +47,55 @@ func NormalizeKnownBots(bots []string) []string {
 	return result
 }
 
+// SanitizeTrackedQueries trims leading and trailing whitespace from each query,
+// filters out empty or whitespace-only entries, and deduplicates identical queries
+// while strictly preserving original order.
+func SanitizeTrackedQueries(queries []string) []string {
+	if len(queries) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(queries))
+	var result []string
+	for _, q := range queries {
+		trimmed := strings.TrimSpace(q)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; !ok {
+			seen[trimmed] = struct{}{}
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
+var updatedFilterRegex = regexp.MustCompile(`(?i)(?:^|[\s(])(?:-)?updated:`)
+
+// HasUpdatedFilter checks whether a search query string contains an 'updated:' qualifier.
+func HasUpdatedFilter(query string) bool {
+	return updatedFilterRegex.MatchString(query)
+}
+
+// ValidateTrackedQueries validates that all queries in the slice contain valid UTF-8,
+// do not contain null bytes, and do not contain an 'updated' filter.
+func ValidateTrackedQueries(queries []string) error {
+	for _, q := range queries {
+		if !utf8.ValidString(q) {
+			return errors.New("query contains invalid UTF-8")
+		}
+		if strings.ContainsRune(q, '\x00') {
+			return errors.New("query contains null byte")
+		}
+		if HasUpdatedFilter(q) {
+			return fmt.Errorf(
+				"query %q cannot contain an 'updated' filter (updated filter is managed automatically)",
+				q,
+			)
+		}
+	}
+	return nil
+}
+
 const (
 	// DefaultSyncInterval is the default interval for syncing with GitHub.
 	DefaultSyncInterval = 1 * time.Minute
@@ -53,6 +103,11 @@ const (
 	DefaultGCInterval = 24 * time.Hour
 	// MinSyncInterval is the minimum allowed synchronization interval.
 	MinSyncInterval = 5 * time.Second
+
+	// DefaultDiscoveryInterval is the default interval for candidate item discovery.
+	DefaultDiscoveryInterval = 10 * time.Minute
+	// MinDiscoveryInterval is the minimum allowed discovery interval.
+	MinDiscoveryInterval = 1 * time.Minute
 
 	// DefaultStaleItemAge is the age at which an item is considered stale.
 	DefaultStaleItemAge = 30 * 24 * time.Hour // 30 days
@@ -130,6 +185,9 @@ func NewForTest(data *octodeckv1.Config) *Config {
 	if len(val.GetKnownBots()) > 0 {
 		val.SetKnownBots(NormalizeKnownBots(val.GetKnownBots()))
 	}
+	if len(val.GetTrackedQueries()) > 0 {
+		val.SetTrackedQueries(SanitizeTrackedQueries(val.GetTrackedQueries()))
+	}
 	cfg.data.Store(val)
 	return cfg
 }
@@ -147,7 +205,11 @@ func (c *Config) GetExtensionID() string {
 
 // GetKnownBots returns the list of known bot usernames.
 func (c *Config) GetKnownBots() []string {
-	return c.data.Load().GetKnownBots()
+	d := c.data.Load()
+	if d == nil {
+		return nil
+	}
+	return slices.Clone(d.GetKnownBots())
 }
 
 // AddKnownBots normalizes and adds bot usernames to the configuration.
@@ -180,17 +242,29 @@ func (c *Config) AddKnownBots(logins ...string) ([]string, bool, error) {
 
 // GetWatchedRepos returns the list of repositories being watched.
 func (c *Config) GetWatchedRepos() []string {
-	return c.data.Load().GetWatchedRepos()
+	d := c.data.Load()
+	if d == nil {
+		return nil
+	}
+	return slices.Clone(d.GetWatchedRepos())
 }
 
 // GetPinnedRepos returns the list of repositories pinned in the sidebar.
 func (c *Config) GetPinnedRepos() []string {
-	return c.data.Load().GetPinnedRepos()
+	d := c.data.Load()
+	if d == nil {
+		return nil
+	}
+	return slices.Clone(d.GetPinnedRepos())
 }
 
 // GetExcludedRepos returns the list of repositories excluded from monitoring.
 func (c *Config) GetExcludedRepos() []string {
-	return c.data.Load().GetExcludedRepos()
+	d := c.data.Load()
+	if d == nil {
+		return nil
+	}
+	return slices.Clone(d.GetExcludedRepos())
 }
 
 // GetPollingIntervalMin returns the polling interval in minutes.
@@ -207,6 +281,33 @@ func (c *Config) GetSyncInterval() time.Duration {
 	interval := time.Duration(d.GetPollingIntervalMin()) * time.Minute
 	if interval < MinSyncInterval {
 		return DefaultSyncInterval
+	}
+	return interval
+}
+
+// GetTrackedQueries returns the list of search queries being tracked for item discovery.
+func (c *Config) GetTrackedQueries() []string {
+	d := c.data.Load()
+	if d == nil {
+		return nil
+	}
+	return slices.Clone(d.GetTrackedQueries())
+}
+
+// GetDiscoveryIntervalMin returns the discovery interval in minutes.
+func (c *Config) GetDiscoveryIntervalMin() int32 {
+	return c.data.Load().GetDiscoveryIntervalMin()
+}
+
+// GetDiscoveryInterval returns the discovery interval as a [time.Duration].
+func (c *Config) GetDiscoveryInterval() time.Duration {
+	d := c.data.Load()
+	if d == nil || d.GetDiscoveryIntervalMin() <= 0 {
+		return DefaultDiscoveryInterval
+	}
+	interval := time.Duration(d.GetDiscoveryIntervalMin()) * time.Minute
+	if interval < MinDiscoveryInterval {
+		return DefaultDiscoveryInterval
 	}
 	return interval
 }
@@ -267,20 +368,21 @@ func (c *Config) UpdateProto(newCfg *octodeckv1.Config, mask *fieldmaskpb.FieldM
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	var target *octodeckv1.Config
 	if mask == nil || len(mask.GetPaths()) == 0 {
-		val, _ := proto.Clone(newCfg).(*octodeckv1.Config)
-		if len(val.GetKnownBots()) > 0 {
-			val.SetKnownBots(NormalizeKnownBots(val.GetKnownBots()))
-		}
-		c.data.Store(val)
+		target, _ = proto.Clone(newCfg).(*octodeckv1.Config)
 	} else {
-		current, _ := proto.Clone(c.data.Load()).(*octodeckv1.Config)
-		applyFieldMask(current, newCfg, mask)
-		if len(current.GetKnownBots()) > 0 {
-			current.SetKnownBots(NormalizeKnownBots(current.GetKnownBots()))
-		}
-		c.data.Store(current)
+		target, _ = proto.Clone(c.data.Load()).(*octodeckv1.Config)
+		applyFieldMask(target, newCfg, mask)
 	}
+
+	if len(target.GetKnownBots()) > 0 {
+		target.SetKnownBots(NormalizeKnownBots(target.GetKnownBots()))
+	}
+	if target.GetTrackedQueries() != nil {
+		target.SetTrackedQueries(SanitizeTrackedQueries(target.GetTrackedQueries()))
+	}
+	c.data.Store(target)
 	return c.saveLocked()
 }
 
@@ -295,7 +397,17 @@ func applyFieldMask(dst, src protoreflect.ProtoMessage, mask *fieldmaskpb.FieldM
 		if fd == nil {
 			fd = fields.ByName(protoreflect.Name(path))
 		}
-		if fd != nil {
+		if fd == nil {
+			continue
+		}
+		if fd.IsList() {
+			dstReflect.Clear(fd)
+			srcList := srcReflect.Get(fd).List()
+			dstList := dstReflect.Mutable(fd).List()
+			for i := range srcList.Len() {
+				dstList.Append(srcList.Get(i))
+			}
+		} else {
 			dstReflect.Set(fd, srcReflect.Get(fd))
 		}
 	}
@@ -328,10 +440,11 @@ func Load(customPath string, overrides Overrides) (*Config, error) {
 
 	// Default config
 	data := octodeckv1.Config_builder{
-		PollingIntervalMin: Ptr(int32(DefaultSyncInterval.Minutes())),
-		KnownBots:          DefaultKnownBots(),
-		AutoAckOwnActivity: Ptr(true),
-		Port:               Ptr(int32(DefaultPort)),
+		PollingIntervalMin:   Ptr(int32(DefaultSyncInterval.Minutes())),
+		DiscoveryIntervalMin: Ptr(int32(DefaultDiscoveryInterval.Minutes())),
+		KnownBots:            DefaultKnownBots(),
+		AutoAckOwnActivity:   Ptr(true),
+		Port:                 Ptr(int32(DefaultPort)),
 	}.Build()
 	cfg.data.Store(data)
 
@@ -353,6 +466,9 @@ func Load(customPath string, overrides Overrides) (*Config, error) {
 	}
 	if len(newData.GetKnownBots()) > 0 {
 		newData.SetKnownBots(NormalizeKnownBots(newData.GetKnownBots()))
+	}
+	if len(newData.GetTrackedQueries()) > 0 {
+		newData.SetTrackedQueries(SanitizeTrackedQueries(newData.GetTrackedQueries()))
 	}
 	cfg.data.Store(newData)
 

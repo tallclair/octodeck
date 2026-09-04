@@ -24,6 +24,7 @@ import {
   Keyboard,
 } from 'lucide-react';
 import { useQuery, useMutation } from '@connectrpc/connect-query';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   getItems,
   ackItem,
@@ -32,9 +33,11 @@ import {
   getConfig,
   viewItem,
   getSyncStatus,
+  updateSubscription,
 } from '../api/octodeck/v1/service-OctoDeckService_connectquery';
 import {
   ItemStatus as ProtoItemStatus,
+  SubscriptionState,
   type Item,
   type Label,
 } from '../api/octodeck/v1/resources_pb';
@@ -79,10 +82,12 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   );
 
   const isDisconnected = isItemsError || isConfigError || isSyncStatusError;
+  const queryClient = useQueryClient();
   const { mutateAsync: ackItemMutate } = useMutation(ackItem);
   const { mutateAsync: starItemMutate } = useMutation(starItem);
   const { mutateAsync: setNotesMutate } = useMutation(setNotes);
   const { mutateAsync: viewItemMutate } = useMutation(viewItem);
+  const { mutateAsync: updateSubscriptionMutate } = useMutation(updateSubscription);
 
   const [isSyncing, setIsSyncing] = useState(false);
 
@@ -458,6 +463,40 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
       await refetchItems();
     } catch (err) {
       console.error('Failed to set notes for item:', id, err);
+    }
+  };
+
+  const handleSubscribe = async (id: string) => {
+    try {
+      const res = await updateSubscriptionMutate({
+        itemId: id,
+        state: SubscriptionState.SUBSCRIBED,
+      });
+
+      if (queryClient?.setQueriesData) {
+        queryClient.setQueriesData(
+          { queryKey: ['connect-query'] },
+          (oldData: unknown) => {
+            const dataObj = oldData as { items?: Item[] } | undefined;
+            if (!dataObj || !Array.isArray(dataObj.items)) return oldData;
+            return {
+              ...dataObj,
+              items: dataObj.items.map((it: Item) =>
+                it.id === id
+                  ? (res?.item ?? { ...it, viewerSubscription: SubscriptionState.SUBSCRIBED })
+                  : it
+              ),
+            };
+          }
+        );
+      }
+
+      if (queryClient?.invalidateQueries) {
+        await queryClient.invalidateQueries();
+      }
+      await refetchItems();
+    } catch (err) {
+      console.error('Failed to subscribe to item:', id, err);
     }
   };
 
@@ -1791,6 +1830,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                         onSelect={() => setFilter('item', selectedItemId === item.id ? null : item.id)}
                         onAck={handleAck}
                         onUnack={handleUnack}
+                        onSubscribe={handleSubscribe}
                         showItemId={debugMode}
                         onOpenDebug={debugMode ? onOpenDebug : undefined}
                         grayAckedBackground={filters.triage === 'all'}
@@ -1836,6 +1876,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                 onUnack={handleUnack}
                 onStar={handleStar}
                 onSetNotes={handleSetNotes}
+                onSubscribe={handleSubscribe}
                 onClose={() => setFilter('item', null)}
                 showItemId={debugMode}
                 onOpenDebug={debugMode ? onOpenDebug : undefined}

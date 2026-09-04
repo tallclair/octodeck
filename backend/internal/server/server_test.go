@@ -19,12 +19,24 @@ import (
 )
 
 type mockGitHubClient struct {
-	authenticated bool
-	err           error
+	authenticated        bool
+	err                  error
+	updateSubscriptionFn func(ctx context.Context, id string, state octodeckv1.SubscriptionState) error
 }
 
 func (m *mockGitHubClient) CheckAuth(_ context.Context) (string, bool, error) {
 	return "testuser", m.authenticated, m.err
+}
+
+func (m *mockGitHubClient) UpdateSubscription(
+	ctx context.Context,
+	id string,
+	state octodeckv1.SubscriptionState,
+) error {
+	if m.updateSubscriptionFn != nil {
+		return m.updateSubscriptionFn(ctx, id, state)
+	}
+	return m.err
 }
 
 type mockSyncEngine struct {

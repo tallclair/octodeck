@@ -3,8 +3,13 @@ import { render, screen, fireEvent, act, within, waitFor } from '@testing-librar
 import { Dashboard } from '../Dashboard';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as connectQuery from '@connectrpc/connect-query';
-import { ItemType, ItemState, ItemStatus, type Item, type User } from '../../api/octodeck/v1/resources_pb';
+import { ItemType, ItemState, ItemStatus, SubscriptionState, type Item, type User } from '../../api/octodeck/v1/resources_pb';
 import { checkStatus } from '../../api/client';
+
+const { invalidateQueriesMock, setQueriesDataMock } = vi.hoisted(() => ({
+  invalidateQueriesMock: vi.fn().mockResolvedValue(undefined),
+  setQueriesDataMock: vi.fn(),
+}));
 
 vi.mock('../../api/client', async () => {
   const actual = await vi.importActual<typeof import('../../api/client')>('../../api/client');
@@ -19,8 +24,9 @@ vi.mock('../../api/client', async () => {
 
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({
-    invalidateQueries: vi.fn().mockResolvedValue(undefined),
+    invalidateQueries: invalidateQueriesMock,
     refetchQueries: vi.fn().mockResolvedValue(undefined),
+    setQueriesData: setQueriesDataMock,
   }),
 }));
 
@@ -1702,7 +1708,126 @@ describe('Dashboard Component - Generalized Filters & URL Sync', () => {
       });
     });
   });
+
+  describe('Subscription Mutation Wiring', () => {
+    it('triggers updateSubscription mutation with SubscriptionState.SUBSCRIBED and refetches items when handleSubscribe is invoked from PullRequestCard', async () => {
+      const refetchItemsMock = vi.fn().mockResolvedValue({});
+      const untrackedMockItem: Partial<Item> = {
+        ...mockItem,
+        id: 'PR_1',
+        viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+      };
+
+      vi.mocked(connectQuery.useQuery).mockImplementation((schema: any) => {
+        if (schema?.name === 'GetItems' || schema?.method?.name === 'GetItems') {
+          return {
+            data: { items: [untrackedMockItem as Item] },
+            isLoading: false,
+            isError: false,
+            error: null,
+            refetch: refetchItemsMock,
+          } as any;
+        }
+        return {
+          data: { config: mockConfig, currentUserLogin: 'testuser' },
+          isLoading: false,
+          isError: false,
+          error: null,
+          refetch: vi.fn(),
+        } as any;
+      });
+
+      const updateSubscriptionMutateMock = vi.fn().mockResolvedValue({
+        item: { ...untrackedMockItem, viewerSubscription: SubscriptionState.SUBSCRIBED },
+      });
+
+      vi.mocked(connectQuery.useMutation).mockImplementation((schema: any) => {
+        if (schema?.name === 'UpdateSubscription' || schema?.method?.name === 'UpdateSubscription') {
+          return { mutateAsync: updateSubscriptionMutateMock } as any;
+        }
+        return { mutateAsync: vi.fn().mockResolvedValue({}) } as any;
+      });
+
+      render(<Dashboard />);
+
+      const untrackedButton = screen.getByTestId('untracked-badge');
+      expect(untrackedButton).toBeDefined();
+
+      await act(async () => {
+        fireEvent.click(untrackedButton);
+      });
+
+      expect(updateSubscriptionMutateMock).toHaveBeenCalledWith({
+        itemId: 'PR_1',
+        state: SubscriptionState.SUBSCRIBED,
+      });
+
+      expect(invalidateQueriesMock).toHaveBeenCalled();
+      expect(refetchItemsMock).toHaveBeenCalled();
+    });
+
+    it('triggers updateSubscription mutation when subscribing from DetailsPane', async () => {
+      const refetchItemsMock = vi.fn().mockResolvedValue({});
+      const untrackedMockItem: Partial<Item> = {
+        ...mockItem,
+        id: 'PR_1',
+        viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+      };
+
+      vi.mocked(connectQuery.useQuery).mockImplementation((schema: any) => {
+        if (schema?.name === 'GetItems' || schema?.method?.name === 'GetItems') {
+          return {
+            data: { items: [untrackedMockItem as Item] },
+            isLoading: false,
+            isError: false,
+            error: null,
+            refetch: refetchItemsMock,
+          } as any;
+        }
+        return {
+          data: { config: mockConfig, currentUserLogin: 'testuser' },
+          isLoading: false,
+          isError: false,
+          error: null,
+          refetch: vi.fn(),
+        } as any;
+      });
+
+      const updateSubscriptionMutateMock = vi.fn().mockResolvedValue({
+        item: { ...untrackedMockItem, viewerSubscription: SubscriptionState.SUBSCRIBED },
+      });
+
+      vi.mocked(connectQuery.useMutation).mockImplementation((schema: any) => {
+        if (schema?.name === 'UpdateSubscription' || schema?.method?.name === 'UpdateSubscription') {
+          return { mutateAsync: updateSubscriptionMutateMock } as any;
+        }
+        return { mutateAsync: vi.fn().mockResolvedValue({}) } as any;
+      });
+
+      render(<Dashboard />);
+
+      // Open item in DetailsPane by clicking the title
+      const titleLink = screen.getByText('Test PR');
+      await act(async () => {
+        fireEvent.click(titleLink);
+      });
+
+      const detailsUntrackedBtn = screen.getByTestId('details-untracked-badge');
+      expect(detailsUntrackedBtn).toBeDefined();
+
+      await act(async () => {
+        fireEvent.click(detailsUntrackedBtn);
+      });
+
+      expect(updateSubscriptionMutateMock).toHaveBeenCalledWith({
+        itemId: 'PR_1',
+        state: SubscriptionState.SUBSCRIBED,
+      });
+      expect(refetchItemsMock).toHaveBeenCalled();
+    });
+  });
 });
+
 
 
 

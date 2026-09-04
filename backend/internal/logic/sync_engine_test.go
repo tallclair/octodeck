@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,13 +27,22 @@ import (
 const inventoryQueryName = "InventorySearch"
 
 type mockGraphQLClient struct {
-	queryFunc func(ctx context.Context, name string, q any, vars map[string]any) error
+	queryFunc  func(ctx context.Context, name string, q any, vars map[string]any) error
+	mutateFunc func(ctx context.Context, name string, m any, vars map[string]any) error
 }
 
 func (m *mockGraphQLClient) QueryWithContext(ctx context.Context, name string, q any,
 	vars map[string]any) error {
 	if m.queryFunc != nil {
 		return m.queryFunc(ctx, name, q, vars)
+	}
+	return nil
+}
+
+func (m *mockGraphQLClient) MutateWithContext(ctx context.Context, name string, mMut any,
+	vars map[string]any) error {
+	if m.mutateFunc != nil {
+		return m.mutateFunc(ctx, name, mMut, vars)
 	}
 	return nil
 }
@@ -1844,4 +1855,723 @@ func TestRefetchItem_UntrackedItemOnDemandFetch(t *testing.T) {
 	dbItem, err := db.GetItem(t.Context(), "node_untracked_999")
 	require.NoError(t, err)
 	assert.Equal(t, "Untracked Issue Title", dbItem.GetTitle())
+}
+
+// TestSyncEngine_TickerInitializationAndNilSafety tests ticker lifecycle initialization and nil safety.
+func TestSyncEngine_TickerInitializationAndNilSafety(t *testing.T) {
+	db := setupTestDB(t)
+	defer func() { require.NoError(t, db.Close()) }()
+
+	cfg := config.NewForTest(octodeckv1.Config_builder{
+		PollingIntervalMin:   config.Ptr(int32(15)),
+		DiscoveryIntervalMin: config.Ptr(int32(45)),
+	}.Build())
+
+	engine := NewSyncEngine(db, nil, cfg)
+
+	// 1. Calling ResetTicker before Start() must NOT panic on nil tickers
+	require.NotPanics(t, func() {
+		engine.ResetTicker()
+	})
+
+	// 2. Start engine and verify tickers are initialized
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	engine.Start(ctx)
+	defer engine.Stop()
+
+	engine.mu.Lock()
+	require.NotNil(t, engine.tickerInc, "tickerInc must be initialized after Start()")
+	require.NotNil(t, engine.tickerDiscovery, "tickerDiscovery must be initialized after Start()")
+	engine.mu.Unlock()
+
+	// 3. Reset tickers after Start()
+	require.NotPanics(t, func() {
+		engine.ResetTicker()
+	})
+}
+
+// TestSyncEngine_ResetTicker_DiscoveryInterval tests resetting both sync and discovery tickers.
+func TestSyncEngine_ResetTicker_DiscoveryInterval(t *testing.T) {
+	db := setupTestDB(t)
+	defer func() { require.NoError(t, db.Close()) }()
+
+	cfg := config.NewForTest(octodeckv1.Config_builder{
+		PollingIntervalMin:   config.Ptr(int32(15)),
+		DiscoveryIntervalMin: config.Ptr(int32(30)),
+	}.Build())
+
+	engine := NewSyncEngine(db, nil, cfg)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	engine.Start(ctx)
+	defer engine.Stop()
+
+	// Mutate config with new discovery and polling intervals
+	cfgProto := cfg.GetProto()
+	cfgProto.SetPollingIntervalMin(5)
+	cfgProto.SetDiscoveryIntervalMin(10)
+	err := cfg.UpdateProto(cfgProto, nil)
+	require.NoError(t, err)
+
+	require.Equal(t, 5*time.Minute, cfg.GetSyncInterval())
+	require.Equal(t, 10*time.Minute, cfg.GetDiscoveryInterval())
+
+	// ResetTicker must safely update both tickers under lock
+	require.NotPanics(t, func() {
+		engine.ResetTicker()
+	})
+}
+
+// TestSyncEngine_Stop_Idempotency tests that Stop() terminates cleanly and does not panic on multiple calls.
+func TestSyncEngine_Stop_Idempotency(t *testing.T) {
+	db := setupTestDB(t)
+	defer func() { require.NoError(t, db.Close()) }()
+
+	cfg := config.NewForTest(octodeckv1.Config_builder{}.Build())
+	engine := NewSyncEngine(db, nil, cfg)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	engine.Start(ctx)
+
+	// First Stop() terminates the engine
+	require.NotPanics(t, func() {
+		engine.Stop()
+	})
+
+	// Subsequent Stop() calls must be idempotent and not panic with "close of closed channel"
+	require.NotPanics(t, func() {
+		engine.Stop()
+		engine.Stop()
+	})
+}
+
+// TestSyncEngine_ConcurrentStart_Race verifies that 10 concurrent goroutines calling
+// Start(ctx) on the same engine does not trigger data races and starts cleanly under -race.
+func TestSyncEngine_ConcurrentStart_Race(t *testing.T) {
+	db := setupTestDB(t)
+	defer func() { require.NoError(t, db.Close()) }()
+
+	// Seed database to prevent background inventory sync goroutines
+	dummyItem := octodeckv1.Item_builder{
+		Id:     config.Ptr("ISSUE_CONCURRENT_START"),
+		Repo:   config.Ptr("owner/repo"),
+		Number: config.Ptr(int32(1)),
+		Type:   config.Ptr(octodeckv1.ItemType_ITEM_TYPE_ISSUE),
+		State:  config.Ptr(octodeckv1.ItemState_ITEM_STATE_OPEN),
+		Title:  config.Ptr("Concurrent Start Test Issue"),
+		Author: octodeckv1.User_builder{Login: config.Ptr("author")}.Build(),
+		Local:  octodeckv1.ItemLocalState_builder{}.Build(),
+	}.Build()
+	require.NoError(t, db.SaveItems(t.Context(), []*octodeckv1.Item{dummyItem}))
+
+	mockREST := &mockRESTClient{
+		doFunc: func(_ context.Context, _, path string, _ io.Reader, response any) error {
+			if path == "user" {
+				data, _ := json.Marshal(map[string]any{"login": "testuser"})
+				return json.Unmarshal(data, response)
+			}
+			return nil
+		},
+	}
+	ghClient := &github.Client{RestClient: mockREST}
+	cfg := config.NewForTest(octodeckv1.Config_builder{}.Build())
+	engine := NewSyncEngine(db, ghClient, cfg)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	const concurrency = 10
+	var wg sync.WaitGroup
+	startGate := make(chan struct{})
+
+	for range concurrency {
+		wg.Go(func() {
+			<-startGate // Synchronize goroutines to hit Start() concurrently
+			engine.Start(ctx)
+		})
+	}
+
+	close(startGate)
+	wg.Wait()
+
+	// Engine must have initialized tickers and started
+	assert.NotNil(t, engine.tickerInc, "tickerInc should be initialized")
+	assert.NotNil(t, engine.tickerDiscovery, "tickerDiscovery should be initialized")
+
+	// Engine must stop cleanly without panic
+	require.NotPanics(t, func() {
+		engine.Stop()
+	})
+}
+
+// TestSyncEngine_RepeatedStart_Idempotent verifies that calling Start(ctx) sequentially
+// multiple times is fully idempotent: tickers are not recreated and only a single event loop is running.
+func TestSyncEngine_RepeatedStart_Idempotent(t *testing.T) {
+	db := setupTestDB(t)
+	defer func() { require.NoError(t, db.Close()) }()
+
+	// Seed database to prevent background inventory sync goroutine
+	dummyItem := octodeckv1.Item_builder{
+		Id:     config.Ptr("ISSUE_REPEATED_START"),
+		Repo:   config.Ptr("owner/repo"),
+		Number: config.Ptr(int32(1)),
+		Type:   config.Ptr(octodeckv1.ItemType_ITEM_TYPE_ISSUE),
+		State:  config.Ptr(octodeckv1.ItemState_ITEM_STATE_OPEN),
+		Title:  config.Ptr("Repeated Start Test Issue"),
+		Author: octodeckv1.User_builder{Login: config.Ptr("author")}.Build(),
+		Local:  octodeckv1.ItemLocalState_builder{}.Build(),
+	}.Build()
+	require.NoError(t, db.SaveItems(t.Context(), []*octodeckv1.Item{dummyItem}))
+
+	mockREST := &mockRESTClient{
+		doFunc: func(_ context.Context, _, path string, _ io.Reader, response any) error {
+			if path == "user" {
+				data, _ := json.Marshal(map[string]any{"login": "testuser"})
+				return json.Unmarshal(data, response)
+			}
+			return nil
+		},
+	}
+	ghClient := &github.Client{RestClient: mockREST}
+	cfg := config.NewForTest(octodeckv1.Config_builder{}.Build())
+	engine := NewSyncEngine(db, ghClient, cfg)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	// Initial Start call
+	engine.Start(ctx)
+
+	tickerIncFirst := engine.tickerInc
+	tickerDiscFirst := engine.tickerDiscovery
+	require.NotNil(t, tickerIncFirst, "tickerInc must be initialized on first Start()")
+	require.NotNil(t, tickerDiscFirst, "tickerDiscovery must be initialized on first Start()")
+
+	// Wait briefly for the single event loop goroutine to start
+	time.Sleep(20 * time.Millisecond)
+	baselineGoroutines := runtime.NumGoroutine()
+
+	// Call Start() sequentially multiple times
+	const repeatCount = 5
+	for range repeatCount {
+		engine.Start(ctx)
+	}
+
+	time.Sleep(20 * time.Millisecond)
+	goroutinesAfterRepeats := runtime.NumGoroutine()
+
+	// 1. Assert tickers are not recreated (pointer identity preserved)
+	assert.Same(t, tickerIncFirst, engine.tickerInc, "tickerInc must not be recreated on repeated Start()")
+	assert.Same(t, tickerDiscFirst, engine.tickerDiscovery, "tickerDiscovery must not be recreated on repeated Start()")
+
+	// 2. Assert only a single event loop is running (no extra goroutines spawned)
+	assert.Equal(t, baselineGoroutines, goroutinesAfterRepeats,
+		"calling Start() repeatedly must not spawn redundant event loop goroutines")
+
+	// 3. Clean termination: verify event loop exits after Stop()
+	engine.Stop()
+	require.Eventually(t, func() bool {
+		buf := make([]byte, 8192)
+		n := runtime.Stack(buf, true)
+		return !strings.Contains(string(buf[:n]), "runEventLoop")
+	}, 1*time.Second, 10*time.Millisecond, "event loop goroutine must terminate after Stop()")
+}
+
+// TestSyncEngine_ConcurrentStartAndStop verifies that concurrent Start(ctx) and Stop()
+// calls across multiple goroutines do not panic, deadlock, or trigger data races under -race.
+func TestSyncEngine_ConcurrentStartAndStop(t *testing.T) {
+	mockREST := &mockRESTClient{
+		doFunc: func(_ context.Context, _, path string, _ io.Reader, response any) error {
+			if path == "user" {
+				data, _ := json.Marshal(map[string]any{"login": "testuser"})
+				return json.Unmarshal(data, response)
+			}
+			return nil
+		},
+	}
+	ghClient := &github.Client{RestClient: mockREST}
+	cfg := config.NewForTest(octodeckv1.Config_builder{}.Build())
+
+	// Run across multiple iterations to test different thread interleavings
+	for iter := range 10 {
+		db := setupTestDB(t)
+		dummyItem := octodeckv1.Item_builder{
+			Id:     config.Ptr(fmt.Sprintf("ISSUE_START_STOP_%d", iter)),
+			Repo:   config.Ptr("owner/repo"),
+			Number: config.Ptr(int32(1)),
+			Type:   config.Ptr(octodeckv1.ItemType_ITEM_TYPE_ISSUE),
+			State:  config.Ptr(octodeckv1.ItemState_ITEM_STATE_OPEN),
+			Title:  config.Ptr("Start Stop Test Issue"),
+			Author: octodeckv1.User_builder{Login: config.Ptr("author")}.Build(),
+			Local:  octodeckv1.ItemLocalState_builder{}.Build(),
+		}.Build()
+		require.NoError(t, db.SaveItems(t.Context(), []*octodeckv1.Item{dummyItem}))
+
+		engine := NewSyncEngine(db, ghClient, cfg)
+		ctx, cancel := context.WithCancel(t.Context())
+
+		const numStarters = 10
+		const numStoppers = 10
+		var wg sync.WaitGroup
+		gate := make(chan struct{})
+
+		for range numStarters {
+			wg.Go(func() {
+				<-gate
+				engine.Start(ctx)
+			})
+		}
+
+		for range numStoppers {
+			wg.Go(func() {
+				<-gate
+				engine.Stop()
+			})
+		}
+
+		close(gate)
+		wg.Wait()
+		cancel()
+
+		// Final Stop and ResetTicker calls must remain safe and idempotent
+		require.NotPanics(t, func() {
+			engine.Stop()
+			engine.ResetTicker()
+		})
+
+		require.NoError(t, db.Close())
+	}
+}
+
+// TestRunDiscovery_DoesNotBlockGetStatus verifies that RunDiscovery acquiring discoveryMu
+// frees s.mu during network I/O, allowing GetStatus() to complete immediately without lock contention.
+func TestRunDiscovery_DoesNotBlockGetStatus(t *testing.T) {
+	db := setupTestDB(t)
+	defer func() { require.NoError(t, db.Close()) }()
+
+	searchStarted := make(chan struct{})
+	allowSearchFinish := make(chan struct{})
+
+	mockGQL := &mockGraphQLClient{
+		queryFunc: func(ctx context.Context, name string, q any, vars map[string]any) error {
+			if name == "SearchCandidateIDs" {
+				select {
+				case <-searchStarted:
+				default:
+					close(searchStarted)
+				}
+				select {
+				case <-allowSearchFinish:
+				case <-ctx.Done():
+				}
+			}
+			return nil
+		},
+	}
+	mockREST := &mockRESTClient{
+		doFunc: func(_ context.Context, _, path string, _ io.Reader, response any) error {
+			if path == "user" {
+				data, _ := json.Marshal(map[string]any{"login": "testuser"})
+				return json.Unmarshal(data, response)
+			}
+			return nil
+		},
+	}
+	ghClient := &github.Client{RestClient: mockREST, GraphQLClient: mockGQL}
+	cfg := config.NewForTest(octodeckv1.Config_builder{
+		TrackedQueries: []string{"repo:owner/repo is:issue"},
+	}.Build())
+	engine := NewSyncEngine(db, ghClient, cfg)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	// Launch RunDiscovery in background (will pause in mock GraphQL SearchCandidateIDs)
+	discDone := make(chan struct{})
+	go func() {
+		defer close(discDone)
+		_ = engine.RunDiscovery(ctx)
+	}()
+
+	// Wait until RunDiscovery enters GraphQL network I/O under discoveryMu
+	select {
+	case <-searchStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunDiscovery did not start network I/O in time")
+	}
+
+	// While RunDiscovery is paused in network I/O, GetStatus() must complete immediately (< 50ms)
+	start := time.Now()
+	status := engine.GetStatus()
+	duration := time.Since(start)
+
+	assert.NotNil(t, status)
+	assert.Less(t, duration, 50*time.Millisecond, "GetStatus must not be blocked by RunDiscovery network I/O")
+
+	// Release mock GraphQL and wait for discovery to return
+	close(allowSearchFinish)
+	<-discDone
+}
+
+// TestSyncEngine_UntrackedItem_LifecycleAndGCRefresh verifies requirement R3:
+// 1. Unsubscribed items remain dormant without polling.
+// 2. Only stale (>30 days) open items are fetched during GC.
+// 3. Stale unsubscribed items have their LastSyncedAt updated and viewer_subscription refreshed.
+func TestSyncEngine_UntrackedItem_LifecycleAndGCRefresh(t *testing.T) {
+	const (
+		idUntrackedStale  = "ISSUE_UNTRACKED_STALE"
+		idUntrackedFresh  = "ISSUE_UNTRACKED_FRESH"
+		idUntrackedClosed = "ISSUE_UNTRACKED_CLOSED"
+		idSubscribedStale = "ISSUE_SUBSCRIBED_STALE"
+		repoName          = "owner/repo"
+	)
+
+	db := setupTestDB(t)
+	defer func() { require.NoError(t, db.Close()) }()
+
+	staleTime := time.Now().Add(-31 * 24 * time.Hour)
+	freshTime := time.Now().Add(-2 * 24 * time.Hour)
+
+	// 1. Untracked Stale: Open, UNSUBSCRIBED, synced 31 days ago
+	untrackedStale := octodeckv1.Item_builder{
+		Id:                 config.Ptr(idUntrackedStale),
+		Repo:               config.Ptr(repoName),
+		Number:             config.Ptr(int32(101)),
+		Type:               config.Ptr(octodeckv1.ItemType_ITEM_TYPE_ISSUE),
+		Title:              config.Ptr("Untracked Stale"),
+		State:              config.Ptr(octodeckv1.ItemState_ITEM_STATE_OPEN),
+		ViewerSubscription: config.Ptr(octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED),
+		UpdatedAt:          timestamppb.New(staleTime),
+		LastSyncedAt:       timestamppb.New(staleTime),
+		Author:             octodeckv1.User_builder{Login: config.Ptr("author")}.Build(),
+		Local:              octodeckv1.ItemLocalState_builder{}.Build(),
+	}.Build()
+
+	// 2. Untracked Fresh: Open, UNSUBSCRIBED, synced 2 days ago (must NOT be touched by GC)
+	untrackedFresh := octodeckv1.Item_builder{
+		Id:                 config.Ptr(idUntrackedFresh),
+		Repo:               config.Ptr(repoName),
+		Number:             config.Ptr(int32(102)),
+		Type:               config.Ptr(octodeckv1.ItemType_ITEM_TYPE_ISSUE),
+		Title:              config.Ptr("Untracked Fresh"),
+		State:              config.Ptr(octodeckv1.ItemState_ITEM_STATE_OPEN),
+		ViewerSubscription: config.Ptr(octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED),
+		UpdatedAt:          timestamppb.New(freshTime),
+		LastSyncedAt:       timestamppb.New(freshTime),
+		Author:             octodeckv1.User_builder{Login: config.Ptr("author")}.Build(),
+		Local:              octodeckv1.ItemLocalState_builder{}.Build(),
+	}.Build()
+
+	// 3. Untracked Closed: CLOSED, UNSUBSCRIBED, updated 31 days ago (must NOT be refreshed by GC)
+	untrackedClosed := octodeckv1.Item_builder{
+		Id:                 config.Ptr(idUntrackedClosed),
+		Repo:               config.Ptr(repoName),
+		Number:             config.Ptr(int32(103)),
+		Type:               config.Ptr(octodeckv1.ItemType_ITEM_TYPE_ISSUE),
+		Title:              config.Ptr("Untracked Closed"),
+		State:              config.Ptr(octodeckv1.ItemState_ITEM_STATE_CLOSED),
+		ViewerSubscription: config.Ptr(octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED),
+		UpdatedAt:          timestamppb.New(staleTime),
+		LastSyncedAt:       timestamppb.New(staleTime),
+		Author:             octodeckv1.User_builder{Login: config.Ptr("author")}.Build(),
+		Local:              octodeckv1.ItemLocalState_builder{}.Build(),
+	}.Build()
+
+	// 4. Subscribed Stale: Open, SUBSCRIBED, synced 31 days ago (refreshed by GC)
+	subscribedStale := octodeckv1.Item_builder{
+		Id:                 config.Ptr(idSubscribedStale),
+		Repo:               config.Ptr(repoName),
+		Number:             config.Ptr(int32(104)),
+		Type:               config.Ptr(octodeckv1.ItemType_ITEM_TYPE_ISSUE),
+		Title:              config.Ptr("Subscribed Stale"),
+		State:              config.Ptr(octodeckv1.ItemState_ITEM_STATE_OPEN),
+		ViewerSubscription: config.Ptr(octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED),
+		UpdatedAt:          timestamppb.New(staleTime),
+		LastSyncedAt:       timestamppb.New(staleTime),
+		Author:             octodeckv1.User_builder{Login: config.Ptr("author")}.Build(),
+		Local:              octodeckv1.ItemLocalState_builder{}.Build(),
+	}.Build()
+
+	err := db.SaveItems(t.Context(), []*octodeckv1.Item{
+		untrackedStale, untrackedFresh, untrackedClosed, subscribedStale,
+	})
+	require.NoError(t, err)
+
+	requestedIDs := make(map[string]bool)
+	mockGQL := &mockGraphQLClient{
+		queryFunc: func(_ context.Context, name string, q any, vars map[string]any) error {
+			if name == "ItemsFetch" {
+				ids, ok := vars["ids"].([]string)
+				require.True(t, ok)
+				var nodes []any
+				for _, id := range ids {
+					requestedIDs[id] = true
+					switch id {
+					case idUntrackedStale:
+						nodes = append(nodes, map[string]any{
+							"__typename": "Issue",
+							"issue": map[string]any{
+								"id":                 idUntrackedStale,
+								"repository":         map[string]any{"nameWithOwner": repoName},
+								"number":             101,
+								"state":              "OPEN",
+								"updatedAt":          time.Now().Format(time.RFC3339),
+								"title":              "Untracked Stale Updated",
+								"url":                "http://test/101",
+								"author":             map[string]any{"login": "author"},
+								"comments":           map[string]any{"nodes": []any{}},
+								"assignees":          map[string]any{"nodes": []any{}},
+								"viewerSubscription": "UNSUBSCRIBED",
+								"timelineItems":      map[string]any{"nodes": []any{}},
+							},
+						})
+					case idSubscribedStale:
+						nodes = append(nodes, map[string]any{
+							"__typename": "Issue",
+							"issue": map[string]any{
+								"id":                 idSubscribedStale,
+								"repository":         map[string]any{"nameWithOwner": repoName},
+								"number":             104,
+								"state":              "OPEN",
+								"updatedAt":          time.Now().Format(time.RFC3339),
+								"title":              "Subscribed Stale Updated",
+								"url":                "http://test/104",
+								"author":             map[string]any{"login": "author"},
+								"comments":           map[string]any{"nodes": []any{}},
+								"assignees":          map[string]any{"nodes": []any{}},
+								"viewerSubscription": "SUBSCRIBED",
+								"timelineItems":      map[string]any{"nodes": []any{}},
+							},
+						})
+					default:
+						assert.Failf(t, "Unexpected item requested by GC", "id: %s", id)
+					}
+				}
+				jsonData, _ := json.Marshal(map[string]any{"nodes": nodes})
+				return json.Unmarshal(jsonData, q)
+			}
+			return nil
+		},
+	}
+	mockREST := &mockRESTClient{
+		doFunc: func(_ context.Context, _, path string, _ io.Reader, response any) error {
+			if path == "user" {
+				data, _ := json.Marshal(map[string]any{"login": "testuser"})
+				return json.Unmarshal(data, response)
+			}
+			return nil
+		},
+	}
+
+	ghClient := &github.Client{RestClient: mockREST, GraphQLClient: mockGQL, CurrentUser: "testuser"}
+	cfg := config.NewForTest(octodeckv1.Config_builder{}.Build())
+	engine := NewSyncEngine(db, ghClient, cfg)
+
+	// Run GC pass
+	gcStartTime := time.Now()
+	err = engine.RunGarbageCollection(t.Context())
+	require.NoError(t, err)
+
+	// Assert only stale open items were requested
+	assert.True(t, requestedIDs[idUntrackedStale], "Untracked stale item must be fetched by GC")
+	assert.True(t, requestedIDs[idSubscribedStale], "Subscribed stale item must be fetched by GC")
+	assert.False(t, requestedIDs[idUntrackedFresh], "Untracked fresh item must NOT be fetched by GC")
+	assert.False(t, requestedIDs[idUntrackedClosed], "Untracked closed item must NOT be fetched by GC")
+
+	// Verify database persistence
+	itemUntrackedStale, err := db.GetItem(t.Context(), idUntrackedStale)
+	require.NoError(t, err)
+	assert.True(t, itemUntrackedStale.GetLastSyncedAt().AsTime().After(gcStartTime), "LastSyncedAt must be updated")
+	assert.Equal(t,
+		octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED,
+		itemUntrackedStale.GetViewerSubscription())
+	assert.Equal(t, "Untracked Stale Updated", itemUntrackedStale.GetTitle())
+
+	itemUntrackedFresh, err := db.GetItem(t.Context(), idUntrackedFresh)
+	require.NoError(t, err)
+	assert.True(t, itemUntrackedFresh.GetLastSyncedAt().AsTime().Before(gcStartTime),
+		"Fresh item LastSyncedAt must remain untouched")
+
+	itemUntrackedClosed, err := db.GetItem(t.Context(), idUntrackedClosed)
+	require.NoError(t, err)
+	assert.True(t, itemUntrackedClosed.GetLastSyncedAt().AsTime().Before(gcStartTime),
+		"Closed item LastSyncedAt must remain untouched")
+}
+
+// TestStress_FetchCurrentUser_Concurrency verifies that multiple concurrent callers of
+// fetchCurrentUser and fetchCurrentUserLocked under -race execute safely with 0 warnings.
+func TestStress_FetchCurrentUser_Concurrency(t *testing.T) {
+	db := setupTestDB(t)
+	defer func() { require.NoError(t, db.Close()) }()
+
+	mockREST := &mockRESTClient{
+		doFunc: func(_ context.Context, _, path string, _ io.Reader, response any) error {
+			if path == "user" {
+				data, _ := json.Marshal(map[string]any{"login": "concurrent_user"})
+				return json.Unmarshal(data, response)
+			}
+			return nil
+		},
+	}
+	ghClient := &github.Client{RestClient: mockREST}
+	cfg := config.NewForTest((&octodeckv1.Config_builder{}).Build())
+	engine := NewSyncEngine(db, ghClient, cfg)
+
+	ctx := t.Context()
+	const numGoroutines = 20
+	const iterations = 15
+
+	var wg sync.WaitGroup
+	startCh := make(chan struct{})
+
+	for workerID := range numGoroutines {
+		wg.Go(func() {
+			<-startCh
+			for range iterations {
+				if workerID%2 == 0 {
+					err := engine.fetchCurrentUser(ctx)
+					require.NoError(t, err)
+				} else {
+					engine.mu.Lock()
+					err := engine.fetchCurrentUserLocked(ctx)
+					engine.mu.Unlock()
+					require.NoError(t, err)
+				}
+				user := engine.getCurrentUser()
+				assert.Equal(t, "concurrent_user", user)
+			}
+		})
+	}
+
+	close(startCh)
+	wg.Wait()
+}
+
+// TestStress_CalculateItemState_CurrentUser_Race verifies that concurrent RunDiscovery,
+// calculateItemState, and fetchCurrentUser callers pass under -race with 0 warnings.
+func TestStress_CalculateItemState_CurrentUser_Race(t *testing.T) {
+	db := setupTestDB(t)
+	defer func() { require.NoError(t, db.Close()) }()
+
+	mockGQL := &mockGraphQLClient{
+		queryFunc: func(_ context.Context, name string, q any, _ map[string]any) error {
+			if name == "SearchCandidateIDs" {
+				data, _ := json.Marshal(map[string]any{
+					"search": map[string]any{
+						"nodes": []map[string]any{
+							{"__typename": "Issue", "issue": map[string]any{"id": "ISSUE_RACE_1"}},
+						},
+						"pageInfo": map[string]any{"hasNextPage": false, "endCursor": ""},
+					},
+				})
+				return json.Unmarshal(data, q)
+			}
+			if name == "ItemsFetch" {
+				data, _ := json.Marshal(map[string]any{
+					"nodes": []map[string]any{
+						{
+							"__typename": "Issue",
+							"issue": map[string]any{
+								"id":                 "ISSUE_RACE_1",
+								"number":             42,
+								"title":              "Discovered Issue",
+								"state":              "OPEN",
+								"createdAt":          "2026-09-01T00:00:00Z",
+								"updatedAt":          "2026-09-01T01:00:00Z",
+								"url":                "https://github.com/owner/repo/issues/42",
+								"author":             map[string]any{"login": "author_user"},
+								"repository":         map[string]any{"nameWithOwner": "owner/repo"},
+								"viewerSubscription": "UNSUBSCRIBED",
+								"comments": map[string]any{
+									"nodes": []map[string]any{
+										{
+											"id":        1,
+											"createdAt": "2026-09-01T01:00:00Z",
+											"bodyText":  "comment text",
+											"author":    map[string]any{"login": "race_user"},
+										},
+									},
+								},
+							},
+						},
+					},
+				})
+				return json.Unmarshal(data, q)
+			}
+			return nil
+		},
+	}
+
+	mockREST := &mockRESTClient{
+		doFunc: func(_ context.Context, _, path string, _ io.Reader, response any) error {
+			if path == "user" {
+				data, _ := json.Marshal(map[string]any{"login": "race_user"})
+				return json.Unmarshal(data, response)
+			}
+			return nil
+		},
+	}
+
+	ghClient := &github.Client{RestClient: mockREST, GraphQLClient: mockGQL}
+	cfg := config.NewForTest(octodeckv1.Config_builder{
+		TrackedQueries:     []string{"repo:owner/repo is:issue"},
+		AutoAckOwnActivity: config.Ptr(true),
+	}.Build())
+	engine := NewSyncEngine(db, ghClient, cfg)
+
+	ctx := t.Context()
+	const iterations = 20
+
+	var wg sync.WaitGroup
+	startCh := make(chan struct{})
+
+	// Goroutine 1: RunDiscovery
+	wg.Go(func() {
+		<-startCh
+		for range iterations {
+			_ = engine.RunDiscovery(ctx)
+		}
+	})
+
+	// Goroutine 2: fetchCurrentUser callers
+	wg.Go(func() {
+		<-startCh
+		for i := range iterations {
+			if i%2 == 0 {
+				_ = engine.fetchCurrentUser(ctx)
+			} else {
+				engine.mu.Lock()
+				_ = engine.fetchCurrentUserLocked(ctx)
+				engine.mu.Unlock()
+			}
+		}
+	})
+
+	// Goroutine 3: direct calculateItemState calls
+	wg.Go(func() {
+		<-startCh
+		testItem := (&octodeckv1.Item_builder{
+			Id: config.Ptr("ISSUE_RACE_DIRECT"),
+			Comments: []*octodeckv1.Comment{
+				(&octodeckv1.Comment_builder{
+					CreatedAt: timestamppb.New(time.Now()),
+					Author:    (&octodeckv1.User_builder{Login: config.Ptr("race_user")}).Build(),
+				}).Build(),
+			},
+			Local: (&octodeckv1.ItemLocalState_builder{}).Build(),
+		}).Build()
+
+		for range iterations {
+			engine.calculateItemState(testItem)
+		}
+	})
+
+	close(startCh)
+	wg.Wait()
 }

@@ -23,6 +23,7 @@ service OctoDeckService {
   rpc SetNotes(SetNotesRequest) returns (SetNotesResponse);
   rpc RefetchItem(RefetchItemRequest) returns (RefetchItemResponse);
   rpc DeleteItem(DeleteItemRequest) returns (DeleteItemResponse);
+  rpc UpdateSubscription(UpdateSubscriptionRequest) returns (UpdateSubscriptionResponse);
 
   // Synchronization Status & Traces
   rpc GetSyncStatus(GetSyncStatusRequest) returns (GetSyncStatusResponse);
@@ -136,6 +137,15 @@ message DeleteItemRequest {
 
 message DeleteItemResponse {}
 
+message UpdateSubscriptionRequest {
+  string item_id = 1;
+  SubscriptionState state = 2;
+}
+
+message UpdateSubscriptionResponse {
+  Item item = 1;
+}
+
 message Config {
   repeated string watched_repos = 1;
   repeated string pinned_repos = 2;
@@ -147,6 +157,8 @@ message Config {
   string db_path = 8;
   repeated string included_labels = 9;
   repeated string excluded_labels = 10;
+  repeated string tracked_queries = 11;
+  int32 discovery_interval_min = 12;
 }
 
 message GetConfigRequest {}

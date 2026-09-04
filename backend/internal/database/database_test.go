@@ -1,7 +1,10 @@
 package database
 
 import (
+	"context"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -491,4 +494,331 @@ func TestGetDatabaseStats(t *testing.T) {
 	assert.Equal(t, int64(2), stats.GetUnackedItems())
 	assert.Equal(t, int64(1), stats.GetAckedItems())
 	assert.Equal(t, int64(2), stats.GetTotalRepos())
+}
+
+func TestGetAllItemIDs(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := t.Context()
+
+	// 1. Verify empty database returns empty map
+	ids, err := db.GetAllItemIDs(ctx)
+	require.NoError(t, err)
+	assert.NotNil(t, ids)
+	assert.Empty(t, ids)
+
+	// 2. Insert items and verify IDs
+	items := []*octodeckv1.Item{
+		octodeckv1.Item_builder{
+			Id:        config.Ptr("item_node_1"),
+			Repo:      config.Ptr("org/repo1"),
+			UpdatedAt: timestamppb.Now(),
+		}.Build(),
+		octodeckv1.Item_builder{
+			Id:        config.Ptr("item_node_2"),
+			Repo:      config.Ptr("org/repo2"),
+			UpdatedAt: timestamppb.Now(),
+		}.Build(),
+		octodeckv1.Item_builder{
+			Id:        config.Ptr("item_node_3"),
+			Repo:      config.Ptr("org/repo1"),
+			UpdatedAt: timestamppb.Now(),
+		}.Build(),
+	}
+	err = db.SaveItems(ctx, items)
+	require.NoError(t, err)
+
+	ids, err = db.GetAllItemIDs(ctx)
+	require.NoError(t, err)
+	assert.Len(t, ids, 3)
+	assert.Contains(t, ids, "item_node_1")
+	assert.Contains(t, ids, "item_node_2")
+	assert.Contains(t, ids, "item_node_3")
+
+	// 3. Upsert an existing item - set size should remain 3
+	updatedItem := octodeckv1.Item_builder{
+		Id:        config.Ptr("item_node_2"),
+		Repo:      config.Ptr("org/repo2"),
+		Title:     config.Ptr("Updated title"),
+		UpdatedAt: timestamppb.Now(),
+	}.Build()
+	err = db.SaveItems(ctx, []*octodeckv1.Item{updatedItem})
+	require.NoError(t, err)
+
+	ids, err = db.GetAllItemIDs(ctx)
+	require.NoError(t, err)
+	assert.Len(t, ids, 3)
+
+	// 4. Delete an item and verify it is removed from the set
+	err = db.DeleteItems(ctx, []string{"item_node_2"})
+	require.NoError(t, err)
+
+	ids, err = db.GetAllItemIDs(ctx)
+	require.NoError(t, err)
+	assert.Len(t, ids, 2)
+	assert.Contains(t, ids, "item_node_1")
+	assert.NotContains(t, ids, "item_node_2")
+	assert.Contains(t, ids, "item_node_3")
+
+	// 5. Context cancellation returns error
+	canceledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	_, err = db.GetAllItemIDs(canceledCtx)
+	require.Error(t, err)
+}
+
+func verifyReaderOperation(ctx context.Context, db *DB, op, numItems int) error {
+	if op%2 == 0 {
+		ids, err := db.GetAllItemIDs(ctx)
+		if err != nil {
+			return fmt.Errorf("GetAllItemIDs failed: %w", err)
+		}
+		if len(ids) < numItems {
+			return fmt.Errorf("expected at least %d IDs, got %d", numItems, len(ids))
+		}
+		return nil
+	}
+
+	all, err := db.GetItems(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("GetItems failed: %w", err)
+	}
+	if len(all) < numItems {
+		return fmt.Errorf("expected at least %d items, got %d", numItems, len(all))
+	}
+	return nil
+}
+
+func runConcurrentReader(
+	ctx context.Context,
+	start <-chan struct{},
+	workerID, opsPerWorker, numItems int,
+	db *DB,
+	recordError func(error),
+	wg *sync.WaitGroup,
+) {
+	defer wg.Done()
+	<-start
+
+	for op := range opsPerWorker {
+		if err := verifyReaderOperation(ctx, db, op, numItems); err != nil {
+			recordError(fmt.Errorf("reader %d op %d: %w", workerID, op, err))
+			return
+		}
+	}
+}
+
+func runConcurrentWriter(
+	ctx context.Context,
+	start <-chan struct{},
+	workerID, opsPerWorker, numItems int,
+	db *DB,
+	recordError func(error),
+	wg *sync.WaitGroup,
+) {
+	defer wg.Done()
+	<-start
+
+	for op := range opsPerWorker {
+		targetID := fmt.Sprintf("owner/repo#%d", (op%numItems)+1)
+		title := fmt.Sprintf("PR updated by writer %d op %d", workerID, op)
+		_, err := db.UpdateItem(ctx, targetID, func(i *octodeckv1.Item) error {
+			i.SetTitle(title)
+			return nil
+		})
+		if err != nil {
+			recordError(fmt.Errorf("writer %d UpdateItem failed: %w", workerID, err))
+			return
+		}
+	}
+}
+
+func TestConcurrentQueries_InMemory(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := t.Context()
+
+	// 1. Seed initial items
+	const numItems = 10
+	items := make([]*octodeckv1.Item, numItems)
+	for i := range numItems {
+		id := fmt.Sprintf("owner/repo#%d", i+1)
+		items[i] = octodeckv1.Item_builder{
+			Id:                 config.Ptr(id),
+			Repo:               config.Ptr("owner/repo"),
+			Number:             config.Ptr(int32(i + 1)),
+			Type:               config.Ptr(octodeckv1.ItemType_ITEM_TYPE_PR),
+			Title:              config.Ptr(fmt.Sprintf("PR #%d", i+1)),
+			State:              config.Ptr(octodeckv1.ItemState_ITEM_STATE_OPEN),
+			ViewerSubscription: config.Ptr(octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED),
+			UpdatedAt:          timestamppb.Now(),
+		}.Build()
+	}
+	require.NoError(t, db.SaveItems(ctx, items))
+
+	// 2. Launch concurrent reader and writer goroutines
+	const (
+		numReaders   = 15
+		numWriters   = 5
+		opsPerWorker = 50
+	)
+
+	var (
+		wg      sync.WaitGroup
+		start   = make(chan struct{})
+		errMu   sync.Mutex
+		errList []error
+	)
+
+	recordError := func(err error) {
+		if err != nil {
+			errMu.Lock()
+			errList = append(errList, err)
+			errMu.Unlock()
+		}
+	}
+
+	for r := range numReaders {
+		wg.Add(1)
+		go runConcurrentReader(ctx, start, r, opsPerWorker, numItems, db, recordError, &wg)
+	}
+
+	for w := range numWriters {
+		wg.Add(1)
+		go runConcurrentWriter(ctx, start, w, opsPerWorker, numItems, db, recordError, &wg)
+	}
+
+	// Burst start all workers simultaneously
+	close(start)
+	wg.Wait()
+
+	// 3. Verify zero errors occurred and specifically no "no such table: items"
+	const connMsg = "in-memory SQLite connection pool must not open unmigrated secondary connections"
+	for _, err := range errList {
+		assert.NotContains(t, err.Error(), "no such table: items", connMsg)
+	}
+	require.Empty(t, errList, "all concurrent queries and updates must succeed with zero errors")
+
+	// 4. Verify database consistency after concurrency storm
+	finalIDs, err := db.GetAllItemIDs(ctx)
+	require.NoError(t, err)
+	assert.Len(t, finalIDs, numItems)
+}
+
+func TestGetAllItemIDs_Concurrent(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := t.Context()
+
+	const numItems = 20
+	items := make([]*octodeckv1.Item, numItems)
+	for i := range numItems {
+		items[i] = octodeckv1.Item_builder{
+			Id:        config.Ptr(fmt.Sprintf("item_concurrent_%d", i)),
+			Repo:      config.Ptr("org/repo"),
+			UpdatedAt: timestamppb.Now(),
+		}.Build()
+	}
+	require.NoError(t, db.SaveItems(ctx, items))
+
+	const (
+		numGoroutines = 25
+		iterations    = 40
+	)
+
+	var (
+		wg      sync.WaitGroup
+		start   = make(chan struct{})
+		errMu   sync.Mutex
+		errList []error
+	)
+
+	for g := range numGoroutines {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			<-start
+			for i := range iterations {
+				ids, err := db.GetAllItemIDs(ctx)
+				if err != nil {
+					errMu.Lock()
+					errList = append(errList, fmt.Errorf("goroutine %d iter %d: %w", id, i, err))
+					errMu.Unlock()
+					return
+				}
+				if len(ids) != numItems {
+					errMu.Lock()
+					errList = append(errList, fmt.Errorf(
+						"goroutine %d iter %d: expected %d items, got %d",
+						id, i, numItems, len(ids),
+					))
+					errMu.Unlock()
+					return
+				}
+			}
+		}(g)
+	}
+
+	close(start)
+	wg.Wait()
+
+	require.Empty(t, errList, "concurrent GetAllItemIDs calls on in-memory DB should not fail")
+}
+
+func TestDiscoveryCursorCRUD(t *testing.T) {
+	ctx := t.Context()
+	db := setupTestDB(t)
+	defer func() { require.NoError(t, db.Close()) }()
+
+	const (
+		q1 = "repo:k8s/k8s is:open label:sig/node"
+		q2 = "repo:k8s/k8s is:open label:sig/api-machinery"
+		q3 = "repo:octodeck/octodeck is:pr"
+	)
+
+	// 1. Initial check: non-existent cursor
+	t0, exists, err := db.GetDiscoveryCursor(ctx, q1)
+	require.NoError(t, err)
+	assert.False(t, exists)
+	assert.True(t, t0.IsZero())
+
+	// 2. Set cursor
+	now := time.Now().UTC().Truncate(time.Second)
+	err = db.SetDiscoveryCursor(ctx, q1, now)
+	require.NoError(t, err)
+
+	t1, exists, err := db.GetDiscoveryCursor(ctx, q1)
+	require.NoError(t, err)
+	assert.True(t, exists)
+	assert.Equal(t, now, t1.UTC())
+
+	// 3. Update cursor
+	later := now.Add(10 * time.Minute)
+	err = db.SetDiscoveryCursor(ctx, q1, later)
+	require.NoError(t, err)
+
+	t2, exists, err := db.GetDiscoveryCursor(ctx, q1)
+	require.NoError(t, err)
+	assert.True(t, exists)
+	assert.Equal(t, later, t2.UTC())
+
+	// 4. Set cursor for q2 and q3
+	require.NoError(t, db.SetDiscoveryCursor(ctx, q2, now))
+	require.NoError(t, db.SetDiscoveryCursor(ctx, q3, now))
+
+	// 5. Delete cursor for q3
+	err = db.DeleteDiscoveryCursor(ctx, q3)
+	require.NoError(t, err)
+	_, exists, err = db.GetDiscoveryCursor(ctx, q3)
+	require.NoError(t, err)
+	assert.False(t, exists)
+
+	// 6. Prune: keep only q1; q2 should be pruned
+	err = db.PruneDiscoveryCursors(ctx, []string{q1})
+	require.NoError(t, err)
+
+	_, exists1, err := db.GetDiscoveryCursor(ctx, q1)
+	require.NoError(t, err)
+	assert.True(t, exists1)
+
+	_, exists2, err := db.GetDiscoveryCursor(ctx, q2)
+	require.NoError(t, err)
+	assert.False(t, exists2)
 }

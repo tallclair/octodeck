@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { DetailsPane } from '../DetailsPane';
 import { describe, it, expect, vi } from 'vitest';
 import type { Item, User } from '../../api/octodeck/v1/resources_pb';
-import { ItemType, ItemState, ItemStatus, CommentNoiseType } from '../../api/octodeck/v1/resources_pb';
+import { ItemType, ItemState, ItemStatus, CommentNoiseType, SubscriptionState } from '../../api/octodeck/v1/resources_pb';
 
 const mockItemWithBody: Partial<Item> = {
     id: 'PR_1',
@@ -941,7 +941,104 @@ describe('DetailsPane Component', () => {
             const badge = screen.getByTestId('details-untracked-badge');
             expect(badge).toBeDefined();
             expect(badge.textContent).toBe('Untracked');
+            expect(badge.getAttribute('title')).toBe("Not subscribed on GitHub. Live updates won't be received automatically unless you subscribe or are mentioned.");
         });
+
+        it('renders Untracked button in header when onSubscribe is provided and viewerSubscription is UNSUBSCRIBED', () => {
+            const untrackedItem: Partial<Item> = {
+                ...mockProtoItemWithBody,
+                viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+            };
+
+            render(
+                <DetailsPane
+                    item={untrackedItem as Item}
+                    onAck={vi.fn()}
+                    onUnack={vi.fn()}
+                    onSubscribe={vi.fn()}
+                    onClose={vi.fn()}
+                />
+            );
+
+            const badge = screen.getByTestId('details-untracked-badge');
+            expect(badge.tagName).toBe('BUTTON');
+            expect(badge.getAttribute('aria-label')).toBe('Subscribe to item (untracked)');
+            expect(badge.getAttribute('title')).toBe("Not subscribed on GitHub. Live updates won't be received automatically unless you subscribe or are mentioned.");
+        });
+
+        it('calls onSubscribe with item id when clicking Untracked button in DetailsPane', async () => {
+            const onSubscribe = vi.fn().mockResolvedValue(undefined);
+            const untrackedItem: Partial<Item> = {
+                ...mockProtoItemWithBody,
+                id: 'PR_details_subscribe_test',
+                viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+            };
+
+            render(
+                <DetailsPane
+                    item={untrackedItem as Item}
+                    onAck={vi.fn()}
+                    onUnack={vi.fn()}
+                    onSubscribe={onSubscribe}
+                    onClose={vi.fn()}
+                />
+            );
+
+            const badge = screen.getByTestId('details-untracked-badge');
+            await act(async () => {
+                fireEvent.click(badge);
+            });
+
+            expect(onSubscribe).toHaveBeenCalledTimes(1);
+            expect(onSubscribe).toHaveBeenCalledWith('PR_details_subscribe_test');
+        });
+
+        it('shows loading state (spinner) and disables button while subscription mutation is pending in DetailsPane', async () => {
+            let resolvePromise!: () => void;
+            const pendingPromise = new Promise<void>((resolve) => {
+                resolvePromise = resolve;
+            });
+            const onSubscribe = vi.fn().mockReturnValue(pendingPromise);
+
+            const untrackedItem: Partial<Item> = {
+                ...mockProtoItemWithBody,
+                id: 'PR_details_spinner_test',
+                viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+            };
+
+            render(
+                <DetailsPane
+                    item={untrackedItem as Item}
+                    onAck={vi.fn()}
+                    onUnack={vi.fn()}
+                    onSubscribe={onSubscribe}
+                    onClose={vi.fn()}
+                />
+            );
+
+            const badge = screen.getByTestId('details-untracked-badge');
+            expect(badge.hasAttribute('disabled')).toBe(false);
+            expect(screen.queryByTestId('details-untracked-spinner')).toBeNull();
+
+            // Trigger click
+            fireEvent.click(badge);
+
+            // Assert pending loading state
+            expect(badge.hasAttribute('disabled')).toBe(true);
+            const spinner = screen.getByTestId('details-untracked-spinner');
+            expect(spinner).toBeDefined();
+            expect(spinner.classList.contains('animate-spin')).toBe(true);
+
+            // Resolve mutation
+            await act(async () => {
+                resolvePromise();
+            });
+
+            // Assert restored idle state
+            expect(badge.hasAttribute('disabled')).toBe(false);
+            expect(screen.queryByTestId('details-untracked-spinner')).toBeNull();
+        });
+
     });
 
     describe('Ack / Acked Button', () => {

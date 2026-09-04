@@ -59,15 +59,20 @@ type NotificationSyncPayload struct {
 
 // SyncEngine manages the synchronization of data from GitHub to the local database.
 type SyncEngine struct {
-	db     *database.DB
-	gh     *github.Client
-	cfg    *config.Config
-	stopCh chan struct{}
-	mu     sync.Mutex
+	db          *database.DB
+	gh          *github.Client
+	cfg         *config.Config
+	stopCh      chan struct{}
+	startOnce   sync.Once
+	stopOnce    sync.Once
+	mu          sync.Mutex
+	discoveryMu sync.Mutex
 
-	currentUser string
+	currentUserMu sync.RWMutex
+	currentUser   string
 
-	tickerInc *time.Ticker
+	tickerInc       *time.Ticker
+	tickerDiscovery *time.Ticker
 
 	// Sync Status metrics
 	lastSuccessfulSyncAt time.Time
@@ -249,62 +254,93 @@ func (s *SyncEngine) GetStatus() *octodeckv1.SyncStatus {
 
 // Start begins the background synchronization processes.
 func (s *SyncEngine) Start(ctx context.Context) {
-	s.mu.Lock()
-	s.loadPersistedStatus(ctx)
-	s.mu.Unlock()
-	// Initial user fetch
-	fetchCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
-	if err := s.fetchCurrentUser(fetchCtx); err != nil {
-		slog.ErrorContext(ctx, "Failed to fetch current user, sync engine will retry later", "error", err)
-	}
-	cancel()
-
-	// Initial Population (Backfill)
-	// Trigger: Backend startup IF the issues table is empty.
-	isPopulated, err := s.db.IsPopulated(ctx)
-	if err != nil {
-		slog.ErrorContext(ctx, "Failed to check if DB is populated", "error", err)
-	} else if !isPopulated {
-		go func() {
-			slog.InfoContext(ctx, "DB empty, running initial inventory sync (Backfill)...")
-			if err := s.RunInventorySync(ctx); err != nil {
-				slog.ErrorContext(ctx, "Initial inventory sync failed", "error", err)
-			}
-		}()
-	}
-
-	s.tickerInc = time.NewTicker(s.cfg.GetSyncInterval())
-	tickerGC := time.NewTicker(config.DefaultGCInterval)
-
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				s.tickerInc.Stop()
-				tickerGC.Stop()
-				return
-			case <-s.stopCh:
-				s.tickerInc.Stop()
-				tickerGC.Stop()
-				return
-			case <-s.tickerInc.C:
-				syncCtx, cancel := context.WithTimeout(ctx, config.SyncHeartbeatTimeout)
-				if err := s.RunIncrementalSync(syncCtx); err != nil {
-					slog.ErrorContext(syncCtx, "Heartbeat sync failed", "error", err)
-				}
-				cancel()
-			case <-tickerGC.C:
-				gcCtx, cancel := context.WithTimeout(ctx, config.SyncGCTimeout)
-				if err := s.RunGarbageCollection(gcCtx); err != nil {
-					slog.ErrorContext(gcCtx, "Garbage collection failed", "error", err)
-				}
-				cancel()
-			}
+	s.startOnce.Do(func() {
+		select {
+		case <-s.stopCh:
+			return
+		case <-ctx.Done():
+			return
+		default:
 		}
-	}()
+
+		s.mu.Lock()
+		s.loadPersistedStatus(ctx)
+		s.mu.Unlock()
+		// Initial user fetch
+		fetchCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
+		if err := s.fetchCurrentUser(fetchCtx); err != nil {
+			slog.ErrorContext(ctx, "Failed to fetch current user, sync engine will retry later", "error", err)
+		}
+		cancel()
+
+		// Initial Population (Backfill)
+		// Trigger: Backend startup IF the issues table is empty.
+		isPopulated, err := s.db.IsPopulated(ctx)
+		if err != nil {
+			slog.ErrorContext(ctx, "Failed to check if DB is populated", "error", err)
+		} else if !isPopulated {
+			go func() {
+				slog.InfoContext(ctx, "DB empty, running initial inventory sync (Backfill)...")
+				if err := s.RunInventorySync(ctx); err != nil {
+					slog.ErrorContext(ctx, "Initial inventory sync failed", "error", err)
+				}
+			}()
+		}
+
+		s.mu.Lock()
+		s.tickerInc = time.NewTicker(s.cfg.GetSyncInterval())
+		s.tickerDiscovery = time.NewTicker(s.cfg.GetDiscoveryInterval())
+		s.mu.Unlock()
+		tickerGC := time.NewTicker(config.DefaultGCInterval)
+
+		go s.runEventLoop(ctx, tickerGC)
+	})
 }
 
-// ResetTicker resets the background sync ticker to match the current polling interval configuration.
+func (s *SyncEngine) runEventLoop(ctx context.Context, tickerGC *time.Ticker) {
+	for {
+		select {
+		case <-ctx.Done():
+			s.stopEventLoopTickers(tickerGC)
+			return
+		case <-s.stopCh:
+			s.stopEventLoopTickers(tickerGC)
+			return
+		case <-s.tickerInc.C:
+			syncCtx, cancel := context.WithTimeout(ctx, config.SyncHeartbeatTimeout)
+			if err := s.RunIncrementalSync(syncCtx); err != nil {
+				slog.ErrorContext(syncCtx, "Heartbeat sync failed", "error", err)
+			}
+			cancel()
+		case <-s.tickerDiscovery.C:
+			discCtx, cancel := context.WithTimeout(ctx, config.SyncHeartbeatTimeout)
+			if err := s.RunDiscovery(discCtx); err != nil {
+				slog.ErrorContext(discCtx, "Discovery run failed", "error", err)
+			}
+			cancel()
+		case <-tickerGC.C:
+			gcCtx, cancel := context.WithTimeout(ctx, config.SyncGCTimeout)
+			if err := s.RunGarbageCollection(gcCtx); err != nil {
+				slog.ErrorContext(gcCtx, "Garbage collection failed", "error", err)
+			}
+			cancel()
+		}
+	}
+}
+
+func (s *SyncEngine) stopEventLoopTickers(tickerGC *time.Ticker) {
+	s.mu.Lock()
+	if s.tickerInc != nil {
+		s.tickerInc.Stop()
+	}
+	if s.tickerDiscovery != nil {
+		s.tickerDiscovery.Stop()
+	}
+	s.mu.Unlock()
+	tickerGC.Stop()
+}
+
+// ResetTicker resets the background sync tickers to match the current configuration.
 func (s *SyncEngine) ResetTicker() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -312,14 +348,28 @@ func (s *SyncEngine) ResetTicker() {
 	if s.tickerInc != nil {
 		s.tickerInc.Reset(s.cfg.GetSyncInterval())
 	}
+	if s.tickerDiscovery != nil {
+		s.tickerDiscovery.Reset(s.cfg.GetDiscoveryInterval())
+	}
 }
 
 // Stop terminates the background synchronization processes.
 func (s *SyncEngine) Stop() {
-	close(s.stopCh)
+	s.stopOnce.Do(func() {
+		close(s.stopCh)
+	})
 }
 
 func (s *SyncEngine) fetchCurrentUser(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.fetchCurrentUserLocked(ctx)
+}
+
+func (s *SyncEngine) fetchCurrentUserLocked(ctx context.Context) error {
+	if s.currentUser != "" {
+		return nil
+	}
 	login, ok, err := s.gh.CheckAuth(ctx)
 	if err != nil {
 		return err
@@ -327,8 +377,16 @@ func (s *SyncEngine) fetchCurrentUser(ctx context.Context) error {
 	if !ok {
 		return errors.New("not authenticated")
 	}
+	s.currentUserMu.Lock()
 	s.currentUser = login
+	s.currentUserMu.Unlock()
 	return nil
+}
+
+func (s *SyncEngine) getCurrentUser() string {
+	s.currentUserMu.RLock()
+	defer s.currentUserMu.RUnlock()
+	return s.currentUser
 }
 
 // ForceSync triggers an immediate incremental sync.
@@ -406,7 +464,7 @@ func (s *SyncEngine) RefetchItem(ctx context.Context, id string) (*octodeckv1.It
 	}()
 
 	if s.currentUser == "" {
-		if refetchErr = s.fetchCurrentUser(ctx); refetchErr != nil {
+		if refetchErr = s.fetchCurrentUserLocked(ctx); refetchErr != nil {
 			return nil, refetchErr
 		}
 	}
@@ -451,7 +509,7 @@ func (s *SyncEngine) BackfillItems(ctx context.Context) (int, error) {
 	}()
 
 	if s.currentUser == "" {
-		if backfillErr = s.fetchCurrentUser(ctx); backfillErr != nil {
+		if backfillErr = s.fetchCurrentUserLocked(ctx); backfillErr != nil {
 			return 0, backfillErr
 		}
 	}
@@ -581,7 +639,7 @@ func (s *SyncEngine) RunInventorySync(ctx context.Context) error {
 	}()
 
 	if s.currentUser == "" {
-		if err = s.fetchCurrentUser(ctx); err != nil {
+		if err = s.fetchCurrentUserLocked(ctx); err != nil {
 			return err
 		}
 	}
@@ -724,7 +782,7 @@ func (s *SyncEngine) runIncrementalSync(ctx context.Context, triggerSource strin
 	}()
 
 	if s.currentUser == "" {
-		if err = s.fetchCurrentUser(ctx); err != nil {
+		if err = s.fetchCurrentUserLocked(ctx); err != nil {
 			return err
 		}
 	}
@@ -946,7 +1004,7 @@ func (s *SyncEngine) RunGarbageCollection(ctx context.Context) error {
 	}()
 
 	if s.currentUser == "" {
-		if gcErr = s.fetchCurrentUser(ctx); gcErr != nil {
+		if gcErr = s.fetchCurrentUserLocked(ctx); gcErr != nil {
 			return gcErr
 		}
 	}
@@ -1004,7 +1062,11 @@ func (s *SyncEngine) RunGarbageCollection(ctx context.Context) error {
 
 	slog.InfoContext(ctx, "GC results", "found", len(foundItems), "missing", len(missingIDs))
 
-	if err := s.processItems(ctx, foundItems); err != nil {
+	itemsToProcess := foundItems
+	if excluded := s.cfg.GetExcludedRepos(); len(excluded) > 0 {
+		itemsToProcess = FilterItemsByRepo(itemsToProcess, nil, excluded)
+	}
+	if err := s.processItemsDirect(ctx, itemsToProcess, false); err != nil {
 		slog.ErrorContext(ctx, "Failed to save found items during GC", "error", err)
 	}
 
@@ -1201,9 +1263,10 @@ func (s *SyncEngine) handleGapResolution(ctx context.Context, existing, item *oc
 func (s *SyncEngine) calculateItemState(item *octodeckv1.Item) {
 	// Auto-Ack
 	if s.cfg.GetAutoAckOwnActivity() {
-		status := CalculateStatus(item, s.currentUser, s.cfg.GetKnownBots())
+		currentUser := s.getCurrentUser()
+		status := CalculateStatus(item, currentUser, s.cfg.GetKnownBots())
 		if status != octodeckv1.ItemStatus_ITEM_STATUS_ACKED {
-			if shouldAck, ackTime := ShouldAutoAck(item, s.currentUser, s.cfg.GetKnownBots()); shouldAck {
+			if shouldAck, ackTime := ShouldAutoAck(item, currentUser, s.cfg.GetKnownBots()); shouldAck {
 				slog.Info("Auto-acking item (last action was me)", "id", item.GetId(), "ackTime", ackTime)
 				item.GetLocal().SetAckedAt(timestamppb.New(ackTime))
 			}

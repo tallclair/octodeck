@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import {
   GitPullRequest, GitPullRequestDraft, GitPullRequestClosed, GitMerge, CheckCircle, AlertCircle, MessageSquare, GitCommit,
-  ExternalLink, Star, Milestone, CircleSlash, RotateCcw, AlertTriangle, UserCheck, Check
+  ExternalLink, Star, Milestone, CircleSlash, RotateCcw, AlertTriangle, UserCheck, Check, RefreshCw
 } from 'lucide-react';
 import type { Item } from '../api/octodeck/v1/resources_pb';
 import {
@@ -49,6 +50,7 @@ export interface PullRequestCardProps {
   onSelect: () => void;
   onAck?: (id: string) => Promise<void> | void;
   onUnack?: (id: string) => Promise<void> | void;
+  onSubscribe?: (id: string) => Promise<void> | void;
   showItemId?: boolean;
   onOpenDebug?: (targetItemId?: string) => void;
   grayAckedBackground?: boolean;
@@ -61,10 +63,12 @@ export function PullRequestCard({
   onSelect,
   onAck,
   onUnack,
+  onSubscribe,
   showItemId = false,
   onOpenDebug,
   grayAckedBackground = false,
 }: PullRequestCardProps) {
+  const [isSubscribing, setIsSubscribing] = useState(false);
   let statusText = 'Unknown';
   let statusColor = 'text-slate-500';
   const repoName = item.repo;
@@ -197,13 +201,42 @@ export function PullRequestCard({
                 </span>
               )}
               {isUntracked && (
-                <span
-                  className="px-1.5 py-0.5 rounded text-[10px] font-medium border bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-700 shrink-0"
-                  title="You are not subscribed to updates on this item (untracked)"
-                  data-testid="untracked-badge"
-                >
-                  Untracked
-                </span>
+                onSubscribe ? (
+                  <button
+                    type="button"
+                    disabled={isSubscribing}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (isSubscribing) return;
+                      setIsSubscribing(true);
+                      try {
+                        await onSubscribe(item.id);
+                      } catch (err) {
+                        console.error('Failed to subscribe:', err);
+                      } finally {
+                        setIsSubscribing(false);
+                      }
+                    }}
+                    className="px-1.5 py-0.5 rounded text-[10px] font-medium border bg-slate-100 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/60 text-slate-600 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 border-slate-300 hover:border-blue-400 dark:border-slate-700 dark:hover:border-blue-500 shrink-0 flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-60"
+                    title="Not subscribed on GitHub. Live updates won't be received automatically unless you subscribe or are mentioned."
+                    aria-label="Subscribe to item (untracked)"
+                    data-testid="untracked-badge"
+                  >
+                    {isSubscribing && (
+                      <RefreshCw size={10} className="animate-spin text-blue-500 shrink-0" data-testid="untracked-spinner" />
+                    )}
+                    <span>Untracked</span>
+                  </button>
+                ) : (
+                  <span
+                    onClick={(e) => e.stopPropagation()}
+                    className="px-1.5 py-0.5 rounded text-[10px] font-medium border bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-700 shrink-0"
+                    title="Not subscribed on GitHub. Live updates won't be received automatically unless you subscribe or are mentioned."
+                    data-testid="untracked-badge"
+                  >
+                    Untracked
+                  </span>
+                )
               )}
               {isPr && isDraft && (
                 <span

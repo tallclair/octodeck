@@ -29,6 +29,11 @@ const mockConfig = {
   autoAckOwnActivity: true,
   includedLabels: ['size/*'],
   excludedLabels: ['kind/flake'],
+  trackedQueries: [
+    'repo:kubernetes/kubernetes is:open label:sig/node',
+    'is:issue is:open label:security',
+  ],
+  discoveryIntervalMin: 30,
 };
 
 describe('Settings Component', () => {
@@ -688,4 +693,211 @@ describe('Settings Component', () => {
       expect(screen.getByText(__APP_VERSION__)).toBeDefined();
     });
   });
+
+  describe('Tracked Queries & Discovery Interval Configuration', () => {
+    it('renders tracked queries and discovery interval with initial values and helper text', () => {
+      vi.mocked(connectQuery.useQuery).mockReturnValue({
+        data: { config: mockConfig },
+        isLoading: false,
+        isError: false,
+        refetch: vi.fn(),
+      } as any);
+
+      render(<Settings />);
+
+      // Tracked Queries textarea in main section
+      const queriesTextarea = screen.getByLabelText(/Tracked Queries/i) as HTMLTextAreaElement;
+      expect(queriesTextarea).toBeDefined();
+      expect(queriesTextarea.value).toBe(
+        'repo:kubernetes/kubernetes is:open label:sig/node\nis:issue is:open label:security'
+      );
+      expect(screen.getByText(/Discovered candidate items appear on your dashboard/i)).toBeDefined();
+
+      // Discovery Interval in Advanced section
+      fireEvent.click(screen.getByRole('button', { name: /Advanced/i }));
+      const intervalInput = screen.getByLabelText(/Discovery Interval/i) as HTMLInputElement;
+      expect(intervalInput).toBeDefined();
+      expect(intervalInput.value).toBe('30');
+      expect(screen.getByText(/Interval for periodic background discovery/i)).toBeDefined();
+    });
+
+    it('marks form dirty and warns on discard when editing tracked queries or discovery interval', () => {
+      vi.mocked(connectQuery.useQuery).mockReturnValue({
+        data: { config: mockConfig },
+        isLoading: false,
+        isError: false,
+        refetch: vi.fn(),
+      } as any);
+
+      const onClose = vi.fn();
+      render(<Settings onClose={onClose} />);
+
+      // Edit tracked queries
+      const queriesTextarea = screen.getByLabelText(/Tracked Queries/i);
+      fireEvent.change(queriesTextarea, { target: { value: 'repo:golang/go is:open' } });
+
+      // Attempt to close
+      fireEvent.click(screen.getByRole('button', { name: /Close settings/i }));
+      expect(screen.getByText('Discard unsaved changes?')).toBeDefined();
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('blocks save and shows error when discovery interval is less than 1', async () => {
+      const updateConfigMock = vi.fn().mockResolvedValue({});
+      vi.mocked(connectQuery.useMutation).mockReturnValue({
+        mutateAsync: updateConfigMock,
+        isPending: false,
+      } as any);
+      vi.mocked(connectQuery.useQuery).mockReturnValue({
+        data: { config: mockConfig },
+        isLoading: false,
+        isError: false,
+        refetch: vi.fn(),
+      } as any);
+
+      render(<Settings />);
+
+      fireEvent.click(screen.getByRole('button', { name: /Advanced/i }));
+      const intervalInput = screen.getByLabelText(/Discovery Interval/i);
+      fireEvent.change(intervalInput, { target: { value: '0' } });
+
+      fireEvent.click(screen.getByRole('button', { name: /Save Settings/i }));
+
+      expect(updateConfigMock).not.toHaveBeenCalled();
+      expect(screen.getAllByText(/Discovery interval must be at least 1 minute/i).length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('blocks save and shows error when tracked query contains null characters', async () => {
+      const updateConfigMock = vi.fn().mockResolvedValue({});
+      vi.mocked(connectQuery.useMutation).mockReturnValue({
+        mutateAsync: updateConfigMock,
+        isPending: false,
+      } as any);
+      vi.mocked(connectQuery.useQuery).mockReturnValue({
+        data: { config: mockConfig },
+        isLoading: false,
+        isError: false,
+        refetch: vi.fn(),
+      } as any);
+
+      render(<Settings />);
+
+      const queriesTextarea = screen.getByLabelText(/Tracked Queries/i);
+      fireEvent.change(queriesTextarea, { target: { value: 'bad\0query' } });
+
+      fireEvent.click(screen.getByRole('button', { name: /Save Settings/i }));
+
+      expect(updateConfigMock).not.toHaveBeenCalled();
+      expect(screen.getAllByText(/Search query cannot contain null characters/i).length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('trims whitespace, ignores blank lines, and saves tracked queries and discovery interval', async () => {
+      const updateConfigMock = vi.fn().mockResolvedValue({});
+      vi.mocked(connectQuery.useMutation).mockReturnValue({
+        mutateAsync: updateConfigMock,
+        isPending: false,
+      } as any);
+      vi.mocked(connectQuery.useQuery).mockReturnValue({
+        data: { config: mockConfig },
+        isLoading: false,
+        isError: false,
+        refetch: vi.fn(),
+      } as any);
+
+      render(<Settings />);
+
+      // Multi-line queries with excess whitespace and blank lines
+      const queriesTextarea = screen.getByLabelText(/Tracked Queries/i);
+      fireEvent.change(queriesTextarea, {
+        target: { value: '  repo:octodeck/octodeck is:pr  \n\n  is:issue is:open label:bug  \n   ' },
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /Advanced/i }));
+      const intervalInput = screen.getByLabelText(/Discovery Interval/i);
+      fireEvent.change(intervalInput, { target: { value: '45' } });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Save Settings/i }));
+      });
+
+      expect(updateConfigMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          config: expect.objectContaining({
+            trackedQueries: ['repo:octodeck/octodeck is:pr', 'is:issue is:open label:bug'],
+            discoveryIntervalMin: 45,
+          }),
+        })
+      );
+    });
+
+    it('resets tracked queries to empty and discovery interval to 10 upon Restore defaults', () => {
+      vi.mocked(connectQuery.useQuery).mockReturnValue({
+        data: { config: mockConfig },
+        isLoading: false,
+        isError: false,
+        refetch: vi.fn(),
+      } as any);
+
+      render(<Settings />);
+
+      fireEvent.click(screen.getByRole('button', { name: /Restore defaults/i }));
+      const dialog = screen.getByRole('alertdialog');
+      const confirmBtn = within(dialog).getByRole('button', { name: /^Restore Defaults$/i });
+      fireEvent.click(confirmBtn);
+
+      const queriesTextarea = screen.getByLabelText(/Tracked Queries/i) as HTMLTextAreaElement;
+      expect(queriesTextarea.value).toBe('');
+
+      fireEvent.click(screen.getByRole('button', { name: /Advanced/i }));
+      const intervalInput = screen.getByLabelText(/Discovery Interval/i) as HTMLInputElement;
+      expect(intervalInput.value).toBe('10');
+    });
+
+    it('auto-populates default values when server config has empty/undefined fields', () => {
+      vi.mocked(connectQuery.useQuery).mockReturnValue({
+        data: { config: {} },
+        isLoading: false,
+        isError: false,
+        refetch: vi.fn(),
+      } as any);
+
+      render(<Settings />);
+
+      const queriesTextarea = screen.getByLabelText(/Tracked Queries/i) as HTMLTextAreaElement;
+      expect(queriesTextarea.value).toBe('');
+
+      fireEvent.click(screen.getByRole('button', { name: /Advanced/i }));
+      const intervalInput = screen.getByLabelText(/Discovery Interval/i) as HTMLInputElement;
+      expect(intervalInput.value).toBe('10');
+    });
+
+    it('blocks save and shows error when a tracked query contains an updated filter', async () => {
+      const mockMutateAsync = vi.fn();
+      vi.mocked(connectQuery.useMutation).mockReturnValue({
+        mutateAsync: mockMutateAsync,
+        isPending: false,
+      } as any);
+      vi.mocked(connectQuery.useQuery).mockReturnValue({
+        data: { config: mockConfig },
+        isLoading: false,
+        isError: false,
+        refetch: vi.fn(),
+      } as any);
+
+      render(<Settings />);
+
+      const queriesTextarea = screen.getByLabelText(/Tracked Queries/i);
+      fireEvent.change(queriesTextarea, {
+        target: { value: 'repo:kubernetes/kubernetes is:open updated:>2026-01-01' },
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /Save Settings/i }));
+
+      expect(mockMutateAsync).not.toHaveBeenCalled();
+      expect(
+        screen.getAllByText(/Tracked queries cannot contain an 'updated' filter/i).length,
+      ).toBeGreaterThanOrEqual(1);
+    });
+  });
 });
+

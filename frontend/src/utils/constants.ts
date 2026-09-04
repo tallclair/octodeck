@@ -5,4 +5,6 @@ export const DEFAULT_API_BASE_URL = `${DEFAULT_BASE_URL}/api/v1`;
 
 export const DEFAULT_POLLING_INTERVAL_MIN = 1;
 export const DEFAULT_AUTO_ACK_OWN_ACTIVITY = true;
+export const DEFAULT_DISCOVERY_INTERVAL_MIN = 10;
+export const MIN_DISCOVERY_INTERVAL_MIN = 1;
 

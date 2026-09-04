@@ -93,6 +93,7 @@ type RESTClient interface {
 // GraphQLClient defines the interface we need from go-gh/api.
 type GraphQLClient interface {
 	QueryWithContext(ctx context.Context, name string, q any, vars map[string]any) error
+	MutateWithContext(ctx context.Context, name string, m any, vars map[string]any) error
 }
 
 // Client wraps the GitHub API client.
@@ -1380,4 +1381,128 @@ func (c *Client) FetchItemComments(ctx context.Context, id string, minID int64) 
 
 	slices.Reverse(allComments)
 	return allComments, nil
+}
+
+// UpdateSubscriptionInput defines the input parameters for the GraphQL updateSubscription mutation.
+type UpdateSubscriptionInput struct {
+	SubscribableID graphql.ID     `json:"subscribableId"`
+	State          graphql.String `json:"state"`
+}
+
+// UpdateSubscription updates the viewer's subscription state for an issue or pull request on GitHub.
+func (c *Client) UpdateSubscription(ctx context.Context, id string, state octodeckv1.SubscriptionState) error {
+	var gqlState string
+	switch state {
+	case octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED,
+		octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSPECIFIED:
+		gqlState = subscriptionSubscribed
+	case octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED:
+		gqlState = subscriptionUnsubscribed
+	case octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_IGNORED:
+		gqlState = subscriptionIgnored
+	default:
+		return fmt.Errorf("unsupported subscription state: %v", state)
+	}
+
+	var mutation struct {
+		UpdateSubscription struct {
+			Subscribable struct {
+				ID                 string `json:"id"`
+				ViewerSubscription string `json:"viewerSubscription"`
+			} `graphql:"subscribable" json:"subscribable"`
+		} `graphql:"updateSubscription(input: $input)" json:"updateSubscription"`
+	}
+
+	vars := map[string]any{
+		"input": UpdateSubscriptionInput{
+			SubscribableID: graphql.ID(id),
+			State:          graphql.String(gqlState),
+		},
+	}
+	if err := c.GraphQLClient.MutateWithContext(ctx, "UpdateSubscription", &mutation, vars); err != nil {
+		return fmt.Errorf("failed to update subscription: %w", err)
+	}
+	return nil
+}
+
+const (
+	// defaultSearchCandidateLimit is the default maximum number of candidate IDs
+	// to retrieve in a single ID-only discovery search.
+	defaultSearchCandidateLimit = 100
+	// maxSearchCandidateLimit is the GitHub API hard maximum per page for search queries.
+	maxSearchCandidateLimit = 100
+)
+
+// gqlSearchCandidateIDNode extracts only the GraphQL Node ID for Issue and PullRequest nodes
+// returned by a GitHub search query.
+type gqlSearchCandidateIDNode struct {
+	Typename string `graphql:"__typename" json:"__typename"`
+	Issue    struct {
+		ID string `graphql:"id" json:"id"`
+	} `graphql:"... on Issue" json:"issue"`
+	PullRequest struct {
+		ID string `graphql:"id" json:"id"`
+	} `graphql:"... on PullRequest" json:"pullRequest"`
+}
+
+func (n gqlSearchCandidateIDNode) id() string {
+	switch n.Typename {
+	case typePullRequest:
+		return n.PullRequest.ID
+	case typeIssue:
+		return n.Issue.ID
+	default:
+		return ""
+	}
+}
+
+// SearchCandidateIDs executes a lightweight, ID-only GraphQL search query against GitHub
+// for issues and pull requests matching the given search query string.
+// It returns a deduplicated list of GraphQL Node IDs. Non-issue/PR nodes are ignored.
+func (c *Client) SearchCandidateIDs(ctx context.Context, searchQuery string, limit int) ([]string, error) {
+	if c == nil || c.GraphQLClient == nil {
+		return nil, errors.New("github graphql client is not initialized")
+	}
+
+	trimmedQuery := strings.TrimSpace(searchQuery)
+	if trimmedQuery == "" {
+		return nil, nil
+	}
+
+	if limit <= 0 {
+		limit = defaultSearchCandidateLimit
+	} else if limit > maxSearchCandidateLimit {
+		limit = maxSearchCandidateLimit
+	}
+
+	var query struct {
+		Search struct {
+			Nodes []gqlSearchCandidateIDNode `graphql:"nodes" json:"nodes"`
+		} `graphql:"search(query: $query, type: ISSUE, first: $limit)" json:"search"`
+	}
+
+	vars := map[string]any{
+		"query": graphql.String(trimmedQuery),
+		"limit": graphql.Int(limit),
+	}
+
+	if err := c.GraphQLClient.QueryWithContext(ctx, "SearchCandidateIDs", &query, vars); err != nil {
+		return nil, fmt.Errorf("failed to search candidate IDs: %w", err)
+	}
+
+	seen := make(map[string]struct{}, len(query.Search.Nodes))
+	var ids []string
+	for _, node := range query.Search.Nodes {
+		nodeID := node.id()
+		if nodeID == "" {
+			continue
+		}
+		if _, exists := seen[nodeID]; exists {
+			continue
+		}
+		seen[nodeID] = struct{}{}
+		ids = append(ids, nodeID)
+	}
+
+	return ids, nil
 }

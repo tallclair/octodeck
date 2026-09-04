@@ -26,9 +26,10 @@ import (
 //nolint:gochecknoglobals // Version is set via ldflags at build time
 var Version = "dev"
 
-// GitHubClient defines the interface for GitHub authentication checks.
+// GitHubClient defines the interface for GitHub authentication checks and mutations.
 type GitHubClient interface {
 	CheckAuth(ctx context.Context) (string, bool, error)
+	UpdateSubscription(ctx context.Context, id string, state octodeckv1.SubscriptionState) error
 }
 
 // SyncEngine defines the interface for synchronization and item refetching.

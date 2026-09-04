@@ -22,12 +22,24 @@ import (
 )
 
 type mockGraphQLClient struct {
-	queryFunc func(ctx context.Context, name string, q any, vars map[string]any) error
+	queryFunc  func(ctx context.Context, name string, q any, vars map[string]any) error
+	mutateFunc func(ctx context.Context, name string, m any, vars map[string]any) error
 }
 
 func (m *mockGraphQLClient) QueryWithContext(ctx context.Context, name string, q any,
 	vars map[string]any) error {
-	return m.queryFunc(ctx, name, q, vars)
+	if m.queryFunc != nil {
+		return m.queryFunc(ctx, name, q, vars)
+	}
+	return nil
+}
+
+func (m *mockGraphQLClient) MutateWithContext(ctx context.Context, name string, mMut any,
+	vars map[string]any) error {
+	if m.mutateFunc != nil {
+		return m.mutateFunc(ctx, name, mMut, vars)
+	}
+	return nil
 }
 
 // transformTimelineNode wraps the flat timeline item into event keys
@@ -1123,4 +1135,397 @@ func TestGraphQLQueryConstruction_NoUnionSelectionErrors(t *testing.T) {
 	assert.NotContains(t, nodesQueryStr, "assignee{login", "Direct selection on union Assignee is invalid")
 	assert.NotContains(t, nodesQueryStr, "assignee{avatarUrl", "Direct selection on union Assignee is invalid")
 	assert.NotContains(t, nodesQueryStr, "-", "Hyphen is not a valid GraphQL field")
+}
+
+type testGQLAdapter struct {
+	client *graphql.Client
+}
+
+func (a *testGQLAdapter) QueryWithContext(ctx context.Context, _ string, q any, vars map[string]any) error {
+	return a.client.Query(ctx, q, vars)
+}
+
+func (a *testGQLAdapter) MutateWithContext(ctx context.Context, _ string, m any, vars map[string]any) error {
+	return a.client.Mutate(ctx, m, vars)
+}
+
+func TestUpdateSubscription_QueryConstructionAndVariables(t *testing.T) {
+	type recordedRequest struct {
+		Query     string         `json:"query"`
+		Variables map[string]any `json:"variables"`
+	}
+
+	testCases := []struct {
+		name          string
+		state         octodeckv1.SubscriptionState
+		expectedState string
+	}{
+		{
+			name:          "Subscribed",
+			state:         octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED,
+			expectedState: "SUBSCRIBED",
+		},
+		{
+			name:          "Unspecified defaults to Subscribed",
+			state:         octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSPECIFIED,
+			expectedState: "SUBSCRIBED",
+		},
+		{
+			name:          "Unsubscribed",
+			state:         octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED,
+			expectedState: "UNSUBSCRIBED",
+		},
+		{
+			name:          "Ignored",
+			state:         octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_IGNORED,
+			expectedState: "IGNORED",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var recorded recordedRequest
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				_ = json.Unmarshal(body, &recorded)
+
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{
+					"data": {
+						"updateSubscription": {
+							"subscribable": {
+								"id": "PR_node_test_123",
+								"viewerSubscription": "` + tc.expectedState + `"
+							}
+						}
+					}
+				}`))
+			}))
+			defer server.Close()
+
+			gqlClient := graphql.NewClient(server.URL, server.Client())
+			client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
+
+			err := client.UpdateSubscription(t.Context(), "PR_node_test_123", tc.state)
+			require.NoError(t, err)
+
+			// Verify GraphQL query construction
+			assert.Contains(t, recorded.Query, "mutation")
+			assert.Contains(t, recorded.Query, "updateSubscription(input: $input)")
+			assert.Contains(t, recorded.Query, "subscribable")
+			assert.Contains(t, recorded.Query, "id")
+			assert.Contains(t, recorded.Query, "viewerSubscription")
+
+			// Verify input variables
+			inputRaw, ok := recorded.Variables["input"].(map[string]any)
+			require.True(t, ok, "variables must contain input map")
+			assert.Equal(t, "PR_node_test_123", inputRaw["subscribableId"])
+			assert.Equal(t, tc.expectedState, inputRaw["state"])
+		})
+	}
+}
+
+func TestUpdateSubscription_UnsupportedState(t *testing.T) {
+	client := &Client{}
+	err := client.UpdateSubscription(t.Context(), "PR_123", octodeckv1.SubscriptionState(999))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported subscription state")
+}
+
+func TestUpdateSubscription_GraphQLError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"errors": [
+				{
+					"message": "Could not resolve to a node with the global id of 'INVALID_NODE'",
+					"type": "NOT_FOUND"
+				}
+			]
+		}`))
+	}))
+	defer server.Close()
+
+	gqlClient := graphql.NewClient(server.URL, server.Client())
+	client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
+
+	err := client.UpdateSubscription(
+		t.Context(),
+		"INVALID_NODE",
+		octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED,
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Could not resolve to a node")
+}
+
+func TestUpdateSubscription_HttpServerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	gqlClient := graphql.NewClient(server.URL, server.Client())
+	client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
+
+	err := client.UpdateSubscription(t.Context(), "PR_123", octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED)
+	require.Error(t, err)
+}
+
+func TestUpdateSubscription_ContextCanceled(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(100 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	gqlClient := graphql.NewClient(server.URL, server.Client())
+	client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	err := client.UpdateSubscription(ctx, "PR_123", octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED)
+	require.Error(t, err)
+}
+
+func TestSearchCandidateIDs_QueryConstructionAndExtraction(t *testing.T) {
+	type recordedRequest struct {
+		Query     string         `json:"query"`
+		Variables map[string]any `json:"variables"`
+	}
+
+	var recorded recordedRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = json.Unmarshal(body, &recorded)
+
+		w.Header().Set("Content-Type", "application/json")
+		// Return authentic flat GraphQL response containing Issue, PullRequest, duplicate ID, and non-issue node
+		_, _ = w.Write([]byte(`{
+			"data": {
+				"search": {
+					"nodes": [
+						{
+							"__typename": "Issue",
+							"id": "I_kwDOAToIks7gNKvx"
+						},
+						{
+							"__typename": "PullRequest",
+							"id": "PR_kwDOAToIks6zimkN"
+						},
+						{
+							"__typename": "Issue",
+							"id": "I_kwDOAToIks7gNKvx"
+						},
+						{
+							"__typename": "Repository",
+							"id": "R_kwDOAToIks4"
+						}
+					]
+				}
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	gqlClient := graphql.NewClient(server.URL, server.Client())
+	client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
+
+	testQuery := "repo:kubernetes/kubernetes is:open label:sig/node"
+	ids, err := client.SearchCandidateIDs(t.Context(), testQuery, 50)
+	require.NoError(t, err)
+
+	// 1. Verify GraphQL query syntax construction
+	assert.Contains(t, recorded.Query, "search(query: $query, type: ISSUE, first: $limit)")
+	assert.Contains(t, recorded.Query, "... on Issue")
+	assert.Contains(t, recorded.Query, "... on PullRequest")
+	assert.Contains(t, recorded.Query, "id")
+	assert.Contains(t, recorded.Query, "__typename")
+	assert.NotContains(t, recorded.Query, "nodes{id", "Direct selection on union SearchResultItem is invalid")
+
+	// 2. Verify variables passed
+	assert.Equal(t, testQuery, recorded.Variables["query"])
+	assert.InDelta(t, float64(50), recorded.Variables["limit"], 0.001)
+
+	// 3. Verify response extraction and deduplication:
+	// - Extracts Issue ID
+	// - Extracts PR ID
+	// - Deduplicates repeated Issue ID
+	// - Discards Repository node
+	expectedIDs := []string{"I_kwDOAToIks7gNKvx", "PR_kwDOAToIks6zimkN"}
+	assert.Equal(t, expectedIDs, ids)
+}
+
+func TestSearchCandidateIDs_LimitHandling(t *testing.T) {
+	testCases := []struct {
+		name          string
+		inputLimit    int
+		expectedLimit float64
+	}{
+		{
+			name:          "Zero defaults to 100",
+			inputLimit:    0,
+			expectedLimit: 100,
+		},
+		{
+			name:          "Negative defaults to 100",
+			inputLimit:    -10,
+			expectedLimit: 100,
+		},
+		{
+			name:          "Over 100 capped at 100",
+			inputLimit:    150,
+			expectedLimit: 100,
+		},
+		{
+			name:          "Valid intermediate limit preserved",
+			inputLimit:    25,
+			expectedLimit: 25,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var recordedLimit float64
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				var req struct {
+					Variables map[string]any `json:"variables"`
+				}
+				_ = json.Unmarshal(body, &req)
+				if l, ok := req.Variables["limit"].(float64); ok {
+					recordedLimit = l
+				}
+
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"data":{"search":{"nodes":[]}}}`))
+			}))
+			defer server.Close()
+
+			gqlClient := graphql.NewClient(server.URL, server.Client())
+			client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
+
+			_, err := client.SearchCandidateIDs(t.Context(), "is:open", tc.inputLimit)
+			require.NoError(t, err)
+			assert.InDelta(t, tc.expectedLimit, recordedLimit, 0.001)
+		})
+	}
+}
+
+func TestSearchCandidateIDs_EmptyQuery(t *testing.T) {
+	serverCalled := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		serverCalled = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"search":{"nodes":[]}}}`))
+	}))
+	defer server.Close()
+
+	gqlClient := graphql.NewClient(server.URL, server.Client())
+	client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
+
+	// Test with empty string and whitespace-only
+	ids, err := client.SearchCandidateIDs(t.Context(), "", 10)
+	require.NoError(t, err)
+	assert.Nil(t, ids)
+	assert.False(t, serverCalled, "Server should not be called for empty query")
+
+	ids, err = client.SearchCandidateIDs(t.Context(), "   ", 10)
+	require.NoError(t, err)
+	assert.Nil(t, ids)
+	assert.False(t, serverCalled, "Server should not be called for whitespace query")
+}
+
+func TestSearchCandidateIDs_EmptyResults(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"search":{"nodes":[]}}}`))
+	}))
+	defer server.Close()
+
+	gqlClient := graphql.NewClient(server.URL, server.Client())
+	client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
+
+	ids, err := client.SearchCandidateIDs(t.Context(), "repo:kubernetes/kubernetes is:open", 100)
+	require.NoError(t, err)
+	assert.Empty(t, ids)
+}
+
+func TestSearchCandidateIDs_Errors(t *testing.T) {
+	t.Run("UninitializedClient", func(t *testing.T) {
+		client := &Client{}
+		ids, err := client.SearchCandidateIDs(t.Context(), "repo:foo/bar", 10)
+		require.Error(t, err)
+		assert.Nil(t, ids)
+		assert.Contains(t, err.Error(), "github graphql client is not initialized")
+	})
+
+	t.Run("GraphQLError", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{
+				"errors": [
+					{
+						"message": "Field 'search' has an invalid argument",
+						"type": "INVALID_ARGUMENT"
+					}
+				]
+			}`))
+		}))
+		defer server.Close()
+
+		gqlClient := graphql.NewClient(server.URL, server.Client())
+		client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
+
+		ids, err := client.SearchCandidateIDs(t.Context(), "invalid:query", 10)
+		require.Error(t, err)
+		assert.Nil(t, ids)
+		assert.Contains(t, err.Error(), "failed to search candidate IDs")
+	})
+
+	t.Run("HttpServerError", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		gqlClient := graphql.NewClient(server.URL, server.Client())
+		client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
+
+		ids, err := client.SearchCandidateIDs(t.Context(), "is:open", 10)
+		require.Error(t, err)
+		assert.Nil(t, ids)
+	})
+
+	t.Run("ContextCanceled", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			time.Sleep(100 * time.Millisecond)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		gqlClient := graphql.NewClient(server.URL, server.Client())
+		client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
+
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		ids, err := client.SearchCandidateIDs(ctx, "is:open", 10)
+		require.Error(t, err)
+		assert.Nil(t, ids)
+	})
 }

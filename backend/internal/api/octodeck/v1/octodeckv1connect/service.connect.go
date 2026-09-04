@@ -58,6 +58,9 @@ const (
 	// OctoDeckServiceDeleteItemProcedure is the fully-qualified name of the OctoDeckService's
 	// DeleteItem RPC.
 	OctoDeckServiceDeleteItemProcedure = "/octodeck.v1.OctoDeckService/DeleteItem"
+	// OctoDeckServiceUpdateSubscriptionProcedure is the fully-qualified name of the OctoDeckService's
+	// UpdateSubscription RPC.
+	OctoDeckServiceUpdateSubscriptionProcedure = "/octodeck.v1.OctoDeckService/UpdateSubscription"
 	// OctoDeckServiceGetSyncStatusProcedure is the fully-qualified name of the OctoDeckService's
 	// GetSyncStatus RPC.
 	OctoDeckServiceGetSyncStatusProcedure = "/octodeck.v1.OctoDeckService/GetSyncStatus"
@@ -89,6 +92,7 @@ type OctoDeckServiceClient interface {
 	SetNotes(context.Context, *connect.Request[v1.SetNotesRequest]) (*connect.Response[v1.SetNotesResponse], error)
 	RefetchItem(context.Context, *connect.Request[v1.RefetchItemRequest]) (*connect.Response[v1.RefetchItemResponse], error)
 	DeleteItem(context.Context, *connect.Request[v1.DeleteItemRequest]) (*connect.Response[v1.DeleteItemResponse], error)
+	UpdateSubscription(context.Context, *connect.Request[v1.UpdateSubscriptionRequest]) (*connect.Response[v1.UpdateSubscriptionResponse], error)
 	// Synchronization Status & Traces
 	GetSyncStatus(context.Context, *connect.Request[v1.GetSyncStatusRequest]) (*connect.Response[v1.GetSyncStatusResponse], error)
 	GetSyncTraces(context.Context, *connect.Request[v1.GetSyncTracesRequest]) (*connect.Response[v1.GetSyncTracesResponse], error)
@@ -164,6 +168,12 @@ func NewOctoDeckServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(octoDeckServiceMethods.ByName("DeleteItem")),
 			connect.WithClientOptions(opts...),
 		),
+		updateSubscription: connect.NewClient[v1.UpdateSubscriptionRequest, v1.UpdateSubscriptionResponse](
+			httpClient,
+			baseURL+OctoDeckServiceUpdateSubscriptionProcedure,
+			connect.WithSchema(octoDeckServiceMethods.ByName("UpdateSubscription")),
+			connect.WithClientOptions(opts...),
+		),
 		getSyncStatus: connect.NewClient[v1.GetSyncStatusRequest, v1.GetSyncStatusResponse](
 			httpClient,
 			baseURL+OctoDeckServiceGetSyncStatusProcedure,
@@ -199,20 +209,21 @@ func NewOctoDeckServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 
 // octoDeckServiceClient implements OctoDeckServiceClient.
 type octoDeckServiceClient struct {
-	getItems         *connect.Client[v1.GetItemsRequest, v1.GetItemsResponse]
-	getItem          *connect.Client[v1.GetItemRequest, v1.GetItemResponse]
-	sync             *connect.Client[v1.SyncRequest, v1.SyncResponse]
-	viewItem         *connect.Client[v1.ViewItemRequest, v1.ViewItemResponse]
-	ackItem          *connect.Client[v1.AckItemRequest, v1.AckItemResponse]
-	starItem         *connect.Client[v1.StarItemRequest, v1.StarItemResponse]
-	setNotes         *connect.Client[v1.SetNotesRequest, v1.SetNotesResponse]
-	refetchItem      *connect.Client[v1.RefetchItemRequest, v1.RefetchItemResponse]
-	deleteItem       *connect.Client[v1.DeleteItemRequest, v1.DeleteItemResponse]
-	getSyncStatus    *connect.Client[v1.GetSyncStatusRequest, v1.GetSyncStatusResponse]
-	getSyncTraces    *connect.Client[v1.GetSyncTracesRequest, v1.GetSyncTracesResponse]
-	getDatabaseStats *connect.Client[v1.GetDatabaseStatsRequest, v1.GetDatabaseStatsResponse]
-	getConfig        *connect.Client[v1.GetConfigRequest, v1.GetConfigResponse]
-	updateConfig     *connect.Client[v1.UpdateConfigRequest, v1.UpdateConfigResponse]
+	getItems           *connect.Client[v1.GetItemsRequest, v1.GetItemsResponse]
+	getItem            *connect.Client[v1.GetItemRequest, v1.GetItemResponse]
+	sync               *connect.Client[v1.SyncRequest, v1.SyncResponse]
+	viewItem           *connect.Client[v1.ViewItemRequest, v1.ViewItemResponse]
+	ackItem            *connect.Client[v1.AckItemRequest, v1.AckItemResponse]
+	starItem           *connect.Client[v1.StarItemRequest, v1.StarItemResponse]
+	setNotes           *connect.Client[v1.SetNotesRequest, v1.SetNotesResponse]
+	refetchItem        *connect.Client[v1.RefetchItemRequest, v1.RefetchItemResponse]
+	deleteItem         *connect.Client[v1.DeleteItemRequest, v1.DeleteItemResponse]
+	updateSubscription *connect.Client[v1.UpdateSubscriptionRequest, v1.UpdateSubscriptionResponse]
+	getSyncStatus      *connect.Client[v1.GetSyncStatusRequest, v1.GetSyncStatusResponse]
+	getSyncTraces      *connect.Client[v1.GetSyncTracesRequest, v1.GetSyncTracesResponse]
+	getDatabaseStats   *connect.Client[v1.GetDatabaseStatsRequest, v1.GetDatabaseStatsResponse]
+	getConfig          *connect.Client[v1.GetConfigRequest, v1.GetConfigResponse]
+	updateConfig       *connect.Client[v1.UpdateConfigRequest, v1.UpdateConfigResponse]
 }
 
 // GetItems calls octodeck.v1.OctoDeckService.GetItems.
@@ -260,6 +271,11 @@ func (c *octoDeckServiceClient) DeleteItem(ctx context.Context, req *connect.Req
 	return c.deleteItem.CallUnary(ctx, req)
 }
 
+// UpdateSubscription calls octodeck.v1.OctoDeckService.UpdateSubscription.
+func (c *octoDeckServiceClient) UpdateSubscription(ctx context.Context, req *connect.Request[v1.UpdateSubscriptionRequest]) (*connect.Response[v1.UpdateSubscriptionResponse], error) {
+	return c.updateSubscription.CallUnary(ctx, req)
+}
+
 // GetSyncStatus calls octodeck.v1.OctoDeckService.GetSyncStatus.
 func (c *octoDeckServiceClient) GetSyncStatus(ctx context.Context, req *connect.Request[v1.GetSyncStatusRequest]) (*connect.Response[v1.GetSyncStatusResponse], error) {
 	return c.getSyncStatus.CallUnary(ctx, req)
@@ -299,6 +315,7 @@ type OctoDeckServiceHandler interface {
 	SetNotes(context.Context, *connect.Request[v1.SetNotesRequest]) (*connect.Response[v1.SetNotesResponse], error)
 	RefetchItem(context.Context, *connect.Request[v1.RefetchItemRequest]) (*connect.Response[v1.RefetchItemResponse], error)
 	DeleteItem(context.Context, *connect.Request[v1.DeleteItemRequest]) (*connect.Response[v1.DeleteItemResponse], error)
+	UpdateSubscription(context.Context, *connect.Request[v1.UpdateSubscriptionRequest]) (*connect.Response[v1.UpdateSubscriptionResponse], error)
 	// Synchronization Status & Traces
 	GetSyncStatus(context.Context, *connect.Request[v1.GetSyncStatusRequest]) (*connect.Response[v1.GetSyncStatusResponse], error)
 	GetSyncTraces(context.Context, *connect.Request[v1.GetSyncTracesRequest]) (*connect.Response[v1.GetSyncTracesResponse], error)
@@ -370,6 +387,12 @@ func NewOctoDeckServiceHandler(svc OctoDeckServiceHandler, opts ...connect.Handl
 		connect.WithSchema(octoDeckServiceMethods.ByName("DeleteItem")),
 		connect.WithHandlerOptions(opts...),
 	)
+	octoDeckServiceUpdateSubscriptionHandler := connect.NewUnaryHandler(
+		OctoDeckServiceUpdateSubscriptionProcedure,
+		svc.UpdateSubscription,
+		connect.WithSchema(octoDeckServiceMethods.ByName("UpdateSubscription")),
+		connect.WithHandlerOptions(opts...),
+	)
 	octoDeckServiceGetSyncStatusHandler := connect.NewUnaryHandler(
 		OctoDeckServiceGetSyncStatusProcedure,
 		svc.GetSyncStatus,
@@ -420,6 +443,8 @@ func NewOctoDeckServiceHandler(svc OctoDeckServiceHandler, opts ...connect.Handl
 			octoDeckServiceRefetchItemHandler.ServeHTTP(w, r)
 		case OctoDeckServiceDeleteItemProcedure:
 			octoDeckServiceDeleteItemHandler.ServeHTTP(w, r)
+		case OctoDeckServiceUpdateSubscriptionProcedure:
+			octoDeckServiceUpdateSubscriptionHandler.ServeHTTP(w, r)
 		case OctoDeckServiceGetSyncStatusProcedure:
 			octoDeckServiceGetSyncStatusHandler.ServeHTTP(w, r)
 		case OctoDeckServiceGetSyncTracesProcedure:
@@ -473,6 +498,10 @@ func (UnimplementedOctoDeckServiceHandler) RefetchItem(context.Context, *connect
 
 func (UnimplementedOctoDeckServiceHandler) DeleteItem(context.Context, *connect.Request[v1.DeleteItemRequest]) (*connect.Response[v1.DeleteItemResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("octodeck.v1.OctoDeckService.DeleteItem is not implemented"))
+}
+
+func (UnimplementedOctoDeckServiceHandler) UpdateSubscription(context.Context, *connect.Request[v1.UpdateSubscriptionRequest]) (*connect.Response[v1.UpdateSubscriptionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("octodeck.v1.OctoDeckService.UpdateSubscription is not implemented"))
 }
 
 func (UnimplementedOctoDeckServiceHandler) GetSyncStatus(context.Context, *connect.Request[v1.GetSyncStatusRequest]) (*connect.Response[v1.GetSyncStatusResponse], error) {

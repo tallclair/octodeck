@@ -49,6 +49,11 @@ export const refetchItem = OctoDeckService.method.refetchItem;
 export const deleteItem = OctoDeckService.method.deleteItem;
 
 /**
+ * @generated from rpc octodeck.v1.OctoDeckService.UpdateSubscription
+ */
+export const updateSubscription = OctoDeckService.method.updateSubscription;
+
+/**
  * Synchronization Status & Traces
  *
  * @generated from rpc octodeck.v1.OctoDeckService.GetSyncStatus

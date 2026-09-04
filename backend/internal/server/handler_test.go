@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -28,15 +29,30 @@ func setupTestHandler(
 	func(connect.AnyRequest),
 	*mockSyncEngine,
 ) {
+	return setupTestHandlerWithGH(t, &mockGitHubClient{authenticated: true})
+}
+
+func setupTestHandlerWithGH(
+	t *testing.T,
+	mockGH *mockGitHubClient,
+) (
+	*database.DB,
+	octodeckv1connect.OctoDeckServiceClient,
+	func(connect.AnyRequest),
+	*mockSyncEngine,
+) {
 	db, err := database.Init(t.Context(), database.InMemoryDSN)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
 	mockSync := &mockSyncEngine{}
-	mockGH := &mockGitHubClient{authenticated: true}
 	cfg := config.NewForTest(octodeckv1.Config_builder{}.Build())
 
-	s := New(db, mockGH, mockSync, cfg, nil)
+	var gh GitHubClient
+	if mockGH != nil {
+		gh = mockGH
+	}
+	s := New(db, gh, mockSync, cfg, nil)
 	code, err := s.auth.GenerateCode()
 	require.NoError(t, err)
 	token, err := s.auth.ExchangeCode(t.Context(), code)
@@ -334,6 +350,8 @@ func TestOctoDeckHandler_SyncAndConfig(t *testing.T) {
 		require.NoError(t, err)
 		// Default config values
 		assert.Equal(t, int32(0), respGet.Msg.GetConfig().GetPollingIntervalMin())
+		assert.Equal(t, int32(0), respGet.Msg.GetConfig().GetDiscoveryIntervalMin())
+		assert.Empty(t, respGet.Msg.GetConfig().GetTrackedQueries())
 		assert.Equal(t, "testuser", respGet.Msg.GetCurrentUserLogin())
 
 		// 2. Update Config
@@ -393,6 +411,40 @@ func TestOctoDeckHandler_SyncAndConfig(t *testing.T) {
 		respValidLabel, err := client.UpdateConfig(t.Context(), reqValidLabel)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"size/*"}, respValidLabel.Msg.GetConfig().GetIncludedLabels())
+
+		// 6. Update Discovery Interval and Tracked Queries
+		queries := []string{"repo:kubernetes/kubernetes is:open label:sig/node"}
+		discoveryCfg := octodeckv1.Config_builder{
+			DiscoveryIntervalMin: config.Ptr(int32(45)),
+			TrackedQueries:       queries,
+		}.Build()
+		reqDiscovery := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config:     discoveryCfg,
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"discovery_interval_min", "tracked_queries"}},
+		}.Build())
+		addHeaders(reqDiscovery)
+		respDiscovery, err := client.UpdateConfig(t.Context(), reqDiscovery)
+		require.NoError(t, err)
+		assert.Equal(t, int32(45), respDiscovery.Msg.GetConfig().GetDiscoveryIntervalMin())
+		assert.Equal(t, queries, respDiscovery.Msg.GetConfig().GetTrackedQueries())
+
+		// Verify via GetConfig
+		respGet3, err := client.GetConfig(t.Context(), reqGet)
+		require.NoError(t, err)
+		assert.Equal(t, int32(45), respGet3.Msg.GetConfig().GetDiscoveryIntervalMin())
+		assert.Equal(t, queries, respGet3.Msg.GetConfig().GetTrackedQueries())
+
+		// 7. Validation: Negative discovery_interval_min should return InvalidArgument
+		invalidDiscoveryCfg := octodeckv1.Config_builder{
+			DiscoveryIntervalMin: config.Ptr(int32(-5)),
+		}.Build()
+		reqInvalidDiscovery := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config: invalidDiscoveryCfg,
+		}.Build())
+		addHeaders(reqInvalidDiscovery)
+		_, err = client.UpdateConfig(t.Context(), reqInvalidDiscovery)
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 
 		// Verify that GetItems filters labels on read
 		readReq := connect.NewRequest(&octodeckv1.GetItemsRequest{})
@@ -732,5 +784,707 @@ func TestOctoDeckHandler_StatsAndTraces(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotNil(t, resp.Msg.GetStats())
 		assert.GreaterOrEqual(t, resp.Msg.GetStats().GetTotalItems(), int64(0))
+	})
+}
+
+func TestOctoDeckHandler_DiscoveryAndTrackedQueriesConfig(t *testing.T) {
+	_, client, addHeaders, _ := setupTestHandler(t)
+
+	t.Run("UpdateAndGetTrackedQueriesAndDiscoveryInterval", func(t *testing.T) {
+		queries := []string{
+			"repo:kubernetes/kubernetes is:open label:sig/node",
+			"org:octodeck is:pr is:open",
+		}
+		updateCfg := octodeckv1.Config_builder{
+			DiscoveryIntervalMin: config.Ptr(int32(15)),
+			TrackedQueries:       queries,
+		}.Build()
+
+		req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config: updateCfg,
+		}.Build())
+		addHeaders(req)
+
+		updateResp, err := client.UpdateConfig(t.Context(), req)
+		require.NoError(t, err)
+		assert.Equal(t, int32(15), updateResp.Msg.GetConfig().GetDiscoveryIntervalMin())
+		assert.Equal(t, queries, updateResp.Msg.GetConfig().GetTrackedQueries())
+
+		// Verify GetConfig reflects the changes
+		getReq := connect.NewRequest(&octodeckv1.GetConfigRequest{})
+		addHeaders(getReq)
+		getResp, err := client.GetConfig(t.Context(), getReq)
+		require.NoError(t, err)
+		assert.Equal(t, int32(15), getResp.Msg.GetConfig().GetDiscoveryIntervalMin())
+		assert.Equal(t, queries, getResp.Msg.GetConfig().GetTrackedQueries())
+	})
+
+	t.Run("UpdateWithFieldMask_TrackedQueriesOnly", func(t *testing.T) {
+		updateCfg := octodeckv1.Config_builder{
+			TrackedQueries:       []string{"repo:golang/go is:issue"},
+			DiscoveryIntervalMin: config.Ptr(int32(99)), // should NOT be updated
+		}.Build()
+
+		req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config:     updateCfg,
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"tracked_queries"}},
+		}.Build())
+		addHeaders(req)
+
+		updateResp, err := client.UpdateConfig(t.Context(), req)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"repo:golang/go is:issue"}, updateResp.Msg.GetConfig().GetTrackedQueries())
+	})
+
+	t.Run("Validation_RejectNegativeDiscoveryInterval", func(t *testing.T) {
+		updateCfg := octodeckv1.Config_builder{
+			DiscoveryIntervalMin: config.Ptr(int32(-1)),
+		}.Build()
+
+		req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config: updateCfg,
+		}.Build())
+		addHeaders(req)
+
+		_, err := client.UpdateConfig(t.Context(), req)
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+		assert.Contains(t, err.Error(), "discovery_interval_min cannot be negative")
+	})
+}
+
+func TestOctoDeckHandler_UpdateConfig_RepeatedFieldsClearing(t *testing.T) {
+	_, client, addHeaders, _ := setupTestHandler(t)
+
+	testCases := []struct {
+		name      string
+		fieldPath string
+		seedCfg   *octodeckv1.Config
+		clearCfg  *octodeckv1.Config
+		getSlice  func(*octodeckv1.Config) []string
+	}{
+		{
+			name:      "tracked_queries",
+			fieldPath: "tracked_queries",
+			seedCfg: octodeckv1.Config_builder{
+				TrackedQueries: []string{"repo:kubernetes/kubernetes is:open", "org:octodeck is:pr"},
+			}.Build(),
+			clearCfg: octodeckv1.Config_builder{TrackedQueries: []string{}}.Build(),
+			getSlice: func(c *octodeckv1.Config) []string { return c.GetTrackedQueries() },
+		},
+		{
+			name:      "watched_repos",
+			fieldPath: "watched_repos",
+			seedCfg: octodeckv1.Config_builder{
+				WatchedRepos: []string{"owner/repo1", "owner/repo2"},
+			}.Build(),
+			clearCfg: octodeckv1.Config_builder{WatchedRepos: []string{}}.Build(),
+			getSlice: func(c *octodeckv1.Config) []string { return c.GetWatchedRepos() },
+		},
+		{
+			name:      "excluded_labels",
+			fieldPath: "excluded_labels",
+			seedCfg: octodeckv1.Config_builder{
+				ExcludedLabels: []string{"wip", "do-not-merge"},
+			}.Build(),
+			clearCfg: octodeckv1.Config_builder{ExcludedLabels: []string{}}.Build(),
+			getSlice: func(c *octodeckv1.Config) []string { return c.GetExcludedLabels() },
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run("FieldMask successfully clears "+tc.name+" when empty slice provided", func(t *testing.T) {
+			seedReq := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+				Config:     tc.seedCfg,
+				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{tc.fieldPath}},
+			}.Build())
+			addHeaders(seedReq)
+			seedResp, err := client.UpdateConfig(t.Context(), seedReq)
+			require.NoError(t, err)
+			require.NotEmpty(t, tc.getSlice(seedResp.Msg.GetConfig()))
+
+			clearReq := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+				Config:     tc.clearCfg,
+				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{tc.fieldPath}},
+			}.Build())
+			addHeaders(clearReq)
+			clearResp, err := client.UpdateConfig(t.Context(), clearReq)
+			require.NoError(t, err)
+			assert.Empty(t, tc.getSlice(clearResp.Msg.GetConfig()))
+
+			// Verify GetConfig reflects empty state
+			getReq := connect.NewRequest(&octodeckv1.GetConfigRequest{})
+			addHeaders(getReq)
+			getResp, err := client.GetConfig(t.Context(), getReq)
+			require.NoError(t, err)
+			assert.Empty(t, tc.getSlice(getResp.Msg.GetConfig()))
+		})
+	}
+
+	t.Run("Full config update without FieldMask clears repeated fields", func(t *testing.T) {
+		// Seed
+		seedReq := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config: octodeckv1.Config_builder{
+				WatchedRepos:         []string{"owner/repo"},
+				TrackedQueries:       []string{"repo:owner/repo is:open"},
+				DiscoveryIntervalMin: config.Ptr(int32(30)),
+			}.Build(),
+		}.Build())
+		addHeaders(seedReq)
+		_, err := client.UpdateConfig(t.Context(), seedReq)
+		require.NoError(t, err)
+
+		// Full update with empty lists
+		updateReq := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config: octodeckv1.Config_builder{
+				DiscoveryIntervalMin: config.Ptr(int32(45)),
+			}.Build(),
+		}.Build())
+		addHeaders(updateReq)
+		resp, err := client.UpdateConfig(t.Context(), updateReq)
+		require.NoError(t, err)
+		assert.Empty(t, resp.Msg.GetConfig().GetWatchedRepos())
+		assert.Empty(t, resp.Msg.GetConfig().GetTrackedQueries())
+		assert.Equal(t, int32(45), resp.Msg.GetConfig().GetDiscoveryIntervalMin())
+	})
+}
+
+func TestOctoDeckHandler_UpdateConfig_SliceImmutability(t *testing.T) {
+	_, client, addHeaders, _ := setupTestHandler(t)
+
+	t.Run("Mutating request slice after UpdateConfig does not mutate server config", func(t *testing.T) {
+		queries := []string{"query_a", "query_b"}
+		req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config: octodeckv1.Config_builder{
+				TrackedQueries: queries,
+			}.Build(),
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"tracked_queries"}},
+		}.Build())
+		addHeaders(req)
+		resp, err := client.UpdateConfig(t.Context(), req)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"query_a", "query_b"}, resp.Msg.GetConfig().GetTrackedQueries())
+
+		// Mutate caller slice
+		queries[0] = "MALICIOUS_MUTATION"
+
+		// Query server config
+		getReq := connect.NewRequest(&octodeckv1.GetConfigRequest{})
+		addHeaders(getReq)
+		getResp, err := client.GetConfig(t.Context(), getReq)
+		require.NoError(t, err)
+		assert.Equal(t, "query_a", getResp.Msg.GetConfig().GetTrackedQueries()[0],
+			"server config must be immune to client slice mutation")
+	})
+}
+
+func TestOctoDeckHandler_UpdateConfig_ValidationAndErrorPaths(t *testing.T) {
+	db, client, addHeaders, _ := setupTestHandler(t)
+
+	t.Run("Nil request message config returns InvalidArgument", func(t *testing.T) {
+		req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{}.Build())
+		addHeaders(req)
+		_, err := client.UpdateConfig(t.Context(), req)
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+		assert.Contains(t, err.Error(), "config is required")
+	})
+
+	t.Run("Negative discovery intervals rejected with InvalidArgument", func(t *testing.T) {
+		for _, val := range []int32{-1, -5, -60, -9999, math.MinInt32} {
+			req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+				Config: octodeckv1.Config_builder{DiscoveryIntervalMin: config.Ptr(val)}.Build(),
+			}.Build())
+			addHeaders(req)
+			_, err := client.UpdateConfig(t.Context(), req)
+			require.Error(t, err)
+			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+			assert.Contains(t, err.Error(), "discovery_interval_min cannot be negative")
+		}
+	})
+
+	t.Run("Negative discovery interval rejected even with partial mask", func(t *testing.T) {
+		req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config: octodeckv1.Config_builder{
+				DiscoveryIntervalMin: config.Ptr(int32(-10)),
+				TrackedQueries:       []string{"repo:golang/go is:open"},
+			}.Build(),
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"tracked_queries"}},
+		}.Build())
+		addHeaders(req)
+		_, err := client.UpdateConfig(t.Context(), req)
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	})
+
+	t.Run("Zero discovery interval accepted", func(t *testing.T) {
+		req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config: octodeckv1.Config_builder{DiscoveryIntervalMin: config.Ptr(int32(0))}.Build(),
+		}.Build())
+		addHeaders(req)
+		resp, err := client.UpdateConfig(t.Context(), req)
+		require.NoError(t, err)
+		assert.Equal(t, int32(0), resp.Msg.GetConfig().GetDiscoveryIntervalMin())
+	})
+
+	t.Run("Invalid watched_repos returns InvalidArgument", func(t *testing.T) {
+		invalidCases := [][]string{
+			{"invalid-repo-without-slash"},
+			{"owner/repo/subpath"},
+			{"owner/repo?bad=char"},
+		}
+		for _, repos := range invalidCases {
+			req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+				Config: octodeckv1.Config_builder{WatchedRepos: repos}.Build(),
+			}.Build())
+			addHeaders(req)
+			_, err := client.UpdateConfig(t.Context(), req)
+			require.Error(t, err)
+			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+			assert.Contains(t, err.Error(), "invalid watched_repos")
+		}
+	})
+
+	t.Run("Invalid excluded_repos returns InvalidArgument", func(t *testing.T) {
+		req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config: octodeckv1.Config_builder{ExcludedRepos: []string{"bad-repo-format"}}.Build(),
+		}.Build())
+		addHeaders(req)
+		_, err := client.UpdateConfig(t.Context(), req)
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+		assert.Contains(t, err.Error(), "invalid excluded_repos")
+	})
+
+	t.Run("Invalid included_labels returns InvalidArgument", func(t *testing.T) {
+		req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config: octodeckv1.Config_builder{IncludedLabels: []string{"label\x00with-null"}}.Build(),
+		}.Build())
+		addHeaders(req)
+		_, err := client.UpdateConfig(t.Context(), req)
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+		assert.Contains(t, err.Error(), "invalid included_labels")
+	})
+
+	t.Run("Invalid excluded_labels returns InvalidArgument", func(t *testing.T) {
+		req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config: octodeckv1.Config_builder{ExcludedLabels: []string{"label\x1bwith-escape"}}.Build(),
+		}.Build())
+		addHeaders(req)
+		_, err := client.UpdateConfig(t.Context(), req)
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+		assert.Contains(t, err.Error(), "invalid excluded_labels")
+	})
+
+	t.Run("Invalid tracked_queries with null byte returns InvalidArgument", func(t *testing.T) {
+		req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config: octodeckv1.Config_builder{TrackedQueries: []string{"repo:golang/go\x00is:open"}}.Build(),
+		}.Build())
+		addHeaders(req)
+		_, err := client.UpdateConfig(t.Context(), req)
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+		assert.Contains(t, err.Error(), "invalid tracked_queries")
+	})
+
+	t.Run("Invalid tracked_queries with updated filter returns InvalidArgument", func(t *testing.T) {
+		invalidQueries := []string{"repo:golang/go is:open updated:>2026-01-01"}
+		req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config: octodeckv1.Config_builder{TrackedQueries: invalidQueries}.Build(),
+		}.Build())
+		addHeaders(req)
+		_, err := client.UpdateConfig(t.Context(), req)
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+		assert.Contains(t, err.Error(), "cannot contain an 'updated' filter")
+	})
+
+	t.Run("Tracked queries seeds discovery cursor on addition", func(t *testing.T) {
+		const newQuery = "repo:octodeck/seeds-cursor is:open"
+		req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config: octodeckv1.Config_builder{
+				TrackedQueries: []string{newQuery},
+			}.Build(),
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"tracked_queries"}},
+		}.Build())
+		addHeaders(req)
+		_, err := client.UpdateConfig(t.Context(), req)
+		require.NoError(t, err)
+
+		cursor, exists, err := db.GetDiscoveryCursor(t.Context(), newQuery)
+		require.NoError(t, err)
+		assert.True(t, exists, "discovery cursor should be seeded when new query is added")
+		assert.False(t, cursor.IsZero())
+	})
+
+	t.Run("Tracked queries sanitization and order preservation over RPC", func(t *testing.T) {
+		req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config: octodeckv1.Config_builder{
+				TrackedQueries: []string{
+					"  repo:b/b is:open  ",
+					"repo:a/a is:issue",
+					"repo:b/b is:open",
+					"",
+					"   ",
+					"repo:c/c is:pr",
+				},
+			}.Build(),
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"tracked_queries"}},
+		}.Build())
+		addHeaders(req)
+		resp, err := client.UpdateConfig(t.Context(), req)
+		require.NoError(t, err)
+		assert.Equal(t, []string{
+			"repo:b/b is:open",
+			"repo:a/a is:issue",
+			"repo:c/c is:pr",
+		}, resp.Msg.GetConfig().GetTrackedQueries())
+	})
+
+	t.Run("FieldMask with unknown paths safely ignored without panic", func(t *testing.T) {
+		req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config: octodeckv1.Config_builder{
+				DiscoveryIntervalMin: config.Ptr(int32(25)),
+				TrackedQueries:       []string{"repo:golang/go is:issue"},
+			}.Build(),
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"nonexistent_field", "!@#$%^&*", ""}},
+		}.Build())
+		addHeaders(req)
+		resp, err := client.UpdateConfig(t.Context(), req)
+		require.NoError(t, err)
+		// Unknown mask paths mean neither discoveryIntervalMin nor tracked_queries were updated
+		assert.NotEqual(t, int32(25), resp.Msg.GetConfig().GetDiscoveryIntervalMin())
+	})
+
+	t.Run("FieldMask supports both snake_case and camelCase paths", func(t *testing.T) {
+		// snake_case
+		req1 := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config:     octodeckv1.Config_builder{TrackedQueries: []string{"query_snake"}}.Build(),
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"tracked_queries"}},
+		}.Build())
+		addHeaders(req1)
+		resp1, err := client.UpdateConfig(t.Context(), req1)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"query_snake"}, resp1.Msg.GetConfig().GetTrackedQueries())
+
+		// camelCase
+		req2 := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config:     octodeckv1.Config_builder{TrackedQueries: []string{"query_camel"}}.Build(),
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"trackedQueries"}},
+		}.Build())
+		addHeaders(req2)
+		resp2, err := client.UpdateConfig(t.Context(), req2)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"query_camel"}, resp2.Msg.GetConfig().GetTrackedQueries())
+	})
+}
+
+func TestOctoDeckHandler_UpdateSubscription(t *testing.T) {
+	t.Run("Successful subscription updates across states and identifiers", func(t *testing.T) {
+		var (
+			calledID    string
+			calledState octodeckv1.SubscriptionState
+			callCount   int
+		)
+
+		mockGH := &mockGitHubClient{
+			authenticated: true,
+			updateSubscriptionFn: func(_ context.Context, id string, state octodeckv1.SubscriptionState) error {
+				calledID = id
+				calledState = state
+				callCount++
+				return nil
+			},
+		}
+
+		db, client, addHeaders, _ := setupTestHandlerWithGH(t, mockGH)
+
+		// Seed initial item with UNSUBSCRIBED state
+		initialItem := octodeckv1.Item_builder{
+			Id:                 config.Ptr("PR_node_123"),
+			Repo:               config.Ptr("owner/repo"),
+			Number:             config.Ptr(int32(101)),
+			Type:               config.Ptr(octodeckv1.ItemType_ITEM_TYPE_PR),
+			Title:              config.Ptr("Test Pull Request"),
+			State:              config.Ptr(octodeckv1.ItemState_ITEM_STATE_OPEN),
+			ViewerSubscription: config.Ptr(octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED),
+			UpdatedAt:          timestamppb.Now(),
+		}.Build()
+		require.NoError(t, db.SaveItems(t.Context(), []*octodeckv1.Item{initialItem}))
+
+		testCases := []struct {
+			name          string
+			targetID      string
+			inputState    octodeckv1.SubscriptionState
+			expectedState octodeckv1.SubscriptionState
+		}{
+			{
+				name:          "Subscribe via node ID",
+				targetID:      "PR_node_123",
+				inputState:    octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED,
+				expectedState: octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED,
+			},
+			{
+				name:          "Ignore via repo#number reference",
+				targetID:      "owner/repo#101",
+				inputState:    octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_IGNORED,
+				expectedState: octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_IGNORED,
+			},
+			{
+				name:          "Unsubscribe via node ID",
+				targetID:      "PR_node_123",
+				inputState:    octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED,
+				expectedState: octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED,
+			},
+			{
+				name:          "Unspecified state defaults to Subscribed",
+				targetID:      "PR_node_123",
+				inputState:    octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSPECIFIED,
+				expectedState: octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED,
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				prevCount := callCount
+				req := connect.NewRequest(octodeckv1.UpdateSubscriptionRequest_builder{
+					ItemId: config.Ptr(tc.targetID),
+					State:  config.Ptr(tc.inputState),
+				}.Build())
+				addHeaders(req)
+
+				resp, err := client.UpdateSubscription(t.Context(), req)
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+
+				// Verify GitHub client invocation
+				assert.Equal(t, prevCount+1, callCount)
+				assert.Equal(t, "PR_node_123", calledID)
+				assert.Equal(t, tc.expectedState, calledState)
+
+				// Verify response item
+				assert.Equal(t, "PR_node_123", resp.Msg.GetItem().GetId())
+				assert.Equal(t, tc.expectedState, resp.Msg.GetItem().GetViewerSubscription())
+
+				// Verify persistence in SQLite
+				persisted, err := db.GetItem(t.Context(), "PR_node_123")
+				require.NoError(t, err)
+				assert.Equal(t, tc.expectedState, persisted.GetViewerSubscription())
+			})
+		}
+	})
+
+	t.Run("Empty item ID returns InvalidArgument", func(t *testing.T) {
+		_, client, addHeaders, _ := setupTestHandler(t)
+
+		req := connect.NewRequest(octodeckv1.UpdateSubscriptionRequest_builder{
+			ItemId: config.Ptr(""),
+			State:  config.Ptr(octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED),
+		}.Build())
+		addHeaders(req)
+
+		_, err := client.UpdateSubscription(t.Context(), req)
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+		assert.Contains(t, err.Error(), "item_id is required")
+	})
+
+	t.Run("Whitespace-only item ID returns InvalidArgument", func(t *testing.T) {
+		_, client, addHeaders, _ := setupTestHandler(t)
+
+		testCases := []struct {
+			name   string
+			itemID string
+		}{
+			{name: "spaces only", itemID: "   "},
+			{name: "tabs and newlines", itemID: "\t\n"},
+			{name: "mixed whitespace", itemID: " \t \r\n "},
+			{name: "single space", itemID: " "},
+			{name: "newline only", itemID: "\n"},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				req := connect.NewRequest(octodeckv1.UpdateSubscriptionRequest_builder{
+					ItemId: config.Ptr(tc.itemID),
+					State:  config.Ptr(octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED),
+				}.Build())
+				addHeaders(req)
+
+				_, err := client.UpdateSubscription(t.Context(), req)
+				require.Error(t, err)
+				assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+				assert.Contains(t, err.Error(), "item_id is required")
+			})
+		}
+	})
+
+	t.Run("Invalid subscription state returns InvalidArgument", func(t *testing.T) {
+		var ghCalled bool
+		mockGH := &mockGitHubClient{
+			authenticated: true,
+			updateSubscriptionFn: func(_ context.Context, _ string, _ octodeckv1.SubscriptionState) error {
+				ghCalled = true
+				return nil
+			},
+		}
+
+		db, client, addHeaders, _ := setupTestHandlerWithGH(t, mockGH)
+
+		// Seed item in database
+		item := octodeckv1.Item_builder{
+			Id:                 config.Ptr("PR_valid_item"),
+			Repo:               config.Ptr("owner/repo"),
+			Number:             config.Ptr(int32(101)),
+			Type:               config.Ptr(octodeckv1.ItemType_ITEM_TYPE_PR),
+			ViewerSubscription: config.Ptr(octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED),
+			UpdatedAt:          timestamppb.Now(),
+		}.Build()
+		require.NoError(t, db.SaveItems(t.Context(), []*octodeckv1.Item{item}))
+
+		invalidStates := []struct {
+			name  string
+			state octodeckv1.SubscriptionState
+		}{
+			{name: "unknown positive enum 999", state: octodeckv1.SubscriptionState(999)},
+			{name: "negative enum -1", state: octodeckv1.SubscriptionState(-1)},
+			{name: "out of range enum 42", state: octodeckv1.SubscriptionState(42)},
+		}
+
+		for _, tc := range invalidStates {
+			t.Run(tc.name, func(t *testing.T) {
+				ghCalled = false
+				req := connect.NewRequest(octodeckv1.UpdateSubscriptionRequest_builder{
+					ItemId: config.Ptr("PR_valid_item"),
+					State:  config.Ptr(tc.state),
+				}.Build())
+				addHeaders(req)
+
+				_, err := client.UpdateSubscription(t.Context(), req)
+				require.Error(t, err)
+				assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+				assert.Contains(t, err.Error(), "unsupported subscription state")
+				assert.False(t, ghCalled, "GitHub client must not be called when subscription state is invalid")
+
+				// Ensure DB state is unchanged
+				persisted, err := db.GetItem(t.Context(), "PR_valid_item")
+				require.NoError(t, err)
+				expectedSub := octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED
+				assert.Equal(t, expectedSub, persisted.GetViewerSubscription())
+			})
+		}
+	})
+
+	t.Run("Nil ghClient rejects invalid enums and prevents SQLite corruption", func(t *testing.T) {
+		db, client, addHeaders, _ := setupTestHandlerWithGH(t, nil)
+
+		item := octodeckv1.Item_builder{
+			Id:                 config.Ptr("PR_nil_client_test"),
+			Repo:               config.Ptr("owner/repo"),
+			Number:             config.Ptr(int32(105)),
+			Type:               config.Ptr(octodeckv1.ItemType_ITEM_TYPE_PR),
+			Title:              config.Ptr("Nil Client PR"),
+			ViewerSubscription: config.Ptr(octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED),
+			UpdatedAt:          timestamppb.Now(),
+		}.Build()
+		require.NoError(t, db.SaveItems(t.Context(), []*octodeckv1.Item{item}))
+
+		invalidStates := []struct {
+			name  string
+			state octodeckv1.SubscriptionState
+		}{
+			{name: "invalid positive enum 999", state: octodeckv1.SubscriptionState(999)},
+			{name: "invalid negative enum -1", state: octodeckv1.SubscriptionState(-1)},
+			{name: "invalid out of range enum 42", state: octodeckv1.SubscriptionState(42)},
+		}
+
+		for _, tc := range invalidStates {
+			t.Run(tc.name, func(t *testing.T) {
+				req := connect.NewRequest(octodeckv1.UpdateSubscriptionRequest_builder{
+					ItemId: config.Ptr("PR_nil_client_test"),
+					State:  config.Ptr(tc.state),
+				}.Build())
+				addHeaders(req)
+
+				_, err := client.UpdateSubscription(t.Context(), req)
+				require.Error(t, err, "UpdateSubscription should fail for invalid state even with nil ghClient")
+				assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+				assert.Contains(t, err.Error(), "unsupported subscription state")
+
+				persisted, err := db.GetItem(t.Context(), "PR_nil_client_test")
+				require.NoError(t, err)
+				expectedSub := octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED
+				assert.Equal(
+					t,
+					expectedSub,
+					persisted.GetViewerSubscription(),
+					"SQLite viewer_subscription must remain UNSUBSCRIBED and not be overwritten",
+				)
+			})
+		}
+	})
+
+	t.Run("Item not found in DB returns NotFound", func(t *testing.T) {
+		var ghCalled bool
+		mockGH := &mockGitHubClient{
+			authenticated: true,
+			updateSubscriptionFn: func(_ context.Context, _ string, _ octodeckv1.SubscriptionState) error {
+				ghCalled = true
+				return nil
+			},
+		}
+
+		_, client, addHeaders, _ := setupTestHandlerWithGH(t, mockGH)
+
+		req := connect.NewRequest(octodeckv1.UpdateSubscriptionRequest_builder{
+			ItemId: config.Ptr("non_existent_item"),
+			State:  config.Ptr(octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED),
+		}.Build())
+		addHeaders(req)
+
+		_, err := client.UpdateSubscription(t.Context(), req)
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+		assert.Contains(t, err.Error(), "not found")
+		assert.False(t, ghCalled, "GitHub client should not be called if item does not exist")
+	})
+
+	t.Run("GitHub client failure returns Internal and preserves DB state", func(t *testing.T) {
+		mockGH := &mockGitHubClient{
+			authenticated: true,
+			updateSubscriptionFn: func(_ context.Context, _ string, _ octodeckv1.SubscriptionState) error {
+				return errors.New("rate limit exceeded")
+			},
+		}
+
+		db, client, addHeaders, _ := setupTestHandlerWithGH(t, mockGH)
+
+		initialItem := octodeckv1.Item_builder{
+			Id:                 config.Ptr("PR_node_fail"),
+			Repo:               config.Ptr("owner/repo"),
+			Number:             config.Ptr(int32(102)),
+			Type:               config.Ptr(octodeckv1.ItemType_ITEM_TYPE_PR),
+			ViewerSubscription: config.Ptr(octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED),
+			UpdatedAt:          timestamppb.Now(),
+		}.Build()
+		require.NoError(t, db.SaveItems(t.Context(), []*octodeckv1.Item{initialItem}))
+
+		req := connect.NewRequest(octodeckv1.UpdateSubscriptionRequest_builder{
+			ItemId: config.Ptr("PR_node_fail"),
+			State:  config.Ptr(octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED),
+		}.Build())
+		addHeaders(req)
+
+		_, err := client.UpdateSubscription(t.Context(), req)
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeInternal, connect.CodeOf(err))
+		assert.Contains(t, err.Error(), "failed to update subscription on GitHub")
+
+		// Confirm local DB state was NOT modified
+		item, err := db.GetItem(t.Context(), "PR_node_fail")
+		require.NoError(t, err)
+		assert.Equal(t, octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED, item.GetViewerSubscription())
 	})
 }

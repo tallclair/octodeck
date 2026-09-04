@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { PullRequestCard } from '../PullRequestCard';
 import { describe, it, expect, vi } from 'vitest';
 import type { Item, User } from '../../api/octodeck/v1/resources_pb';
-import { ItemType, ItemState, ItemStatus } from '../../api/octodeck/v1/resources_pb';
+import { ItemType, ItemState, ItemStatus, SubscriptionState } from '../../api/octodeck/v1/resources_pb';
 
 const mockItem: Item = {
   id: 'PR_kwDOK11',
@@ -415,8 +415,139 @@ describe('PullRequestCard', () => {
     const untrackedBadge = screen.getByTestId('untracked-badge');
     expect(untrackedBadge).toBeDefined();
     expect(untrackedBadge.textContent).toBe('Untracked');
-    expect(untrackedBadge.getAttribute('title')).toContain('untracked');
+    expect(untrackedBadge.getAttribute('title')).toBe("Not subscribed on GitHub. Live updates won't be received automatically unless you subscribe or are mentioned.");
   });
+
+  it('renders Untracked button when onSubscribe is provided and viewerSubscription is UNSUBSCRIBED', () => {
+    const untrackedItem: Partial<Item> = {
+      ...mockItem,
+      viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+    };
+
+    render(
+      <PullRequestCard
+        item={untrackedItem as Item}
+        isSelected={false}
+        onSelect={vi.fn()}
+        onSubscribe={vi.fn()}
+      />
+    );
+    const untrackedBadge = screen.getByTestId('untracked-badge');
+    expect(untrackedBadge.tagName).toBe('BUTTON');
+    expect(untrackedBadge.getAttribute('aria-label')).toBe('Subscribe to item (untracked)');
+    expect(untrackedBadge.getAttribute('title')).toBe("Not subscribed on GitHub. Live updates won't be received automatically unless you subscribe or are mentioned.");
+  });
+
+  it.each([
+    ['SUBSCRIBED', SubscriptionState.SUBSCRIBED],
+    ['IGNORED', SubscriptionState.IGNORED],
+    ['UNSPECIFIED', SubscriptionState.UNSPECIFIED],
+    ['undefined', undefined],
+  ])('does not render Untracked badge when viewerSubscription is %s', (_, state) => {
+    const item: Partial<Item> = {
+      ...mockItem,
+      viewerSubscription: state as any,
+    };
+
+    render(<PullRequestCard item={item as Item} isSelected={false} onSelect={vi.fn()} />);
+    expect(screen.queryByTestId('untracked-badge')).toBeNull();
+  });
+
+  it('calls onSubscribe with item id and stops propagation when clicking Untracked button', async () => {
+    const onSelect = vi.fn();
+    const onSubscribe = vi.fn().mockResolvedValue(undefined);
+    const untrackedItem: Partial<Item> = {
+      ...mockItem,
+      id: 'PR_subscribe_test',
+      viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+    };
+
+    render(
+      <PullRequestCard
+        item={untrackedItem as Item}
+        isSelected={false}
+        onSelect={onSelect}
+        onSubscribe={onSubscribe}
+      />
+    );
+
+    const untrackedBadge = screen.getByTestId('untracked-badge');
+    await act(async () => {
+      fireEvent.click(untrackedBadge);
+    });
+
+    expect(onSubscribe).toHaveBeenCalledTimes(1);
+    expect(onSubscribe).toHaveBeenCalledWith('PR_subscribe_test');
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('stops propagation when clicking Untracked badge even if onSubscribe is omitted', () => {
+    const onSelect = vi.fn();
+    const untrackedItem: Partial<Item> = {
+      ...mockItem,
+      id: 'PR_no_subscribe_prop',
+      viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+    };
+
+    render(
+      <PullRequestCard
+        item={untrackedItem as Item}
+        isSelected={false}
+        onSelect={onSelect}
+      />
+    );
+
+    const untrackedBadge = screen.getByTestId('untracked-badge');
+    fireEvent.click(untrackedBadge);
+
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('shows loading state (spinner) and disables button while subscription mutation is pending', async () => {
+    let resolvePromise!: () => void;
+    const pendingPromise = new Promise<void>((resolve) => {
+      resolvePromise = resolve;
+    });
+    const onSubscribe = vi.fn().mockReturnValue(pendingPromise);
+
+    const untrackedItem: Partial<Item> = {
+      ...mockItem,
+      id: 'PR_spinner_test',
+      viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+    };
+
+    render(
+      <PullRequestCard
+        item={untrackedItem as Item}
+        isSelected={false}
+        onSelect={vi.fn()}
+        onSubscribe={onSubscribe}
+      />
+    );
+
+    const untrackedBadge = screen.getByTestId('untracked-badge');
+    expect(untrackedBadge.hasAttribute('disabled')).toBe(false);
+    expect(screen.queryByTestId('untracked-spinner')).toBeNull();
+
+    // Trigger click
+    fireEvent.click(untrackedBadge);
+
+    // Assert pending loading state
+    expect(untrackedBadge.hasAttribute('disabled')).toBe(true);
+    const spinner = screen.getByTestId('untracked-spinner');
+    expect(spinner).toBeDefined();
+    expect(spinner.classList.contains('animate-spin')).toBe(true);
+
+    // Resolve the mutation
+    await act(async () => {
+      resolvePromise();
+    });
+
+    // Assert restored idle state
+    expect(untrackedBadge.hasAttribute('disabled')).toBe(false);
+    expect(screen.queryByTestId('untracked-spinner')).toBeNull();
+  });
+
 
   it('renders latest assigned activity in preview row with actor', () => {
     const itemWithAssignedEvent: Partial<Item> = {

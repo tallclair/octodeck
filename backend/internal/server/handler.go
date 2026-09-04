@@ -40,7 +40,7 @@ func (h *octoDeckHandler) GetConfig(ctx context.Context,
 	return connect.NewResponse(res.Build()), nil
 }
 
-func (h *octoDeckHandler) UpdateConfig(_ context.Context,
+func (h *octoDeckHandler) UpdateConfig(ctx context.Context,
 	req *connect.Request[octodeckv1.UpdateConfigRequest]) (*connect.Response[octodeckv1.UpdateConfigResponse], error) {
 	newCfg := req.Msg.GetConfig()
 	if newCfg == nil {
@@ -59,9 +59,34 @@ func (h *octoDeckHandler) UpdateConfig(_ context.Context,
 	if err := logic.ValidateLabelPatterns(newCfg.GetExcludedLabels()); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid excluded_labels: %w", err))
 	}
+	if newCfg.GetDiscoveryIntervalMin() < 0 {
+		return nil, connect.NewError(
+			connect.CodeInvalidArgument,
+			errors.New("discovery_interval_min cannot be negative"),
+		)
+	}
+	if err := config.ValidateTrackedQueries(newCfg.GetTrackedQueries()); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid tracked_queries: %w", err))
+	}
+	if newCfg.GetTrackedQueries() != nil {
+		newCfg.SetTrackedQueries(config.SanitizeTrackedQueries(newCfg.GetTrackedQueries()))
+	}
 
 	if err := h.cfg.UpdateProto(newCfg, req.Msg.GetUpdateMask()); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to update config: %w", err))
+	}
+
+	// Seed discovery cursors for newly added queries to prevent historical backfill,
+	// and prune cursors for removed queries.
+	if h.db != nil {
+		activeQueries := h.cfg.GetTrackedQueries()
+		now := time.Now().UTC()
+		for _, q := range activeQueries {
+			if _, exists, _ := h.db.GetDiscoveryCursor(ctx, q); !exists {
+				_ = h.db.SetDiscoveryCursor(ctx, q, now)
+			}
+		}
+		_ = h.db.PruneDiscoveryCursors(ctx, activeQueries)
 	}
 
 	if h.syncEngine != nil {
@@ -416,6 +441,63 @@ func (h *octoDeckHandler) DeleteItem(ctx context.Context,
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to delete item: %w", err))
 	}
 	return connect.NewResponse(octodeckv1.DeleteItemResponse_builder{}.Build()), nil
+}
+
+func (h *octoDeckHandler) UpdateSubscription(
+	ctx context.Context,
+	req *connect.Request[octodeckv1.UpdateSubscriptionRequest],
+) (*connect.Response[octodeckv1.UpdateSubscriptionResponse], error) {
+	id := strings.TrimSpace(req.Msg.GetItemId())
+	if id == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("item_id is required"))
+	}
+	targetState := req.Msg.GetState()
+	switch targetState {
+	case octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSPECIFIED:
+		targetState = octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED
+	case octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED,
+		octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED,
+		octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_IGNORED:
+		// valid
+	default:
+		return nil, connect.NewError(
+			connect.CodeInvalidArgument,
+			fmt.Errorf("unsupported subscription state: %v", targetState),
+		)
+	}
+
+	existing, err := h.db.GetItem(ctx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "no rows in result set") {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("item %s not found: %w", id, err))
+		}
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to fetch item: %w", err))
+	}
+
+	nodeID := existing.GetId()
+	if h.ghClient != nil {
+		if err := h.ghClient.UpdateSubscription(ctx, nodeID, targetState); err != nil {
+			return nil, connect.NewError(
+				connect.CodeInternal,
+				fmt.Errorf("failed to update subscription on GitHub: %w", err),
+			)
+		}
+	}
+
+	item, err := h.db.UpdateItem(ctx, nodeID, func(i *octodeckv1.Item) error {
+		i.SetViewerSubscription(targetState)
+		return nil
+	})
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to update local subscription: %w", err))
+	}
+
+	h.filterItemLabels(item)
+	h.populateComputedStatus(ctx, item)
+
+	return connect.NewResponse(octodeckv1.UpdateSubscriptionResponse_builder{
+		Item: item,
+	}.Build()), nil
 }
 
 func (h *octoDeckHandler) GetSyncStatus(_ context.Context,
