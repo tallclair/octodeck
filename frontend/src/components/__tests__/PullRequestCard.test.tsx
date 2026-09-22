@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { PullRequestCard } from '../PullRequestCard';
 import { describe, it, expect, vi } from 'vitest';
 import type { Item, User } from '../../api/octodeck/v1/resources_pb';
 import { ItemType, ItemState, ItemStatus, SubscriptionState } from '../../api/octodeck/v1/resources_pb';
+import { ToastContext } from '../../context/ToastContext';
 
 const mockItem: Item = {
   id: 'PR_kwDOK11',
@@ -405,7 +406,7 @@ describe('PullRequestCard', () => {
     expect(warningBadge.getAttribute('title')).toContain('GraphQL rate limit exceeded');
   });
 
-  it('renders Untracked badge when viewerSubscription is UNSUBSCRIBED', () => {
+  it('renders Untracked BellOff icon badge when viewerSubscription is UNSUBSCRIBED', () => {
     const untrackedItem: Partial<Item> = {
       ...mockItem,
       viewerSubscription: 2 as any, // SubscriptionState.UNSUBSCRIBED
@@ -414,11 +415,13 @@ describe('PullRequestCard', () => {
     render(<PullRequestCard item={untrackedItem as Item} isSelected={false} onSelect={vi.fn()} />);
     const untrackedBadge = screen.getByTestId('untracked-badge');
     expect(untrackedBadge).toBeDefined();
-    expect(untrackedBadge.textContent).toBe('Untracked');
-    expect(untrackedBadge.getAttribute('title')).toBe("Not subscribed on GitHub. Live updates won't be received automatically unless you subscribe or are mentioned.");
+    expect(untrackedBadge.querySelector('.lucide-bell-off')).not.toBeNull();
+    expect(screen.queryByText('Untracked')).toBeNull();
+    expect(untrackedBadge.getAttribute('title')).toBe('Untracked');
+    expect(untrackedBadge.getAttribute('aria-label')).toBe('Untracked');
   });
 
-  it('renders Untracked button when onSubscribe is provided and viewerSubscription is UNSUBSCRIBED', () => {
+  it('renders Untracked BellOff icon button when onSubscribe is provided and viewerSubscription is UNSUBSCRIBED', () => {
     const untrackedItem: Partial<Item> = {
       ...mockItem,
       viewerSubscription: SubscriptionState.UNSUBSCRIBED,
@@ -434,8 +437,10 @@ describe('PullRequestCard', () => {
     );
     const untrackedBadge = screen.getByTestId('untracked-badge');
     expect(untrackedBadge.tagName).toBe('BUTTON');
+    expect(untrackedBadge.querySelector('.lucide-bell-off')).not.toBeNull();
+    expect(screen.queryByText('Untracked')).toBeNull();
     expect(untrackedBadge.getAttribute('aria-label')).toBe('Subscribe to item (untracked)');
-    expect(untrackedBadge.getAttribute('title')).toBe("Not subscribed on GitHub. Live updates won't be received automatically unless you subscribe or are mentioned.");
+    expect(untrackedBadge.getAttribute('title')).toBe('Untracked');
   });
 
   it.each([
@@ -503,7 +508,7 @@ describe('PullRequestCard', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it('shows loading state (spinner) and disables button while subscription mutation is pending', async () => {
+  it('shows loading state (spinning RefreshCw icon) and disables button while subscription mutation is pending', async () => {
     let resolvePromise!: () => void;
     const pendingPromise = new Promise<void>((resolve) => {
       resolvePromise = resolve;
@@ -527,25 +532,380 @@ describe('PullRequestCard', () => {
 
     const untrackedBadge = screen.getByTestId('untracked-badge');
     expect(untrackedBadge.hasAttribute('disabled')).toBe(false);
+    expect(untrackedBadge.querySelector('.lucide-bell-off')).not.toBeNull();
     expect(screen.queryByTestId('untracked-spinner')).toBeNull();
 
     // Trigger click
     fireEvent.click(untrackedBadge);
 
-    // Assert pending loading state
+    // Assert pending loading state: disabled, BellOff swapped with spinning RefreshCw
     expect(untrackedBadge.hasAttribute('disabled')).toBe(true);
+    expect(untrackedBadge.querySelector('.lucide-bell-off')).toBeNull();
     const spinner = screen.getByTestId('untracked-spinner');
     expect(spinner).toBeDefined();
     expect(spinner.classList.contains('animate-spin')).toBe(true);
+    expect(spinner.classList.contains('lucide-refresh-cw')).toBe(true);
 
     // Resolve the mutation
     await act(async () => {
       resolvePromise();
     });
 
-    // Assert restored idle state
+    // Assert restored idle state: re-enabled, spinner removed, BellOff restored
     expect(untrackedBadge.hasAttribute('disabled')).toBe(false);
     expect(screen.queryByTestId('untracked-spinner')).toBeNull();
+    expect(untrackedBadge.querySelector('.lucide-bell-off')).not.toBeNull();
+  });
+
+  it('calls showError toast and restores idle BellOff state when subscription mutation fails', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const showErrorMock = vi.fn();
+    const onSubscribe = vi.fn().mockRejectedValue(new Error('GitHub subscription failed'));
+
+    const untrackedItem: Partial<Item> = {
+      ...mockItem,
+      id: 'PR_error_toast_test',
+      viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+    };
+
+    render(
+      <ToastContext.Provider
+        value={{
+          toasts: [],
+          showToast: vi.fn(),
+          showError: showErrorMock,
+          dismissToast: vi.fn(),
+          clearToasts: vi.fn(),
+        }}
+      >
+        <PullRequestCard
+          item={untrackedItem as Item}
+          isSelected={false}
+          onSelect={vi.fn()}
+          onSubscribe={onSubscribe}
+        />
+      </ToastContext.Provider>
+    );
+
+    const untrackedBadge = screen.getByTestId('untracked-badge');
+    await act(async () => {
+      fireEvent.click(untrackedBadge);
+    });
+
+    expect(onSubscribe).toHaveBeenCalledWith('PR_error_toast_test');
+    expect(showErrorMock).toHaveBeenCalledTimes(1);
+    expect(showErrorMock).toHaveBeenCalledWith(
+      expect.any(Error),
+      'Failed to subscribe to item on GitHub'
+    );
+    expect(untrackedBadge.hasAttribute('disabled')).toBe(false);
+    expect(screen.queryByTestId('untracked-spinner')).toBeNull();
+    expect(untrackedBadge.querySelector('.lucide-bell-off')).not.toBeNull();
+    consoleSpy.mockRestore();
+  });
+
+  it('prevents onSelect when clicking spinner during in-flight subscription mutation', async () => {
+    let resolvePromise!: () => void;
+    const pendingPromise = new Promise<void>((resolve) => {
+      resolvePromise = resolve;
+    });
+    const onSubscribe = vi.fn().mockReturnValue(pendingPromise);
+    const onSelect = vi.fn();
+
+    const untrackedItem: Partial<Item> = {
+      ...mockItem,
+      id: 'PR_spinner_propagation_test',
+      viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+    };
+
+    render(
+      <PullRequestCard
+        item={untrackedItem as Item}
+        isSelected={false}
+        onSelect={onSelect}
+        onSubscribe={onSubscribe}
+      />
+    );
+
+    const untrackedBadge = screen.getByTestId('untracked-badge');
+    fireEvent.click(untrackedBadge);
+
+    expect(onSubscribe).toHaveBeenCalledTimes(1);
+    expect(onSelect).not.toHaveBeenCalled();
+
+    const spinner = screen.getByTestId('untracked-spinner');
+    expect(spinner).toBeDefined();
+
+    // Click spinner while mutation is pending
+    fireEvent.click(spinner);
+
+    // Assert onSelect was NOT triggered by clicking the spinner
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onSubscribe).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolvePromise();
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('untracked-spinner')).toBeNull();
+    });
+
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('ignores rapid consecutive clicks on Untracked button while subscription mutation is in flight', async () => {
+    let resolvePromise!: () => void;
+    const pendingPromise = new Promise<void>((resolve) => {
+      resolvePromise = resolve;
+    });
+    const onSubscribe = vi.fn().mockReturnValue(pendingPromise);
+    const onSelect = vi.fn();
+
+    const untrackedItem: Partial<Item> = {
+      ...mockItem,
+      id: 'PR_concurrency_lock_test',
+      viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+    };
+
+    render(
+      <PullRequestCard
+        item={untrackedItem as Item}
+        isSelected={false}
+        onSelect={onSelect}
+        onSubscribe={onSubscribe}
+      />
+    );
+
+    const untrackedBadge = screen.getByTestId('untracked-badge');
+    await act(async () => {
+      fireEvent.click(untrackedBadge);
+    });
+
+    expect(onSubscribe).toHaveBeenCalledTimes(1);
+
+    // Rapid burst of 10 consecutive clicks while in-flight
+    for (let i = 0; i < 10; i++) {
+      await act(async () => {
+        fireEvent.click(untrackedBadge);
+      });
+    }
+
+    expect(onSubscribe).toHaveBeenCalledTimes(1);
+    expect(onSelect).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolvePromise();
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('untracked-spinner')).toBeNull();
+    });
+  });
+
+  it('renders no text "Untracked" anywhere in PullRequestCard', () => {
+    const untrackedItem: Partial<Item> = {
+      ...mockItem,
+      viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+    };
+
+    render(
+      <PullRequestCard
+        item={untrackedItem as Item}
+        isSelected={false}
+        onSelect={vi.fn()}
+        onSubscribe={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByText('Untracked')).toBeNull();
+    expect(screen.queryByText(/Untracked/)).toBeNull();
+  });
+
+  describe('Untracked BellOff Icon Positioning & Integration', () => {
+    it.each([
+      ['New', ItemStatus.NEW, true],
+      ['New Activity', ItemStatus.NEW_ACTIVITY, true],
+      ['Acked', ItemStatus.ACKED, true],
+      ['Noise', ItemStatus.NOISE, false],
+    ])(
+      'positions BellOff icon relative to activity status %s and Ack button',
+      (label, status, hasStatusText) => {
+        const onAck = vi.fn();
+        const onSubscribe = vi.fn();
+        const item: Partial<Item> = {
+          ...mockItem,
+          id: `item-${label}`,
+          viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+          local: {
+            computedStatus: status,
+            isAcked: status === ItemStatus.ACKED,
+            privateNotes: '',
+          } as any,
+        };
+
+        render(
+          <PullRequestCard
+            item={item as Item}
+            isSelected={false}
+            onSelect={vi.fn()}
+            onAck={onAck}
+            onSubscribe={onSubscribe}
+          />
+        );
+
+        const untrackedBadge = screen.getByTestId('untracked-badge');
+        const ackBtn = screen.getByTestId('card-ack-btn');
+
+        // Check icons rendered inside badge and ack button
+        expect(untrackedBadge.querySelector('.lucide-bell-off')).not.toBeNull();
+        expect(ackBtn.querySelector('.lucide-check')).not.toBeNull();
+
+        // Both untracked badge and ack button share the same action container
+        expect(untrackedBadge.parentElement).toBe(ackBtn.parentElement);
+
+        if (hasStatusText) {
+          const statusEl = screen.getByText(label);
+          expect(statusEl.parentElement).toBe(untrackedBadge.parentElement);
+
+          // Positioning: statusEl is immediately before untrackedBadge
+          expect(untrackedBadge.previousElementSibling).toBe(statusEl);
+          // untrackedBadge is immediately before ackBtn
+          expect(untrackedBadge.nextElementSibling).toBe(ackBtn);
+          // Margin check: statusText presence applies ml-1.5 to untrackedBadge
+          expect(untrackedBadge.className).toContain('ml-1.5');
+        } else {
+          // Noise status renders no status text
+          expect(screen.queryByText('Noise')).toBeNull();
+          // untrackedBadge is the first child in the container
+          expect(untrackedBadge.previousElementSibling).toBeNull();
+          expect(untrackedBadge.nextElementSibling).toBe(ackBtn);
+          // Without statusText, ml-1.5 is omitted
+          expect(untrackedBadge.className).not.toContain('ml-1.5');
+        }
+      }
+    );
+
+    it('handles independent clicks between Untracked button and Ack button', async () => {
+      const onAck = vi.fn();
+      const onSubscribe = vi.fn().mockResolvedValue(undefined);
+      const onSelect = vi.fn();
+      const item: Partial<Item> = {
+        ...mockItem,
+        id: 'PR_actions_test',
+        viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+        local: {
+          computedStatus: ItemStatus.NEW,
+          isAcked: false,
+          privateNotes: '',
+        } as any,
+      };
+
+      render(
+        <PullRequestCard
+          item={item as Item}
+          isSelected={false}
+          onSelect={onSelect}
+          onAck={onAck}
+          onSubscribe={onSubscribe}
+        />
+      );
+
+      const untrackedBadge = screen.getByTestId('untracked-badge');
+      const ackBtn = screen.getByTestId('card-ack-btn');
+
+      // Click untracked button: triggers onSubscribe only
+      await act(async () => {
+        fireEvent.click(untrackedBadge);
+      });
+      expect(onSubscribe).toHaveBeenCalledTimes(1);
+      expect(onSubscribe).toHaveBeenCalledWith('PR_actions_test');
+      expect(onAck).not.toHaveBeenCalled();
+      expect(onSelect).not.toHaveBeenCalled();
+
+      // Click ack button: triggers onAck only
+      fireEvent.click(ackBtn);
+      expect(onAck).toHaveBeenCalledTimes(1);
+      expect(onAck).toHaveBeenCalledWith('PR_actions_test');
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it('triggers onUnack on Acked item when Ack checkmark is clicked, without interfering with untracked button', async () => {
+      const onUnack = vi.fn();
+      const onAck = vi.fn();
+      const onSubscribe = vi.fn().mockResolvedValue(undefined);
+      const onSelect = vi.fn();
+      const item: Partial<Item> = {
+        ...mockItem,
+        id: 'PR_acked_untrack_test',
+        viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+        local: {
+          computedStatus: ItemStatus.ACKED,
+          isAcked: true,
+          privateNotes: '',
+        } as any,
+      };
+
+      render(
+        <PullRequestCard
+          item={item as Item}
+          isSelected={false}
+          onSelect={onSelect}
+          onUnack={onUnack}
+          onAck={onAck}
+          onSubscribe={onSubscribe}
+        />
+      );
+
+      const untrackedBadge = screen.getByTestId('untracked-badge');
+      const ackBtn = screen.getByTestId('card-ack-btn');
+
+      // Untracked button works on acked items
+      await act(async () => {
+        fireEvent.click(untrackedBadge);
+      });
+      expect(onSubscribe).toHaveBeenCalledTimes(1);
+      expect(onSubscribe).toHaveBeenCalledWith('PR_acked_untrack_test');
+      expect(onUnack).not.toHaveBeenCalled();
+
+      // Clicking ack button unacks the item
+      fireEvent.click(ackBtn);
+      expect(onUnack).toHaveBeenCalledTimes(1);
+      expect(onUnack).toHaveBeenCalledWith('PR_acked_untrack_test');
+      expect(onAck).not.toHaveBeenCalled();
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it('renders Untracked non-button span when onSubscribe is omitted while preserving position next to Ack button', () => {
+      const onAck = vi.fn();
+      const item: Partial<Item> = {
+        ...mockItem,
+        viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+        local: {
+          computedStatus: ItemStatus.NEW,
+          isAcked: false,
+          privateNotes: '',
+        } as any,
+      };
+
+      render(
+        <PullRequestCard
+          item={item as Item}
+          isSelected={false}
+          onSelect={vi.fn()}
+          onAck={onAck}
+        />
+      );
+
+      const untrackedBadge = screen.getByTestId('untracked-badge');
+      const ackBtn = screen.getByTestId('card-ack-btn');
+      const statusEl = screen.getByText('New');
+
+      expect(untrackedBadge.tagName).toBe('SPAN');
+      expect(untrackedBadge.querySelector('.lucide-bell-off')).not.toBeNull();
+      expect(untrackedBadge.previousElementSibling).toBe(statusEl);
+      expect(untrackedBadge.nextElementSibling).toBe(ackBtn);
+    });
   });
 
 

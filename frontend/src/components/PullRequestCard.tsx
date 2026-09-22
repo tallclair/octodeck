@@ -1,7 +1,8 @@
 import { useState } from 'react';
+import { useToast } from '../context/ToastContext';
 import {
   GitPullRequest, GitPullRequestDraft, GitPullRequestClosed, GitMerge, CheckCircle, AlertCircle, MessageSquare, GitCommit,
-  ExternalLink, Star, Milestone, CircleSlash, RotateCcw, AlertTriangle, UserCheck, Check, RefreshCw
+  ExternalLink, Star, Milestone, CircleSlash, RotateCcw, AlertTriangle, UserCheck, Check, RefreshCw, BellOff
 } from 'lucide-react';
 import type { Item } from '../api/octodeck/v1/resources_pb';
 import {
@@ -69,6 +70,7 @@ export function PullRequestCard({
   grayAckedBackground = false,
 }: PullRequestCardProps) {
   const [isSubscribing, setIsSubscribing] = useState(false);
+  const { showError } = useToast();
   let statusText = 'Unknown';
   let statusColor = 'text-slate-500';
   const repoName = item.repo;
@@ -200,44 +202,6 @@ export function PullRequestCard({
                   <AlertTriangle size={14} />
                 </span>
               )}
-              {isUntracked && (
-                onSubscribe ? (
-                  <button
-                    type="button"
-                    disabled={isSubscribing}
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      if (isSubscribing) return;
-                      setIsSubscribing(true);
-                      try {
-                        await onSubscribe(item.id);
-                      } catch (err) {
-                        console.error('Failed to subscribe:', err);
-                      } finally {
-                        setIsSubscribing(false);
-                      }
-                    }}
-                    className="px-1.5 py-0.5 rounded text-[10px] font-medium border bg-slate-100 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/60 text-slate-600 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 border-slate-300 hover:border-blue-400 dark:border-slate-700 dark:hover:border-blue-500 shrink-0 flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-60"
-                    title="Not subscribed on GitHub. Live updates won't be received automatically unless you subscribe or are mentioned."
-                    aria-label="Subscribe to item (untracked)"
-                    data-testid="untracked-badge"
-                  >
-                    {isSubscribing && (
-                      <RefreshCw size={10} className="animate-spin text-blue-500 shrink-0" data-testid="untracked-spinner" />
-                    )}
-                    <span>Untracked</span>
-                  </button>
-                ) : (
-                  <span
-                    onClick={(e) => e.stopPropagation()}
-                    className="px-1.5 py-0.5 rounded text-[10px] font-medium border bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-700 shrink-0"
-                    title="Not subscribed on GitHub. Live updates won't be received automatically unless you subscribe or are mentioned."
-                    data-testid="untracked-badge"
-                  >
-                    Untracked
-                  </span>
-                )
-              )}
               {isPr && isDraft && (
                 <span
                   className="px-1.5 py-0.5 rounded text-[10px] font-medium border bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700 shrink-0 flex items-center gap-1"
@@ -248,7 +212,7 @@ export function PullRequestCard({
                   Draft
                 </span>
               )}
-              <div className="flex items-center shrink-0">
+              <div className="flex items-center shrink-0" onClick={(e) => e.stopPropagation()}>
                 {statusText && (
                   <span
                     className={`text-[10px] whitespace-nowrap font-bold flex items-center gap-1 shrink-0 ${statusColor}`}
@@ -256,6 +220,57 @@ export function PullRequestCard({
                     {statusText === 'New Code' && <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>}
                     {statusText}
                   </span>
+                )}
+                {isUntracked && (
+                  onSubscribe ? (
+                    <button
+                      type="button"
+                      disabled={isSubscribing}
+                      aria-disabled={isSubscribing}
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (isSubscribing) return;
+                        setIsSubscribing(true);
+                        try {
+                          await onSubscribe(item.id);
+                        } catch (err) {
+                          console.error('Failed to subscribe:', err);
+                          showError(err, 'Failed to subscribe to item on GitHub');
+                        } finally {
+                          setIsSubscribing(false);
+                        }
+                      }}
+                      className={`flex items-center justify-center p-0.5 rounded transition-colors cursor-pointer shrink-0 ${
+                        statusText ? 'ml-1.5' : ''
+                      } text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 disabled:opacity-60`}
+                      title="Untracked"
+                      aria-label="Subscribe to item (untracked)"
+                      data-testid="untracked-badge"
+                    >
+                      {isSubscribing ? (
+                        <RefreshCw
+                          size={14}
+                          className="animate-spin text-blue-500 shrink-0 pointer-events-none"
+                          data-testid="untracked-spinner"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <BellOff size={14} className="shrink-0" />
+                      )}
+                    </button>
+                  ) : (
+                    <span
+                      onClick={(e) => e.stopPropagation()}
+                      className={`flex items-center justify-center p-0.5 rounded shrink-0 ${
+                        statusText ? 'ml-1.5' : ''
+                      } text-slate-400 dark:text-slate-500`}
+                      title="Untracked"
+                      aria-label="Untracked"
+                      data-testid="untracked-badge"
+                    >
+                      <BellOff size={14} className="shrink-0" />
+                    </span>
+                  )
                 )}
                 {onAck && (
                   <button
