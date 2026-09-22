@@ -60,9 +60,10 @@ For fast UI development with Hot Module Replacement (HMR), run the Vite dev serv
 
 2. **Start the Backend Daemon with Proxy Mode:**
    ```bash
-   cd backend
-   go run . serve --debug-server http://127.0.0.1:5173
+   ./scripts/build-backend.sh
+   ./octodeck serve --debug-server http://127.0.0.1:5173
    ```
+   *(Running `./scripts/build-backend.sh` ensures the frontend fallback placeholder exists on fresh checkouts and injects git SemVer into `server.Version` via LDFlags)*
 
 3. **Access the Web App:**
    Open `http://127.0.0.1:38274` in your browser. Requests for frontend assets are proxied directly to Vite, giving you instant HMR without rebuilding static bundles or restarting the Go daemon.
