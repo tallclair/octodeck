@@ -18,6 +18,7 @@ import {
   ItemType as ProtoItemType,
   ItemState as ProtoItemState,
   ItemStatus as ProtoItemStatus,
+  SubscriptionState,
   type Item,
   type User,
   type Milestone,
@@ -93,6 +94,16 @@ describe('filterEngine - parseFilterParams', () => {
     expect(params.q).toBe('scheduler');
     expect(params.item).toBe('PR_123');
   });
+
+  it('parses tracking parameter', () => {
+    expect(parseFilterParams('?tracking=tracked').tracking).toBe('tracked');
+    expect(parseFilterParams('?tracking=untracked').tracking).toBe('untracked');
+    expect(parseFilterParams('?tracking=all').tracking).toBe('all');
+    expect(parseFilterParams('?tracking=TRACKED').tracking).toBe('tracked');
+    expect(parseFilterParams('?tracking=UnTracked').tracking).toBe('untracked');
+    expect(parseFilterParams('?tracking=invalid').tracking).toBe('all');
+    expect(parseFilterParams('?tracking=').tracking).toBe('all');
+  });
 });
 
 describe('filterEngine - filterStateToSearchParams', () => {
@@ -107,6 +118,7 @@ describe('filterEngine - filterStateToSearchParams', () => {
       state: 'closed',
       type: 'pr',
       assigned: 'me',
+      tracking: 'all',
       org: null,
       repo: 'kubernetes/kubernetes',
       author: 'alice',
@@ -130,6 +142,12 @@ describe('filterEngine - filterStateToSearchParams', () => {
     expect(params.get('q')).toBe('fix bug');
     expect(params.get('sort')).toBe('created');
     expect(params.get('order')).toBe('asc');
+  });
+
+  it('serializes tracking parameter only when non-default', () => {
+    expect(filterStateToSearchParams({ ...DEFAULT_FILTER_STATE, tracking: 'all' }).get('tracking')).toBeNull();
+    expect(filterStateToSearchParams({ ...DEFAULT_FILTER_STATE, tracking: 'tracked' }).get('tracking')).toBe('tracked');
+    expect(filterStateToSearchParams({ ...DEFAULT_FILTER_STATE, tracking: 'untracked' }).get('tracking')).toBe('untracked');
   });
 
   it('serializes org if repo is not present', () => {
@@ -162,6 +180,16 @@ describe('filterEngine - isDefaultFilterState & getActiveFilterCount', () => {
         assigned: 'me',
       })
     ).toBe(4);
+  });
+
+  it('handles tracking filter in default detection and active count', () => {
+    expect(isDefaultFilterState({ ...DEFAULT_FILTER_STATE, tracking: 'tracked' })).toBe(false);
+    expect(isDefaultFilterState({ ...DEFAULT_FILTER_STATE, tracking: 'untracked' })).toBe(false);
+    expect(isDefaultFilterState({ ...DEFAULT_FILTER_STATE, tracking: 'all' })).toBe(true);
+
+    expect(getActiveFilterCount({ ...DEFAULT_FILTER_STATE, tracking: 'tracked' })).toBe(1);
+    expect(getActiveFilterCount({ ...DEFAULT_FILTER_STATE, tracking: 'untracked' })).toBe(1);
+    expect(getActiveFilterCount({ ...DEFAULT_FILTER_STATE, tracking: 'all' })).toBe(0);
   });
 });
 
@@ -631,5 +659,102 @@ describe('filterEngine - applyFilters with labels', () => {
       q: 'feature',
     });
     expect(res.map(i => i.id)).toEqual(['PR_2']);
+  });
+});
+
+describe('filterEngine - applyFilters with tracking filter', () => {
+  const itemSubscribed = createMockItem({
+    id: 'PR_SUB',
+    viewerSubscription: SubscriptionState.SUBSCRIBED,
+  });
+  const itemUnsubscribed = createMockItem({
+    id: 'PR_UNSUB',
+    viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+  });
+  const itemNumericUnsubscribed = createMockItem({
+    id: 'PR_NUM_UNSUB',
+    viewerSubscription: 2 as unknown as SubscriptionState,
+  });
+  const itemUnspecified = createMockItem({
+    id: 'PR_UNSPEC',
+    viewerSubscription: SubscriptionState.UNSPECIFIED,
+  });
+  const itemIgnored = createMockItem({
+    id: 'PR_IGNORED',
+    viewerSubscription: SubscriptionState.IGNORED,
+  });
+  const itemNoSub = createMockItem({
+    id: 'PR_NO_SUB',
+    viewerSubscription: undefined,
+  });
+
+  const allTrackingItems = [
+    itemSubscribed,
+    itemUnsubscribed,
+    itemNumericUnsubscribed,
+    itemUnspecified,
+    itemIgnored,
+    itemNoSub,
+  ];
+
+  it('keeps only non-unsubscribed items when tracking is "tracked"', () => {
+    const result = applyFilters(allTrackingItems, {
+      ...DEFAULT_FILTER_STATE,
+      triage: 'all',
+      state: 'all',
+      tracking: 'tracked',
+    });
+    expect(result.map(i => i.id)).toEqual(['PR_IGNORED', 'PR_NO_SUB', 'PR_SUB', 'PR_UNSPEC']);
+  });
+
+  it('keeps only unsubscribed items when tracking is "untracked"', () => {
+    const result = applyFilters(allTrackingItems, {
+      ...DEFAULT_FILTER_STATE,
+      triage: 'all',
+      state: 'all',
+      tracking: 'untracked',
+    });
+    expect(result.map(i => i.id)).toEqual(['PR_NUM_UNSUB', 'PR_UNSUB']);
+  });
+
+  it('applies no tracking filter when tracking is "all"', () => {
+    const result = applyFilters(allTrackingItems, {
+      ...DEFAULT_FILTER_STATE,
+      triage: 'all',
+      state: 'all',
+      tracking: 'all',
+    });
+    expect(result.length).toBe(6);
+  });
+
+  it('combines tracking filter with state and type filters', () => {
+    const openUntrackedPr = createMockItem({
+      id: 'OPEN_UNSUB_PR',
+      state: ProtoItemState.OPEN,
+      type: ProtoItemType.PR,
+      viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+    });
+    const closedUntrackedPr = createMockItem({
+      id: 'CLOSED_UNSUB_PR',
+      state: ProtoItemState.CLOSED,
+      type: ProtoItemType.PR,
+      viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+    });
+    const openTrackedPr = createMockItem({
+      id: 'OPEN_SUB_PR',
+      state: ProtoItemState.OPEN,
+      type: ProtoItemType.PR,
+      viewerSubscription: SubscriptionState.SUBSCRIBED,
+    });
+
+    const items = [openUntrackedPr, closedUntrackedPr, openTrackedPr];
+    const result = applyFilters(items, {
+      ...DEFAULT_FILTER_STATE,
+      triage: 'all',
+      state: 'open',
+      type: 'pr',
+      tracking: 'untracked',
+    });
+    expect(result.map(i => i.id)).toEqual(['OPEN_UNSUB_PR']);
   });
 });

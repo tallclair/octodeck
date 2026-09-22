@@ -1,3 +1,4 @@
+import { useToast } from '../context/ToastContext';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Settings as SettingsIcon,
@@ -89,6 +90,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   const { mutateAsync: viewItemMutate } = useMutation(viewItem);
   const { mutateAsync: updateSubscriptionMutate } = useMutation(updateSubscription);
 
+  const { showError } = useToast();
   const [isSyncing, setIsSyncing] = useState(false);
 
   // Daemon version state for Settings
@@ -179,6 +181,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   const hasActiveChips = useMemo(() => {
     return (
       filters.state !== 'all' ||
+      filters.tracking !== 'all' ||
       Boolean(filters.repo) ||
       Boolean(filters.org) ||
       Boolean(filters.author) ||
@@ -186,11 +189,12 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
       Boolean(filters.label) ||
       filters.assigned === 'me'
     );
-  }, [filters.state, filters.repo, filters.org, filters.author, filters.milestone, filters.label, filters.assigned]);
+  }, [filters.state, filters.tracking, filters.repo, filters.org, filters.author, filters.milestone, filters.label, filters.assigned]);
 
   const clearSecondaryFilters = () => {
     setFilters({
       state: 'all',
+      tracking: 'all',
       repo: null,
       org: null,
       author: null,
@@ -206,7 +210,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   );
 
   const filteredItemIds = useMemo(() => filteredItems.map(i => i.id), [filteredItems]);
-  const filterKey = `${filters.triage}|${filters.state}|${filters.type}|${filters.repo || ''}|${filters.org || ''}|${filters.author || ''}|${filters.milestone || ''}|${filters.label || ''}|${filters.assigned}|${filters.q}|${filters.sort}|${filters.order}`;
+  const filterKey = `${filters.triage}|${filters.state}|${filters.tracking}|${filters.type}|${filters.repo || ''}|${filters.org || ''}|${filters.author || ''}|${filters.milestone || ''}|${filters.label || ''}|${filters.assigned}|${filters.q}|${filters.sort}|${filters.order}`;
 
   const { scrollContainerRef } = useScrollAnchoring({
     itemIds: filteredItemIds,
@@ -404,6 +408,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
       await refetchSyncStatus();
     } catch (err) {
       console.error('Failed to trigger manual sync from GitHub:', err);
+      showError(err, 'Failed to trigger manual sync from GitHub');
     } finally {
       setIsSyncing(false);
     }
@@ -429,6 +434,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
       await refetchItems();
     } catch (err) {
       console.error('Failed to ack item:', err);
+      showError(err, 'Failed to acknowledge item');
     } finally {
       setDismissingIds(prev => {
         if (!prev.has(id)) return prev;
@@ -445,6 +451,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
       await refetchItems();
     } catch (err) {
       console.error('Failed to unack item:', err);
+      showError(err, 'Failed to un-acknowledge item');
     }
   };
 
@@ -454,6 +461,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
       await refetchItems();
     } catch (err) {
       console.error('Failed to star item:', err);
+      showError(err, `Failed to ${starred ? 'star' : 'unstar'} item`);
     }
   };
 
@@ -463,6 +471,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
       await refetchItems();
     } catch (err) {
       console.error('Failed to set notes for item:', id, err);
+      showError(err, 'Failed to save notes');
     }
   };
 
@@ -497,6 +506,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
       await refetchItems();
     } catch (err) {
       console.error('Failed to subscribe to item:', id, err);
+      showError(err, 'Failed to subscribe to item on GitHub');
     }
   };
 
@@ -634,6 +644,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
     !filters.org &&
     !filters.author &&
     filters.state === 'all' &&
+    filters.tracking === 'all' &&
     filters.type === 'all' &&
     filters.assigned === 'all' &&
     !filters.q;
@@ -643,6 +654,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
     !filters.org &&
     !filters.author &&
     filters.state === 'all' &&
+    filters.tracking === 'all' &&
     filters.type === 'all' &&
     filters.assigned === 'all' &&
     !filters.q;
@@ -652,6 +664,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
     !filters.org &&
     !filters.author &&
     filters.state === 'all' &&
+    filters.tracking === 'all' &&
     filters.type === 'all' &&
     filters.assigned === 'all' &&
     !filters.q;
@@ -1194,7 +1207,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                         </button>
 
                         {stateMenuOpen && (
-                          <div className="absolute right-0 top-full mt-1.5 w-36 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl py-1 z-30 animate-in fade-in zoom-in-95 duration-100">
+                          <div className="absolute right-0 top-full mt-1.5 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl py-1 z-30 animate-in fade-in zoom-in-95 duration-100">
                             <button
                               type="button"
                               onClick={() => {
@@ -1225,6 +1238,40 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                             >
                               <span>Closed</span>
                               {filters.state === 'closed' && <Check size={13} className="text-blue-600 dark:text-blue-400" />}
+                            </button>
+
+                            <div className="border-t border-slate-200 dark:border-slate-800 my-1" />
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFilter('tracking', 'tracked');
+                                setStateMenuOpen(false);
+                              }}
+                              className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                                filters.tracking === 'tracked'
+                                  ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
+                                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+                              }`}
+                            >
+                              <span>Tracked</span>
+                              {filters.tracking === 'tracked' && <Check size={13} className="text-blue-600 dark:text-blue-400" />}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFilter('tracking', 'untracked');
+                                setStateMenuOpen(false);
+                              }}
+                              className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                                filters.tracking === 'untracked'
+                                  ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
+                                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+                              }`}
+                            >
+                              <span>Untracked</span>
+                              {filters.tracking === 'untracked' && <Check size={13} className="text-blue-600 dark:text-blue-400" />}
                             </button>
                           </div>
                         )}
@@ -1574,6 +1621,24 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                               className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
                               title="Remove state filter"
                               aria-label="Remove state filter"
+                            >
+                              <X size={12} />
+                            </button>
+                          </span>
+                        )}
+
+                        {filters.tracking !== 'all' && (
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium">
+                            <span className="text-blue-600 dark:text-blue-400/80">Tracking:</span>
+                            <span className="font-semibold capitalize">
+                              {filters.tracking === 'tracked' ? 'Tracked' : 'Untracked'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setFilter('tracking', 'all')}
+                              className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
+                              title="Remove tracking filter"
+                              aria-label="Remove tracking filter"
                             >
                               <X size={12} />
                             </button>

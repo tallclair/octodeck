@@ -1826,6 +1826,223 @@ describe('Dashboard Component - Generalized Filters & URL Sync', () => {
       expect(refetchItemsMock).toHaveBeenCalled();
     });
   });
+
+  describe('Tracking Filter in State Dropdown', () => {
+    it('renders Tracked and Untracked options separated by a divider in State dropdown without All or section header', () => {
+      render(<Dashboard />);
+
+      const stateTrigger = screen.getByRole('button', { name: /Filter by state/i });
+      fireEvent.click(stateTrigger);
+
+      const stateMenu = stateTrigger.parentElement!;
+      // No "Tracking" text header
+      expect(within(stateMenu).queryByText(/^Tracking$/i)).toBeNull();
+
+      // No "All" option in the state menu
+      expect(within(stateMenu).queryByRole('button', { name: /^All$/i })).toBeNull();
+
+      // Tracked and Untracked options are present
+      const trackedOption = within(stateMenu).getByRole('button', { name: /^Tracked$/i });
+      const untrackedOption = within(stateMenu).getByRole('button', { name: /^Untracked$/i });
+
+      expect(trackedOption).toBeDefined();
+      expect(untrackedOption).toBeDefined();
+    });
+
+    it('filters items by tracking status (Tracked vs Untracked) and renders active filter chip', () => {
+      const trackedItem: Item = {
+        ...mockItem,
+        id: 'PR_TRACKED',
+        title: 'Tracked PR',
+        viewerSubscription: SubscriptionState.SUBSCRIBED,
+      } as Item;
+      const untrackedItem: Item = {
+        ...mockItem,
+        id: 'PR_UNTRACKED',
+        title: 'Untracked PR',
+        viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+      } as Item;
+
+      vi.mocked(connectQuery.useQuery).mockImplementation((schema: any) => {
+        if (
+          schema?.name === 'GetItems' ||
+          schema?.typeName === 'octodeck.v1.OctoDeckService' ||
+          schema?.method?.name === 'GetItems'
+        ) {
+          return {
+            data: { items: [trackedItem, untrackedItem] },
+            isLoading: false,
+            error: null,
+            refetch: vi.fn(),
+          } as any;
+        }
+        return {
+          data: { config: mockConfig, currentUserLogin: 'testuser' },
+          isLoading: false,
+          error: null,
+          refetch: vi.fn(),
+        } as any;
+      });
+
+      render(<Dashboard />);
+
+      // Both items visible initially (tracking=all)
+      expect(screen.getByText('Tracked PR')).toBeDefined();
+      expect(screen.getByText('Untracked PR')).toBeDefined();
+      expect(screen.queryByText('Tracking:')).toBeNull();
+
+      // Open State menu & select Untracked
+      const stateTrigger = screen.getByRole('button', { name: /Filter by state/i });
+      act(() => {
+        fireEvent.click(stateTrigger);
+      });
+      const stateMenu = stateTrigger.parentElement!;
+      const untrackedOption = within(stateMenu).getByRole('button', { name: /^Untracked$/i });
+      act(() => {
+        fireEvent.click(untrackedOption);
+      });
+
+      // Verify filtered view & active chip
+      expect(screen.queryByText('Tracked PR')).toBeNull();
+      expect(screen.getByText('Untracked PR')).toBeDefined();
+      expect(window.location.search).toContain('tracking=untracked');
+      expect(screen.getByText('Tracking:')).toBeDefined();
+      expect(screen.getByText('Untracked')).toBeDefined();
+
+      // Open State menu & select Tracked
+      act(() => {
+        fireEvent.click(stateTrigger);
+      });
+      const trackedOption = within(stateMenu).getByRole('button', { name: /^Tracked$/i });
+      act(() => {
+        fireEvent.click(trackedOption);
+      });
+
+      expect(screen.getByText('Tracked PR')).toBeDefined();
+      expect(screen.queryByText('Untracked PR')).toBeNull();
+      expect(window.location.search).toContain('tracking=tracked');
+      expect(screen.getByText('Tracking:')).toBeDefined();
+      expect(screen.getByText('Tracked')).toBeDefined();
+    });
+
+    it('clicking the X on the active filter chip resets tracking to all and removes the chip', () => {
+      const trackedItem: Item = {
+        ...mockItem,
+        id: 'PR_TRACKED',
+        title: 'Tracked PR',
+        viewerSubscription: SubscriptionState.SUBSCRIBED,
+      } as Item;
+      const untrackedItem: Item = {
+        ...mockItem,
+        id: 'PR_UNTRACKED',
+        title: 'Untracked PR',
+        viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+      } as Item;
+
+      vi.mocked(connectQuery.useQuery).mockImplementation((schema: any) => {
+        if (
+          schema?.name === 'GetItems' ||
+          schema?.typeName === 'octodeck.v1.OctoDeckService' ||
+          schema?.method?.name === 'GetItems'
+        ) {
+          return {
+            data: { items: [trackedItem, untrackedItem] },
+            isLoading: false,
+            error: null,
+            refetch: vi.fn(),
+          } as any;
+        }
+        return {
+          data: { config: mockConfig, currentUserLogin: 'testuser' },
+          isLoading: false,
+          error: null,
+          refetch: vi.fn(),
+        } as any;
+      });
+
+      render(<Dashboard />);
+
+      // Filter to untracked
+      const stateTrigger = screen.getByRole('button', { name: /Filter by state/i });
+      act(() => {
+        fireEvent.click(stateTrigger);
+      });
+      const stateMenu = stateTrigger.parentElement!;
+      act(() => {
+        fireEvent.click(within(stateMenu).getByRole('button', { name: /^Untracked$/i }));
+      });
+
+      // Active chip should be present
+      const removeTrackingBtn = screen.getByRole('button', { name: /Remove tracking filter/i });
+      expect(removeTrackingBtn).toBeDefined();
+      expect(screen.queryByText('Tracked PR')).toBeNull();
+
+      // Dismiss chip via X button
+      act(() => {
+        fireEvent.click(removeTrackingBtn);
+      });
+
+      // Chip removed, both items restored, URL cleaned
+      expect(screen.queryByRole('button', { name: /Remove tracking filter/i })).toBeNull();
+      expect(screen.queryByText('Tracking:')).toBeNull();
+      expect(screen.getByText('Tracked PR')).toBeDefined();
+      expect(screen.getByText('Untracked PR')).toBeDefined();
+      expect(window.location.search).not.toContain('tracking=');
+    });
+
+    it('resets tracking filter when clicking Clear filters button', () => {
+      const untrackedItem: Item = {
+        ...mockItem,
+        id: 'PR_UNTRACKED',
+        title: 'Untracked PR',
+        viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+      } as Item;
+
+      vi.mocked(connectQuery.useQuery).mockImplementation((schema: any) => {
+        if (
+          schema?.name === 'GetItems' ||
+          schema?.typeName === 'octodeck.v1.OctoDeckService' ||
+          schema?.method?.name === 'GetItems'
+        ) {
+          return {
+            data: { items: [untrackedItem] },
+            isLoading: false,
+            error: null,
+            refetch: vi.fn(),
+          } as any;
+        }
+        return {
+          data: { config: mockConfig, currentUserLogin: 'testuser' },
+          isLoading: false,
+          error: null,
+          refetch: vi.fn(),
+        } as any;
+      });
+
+      render(<Dashboard />);
+
+      // Set tracking to untracked
+      const stateTrigger = screen.getByRole('button', { name: /Filter by state/i });
+      act(() => {
+        fireEvent.click(stateTrigger);
+      });
+      const stateMenu = stateTrigger.parentElement!;
+      act(() => {
+        fireEvent.click(within(stateMenu).getByRole('button', { name: /^Untracked$/i }));
+      });
+
+      expect(screen.getByRole('button', { name: /Remove tracking filter/i })).toBeDefined();
+
+      // Click "Clear filters"
+      const clearFiltersBtn = screen.getByRole('button', { name: /Reset filters/i });
+      act(() => {
+        fireEvent.click(clearFiltersBtn);
+      });
+
+      expect(screen.queryByRole('button', { name: /Remove tracking filter/i })).toBeNull();
+      expect(window.location.search).not.toContain('tracking=');
+    });
+  });
 });
 
 

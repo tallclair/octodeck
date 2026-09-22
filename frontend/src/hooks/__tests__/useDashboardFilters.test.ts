@@ -126,4 +126,61 @@ describe('useDashboardFilters hook', () => {
     expect(result.current.filters.label).toBeNull();
     expect(window.location.search).not.toContain('label=');
   });
+
+  it('initializes tracking filter from URL query parameter', () => {
+    window.history.pushState(null, '', '/?tracking=untracked');
+    const { result } = renderHook(() => useDashboardFilters());
+
+    expect(result.current.filters.tracking).toBe('untracked');
+    expect(result.current.isDefault).toBe(false);
+    expect(result.current.activeCount).toBe(1);
+  });
+
+  it('updates tracking filter and pushes to URL search params', () => {
+    const { result } = renderHook(() => useDashboardFilters());
+
+    act(() => {
+      result.current.setFilter('tracking', 'tracked');
+    });
+
+    expect(result.current.filters.tracking).toBe('tracked');
+    expect(window.location.search).toContain('tracking=tracked');
+
+    act(() => {
+      result.current.setFilter('tracking', 'untracked');
+    });
+
+    expect(result.current.filters.tracking).toBe('untracked');
+    expect(window.location.search).toContain('tracking=untracked');
+
+    act(() => {
+      result.current.setFilter('tracking', 'all');
+    });
+
+    expect(result.current.filters.tracking).toBe('all');
+    expect(window.location.search).not.toContain('tracking=');
+  });
+
+  it('resets tracking filter when resetFilters is called', () => {
+    window.history.pushState(null, '', '/?tracking=untracked&triage=activity');
+    const { result } = renderHook(() => useDashboardFilters());
+
+    act(() => {
+      result.current.resetFilters();
+    });
+
+    expect(result.current.filters.tracking).toBe('all');
+    expect(window.location.search).toBe('');
+  });
+
+  it('responds to browser popstate events for tracking filter', () => {
+    const { result } = renderHook(() => useDashboardFilters());
+
+    act(() => {
+      window.history.pushState(null, '', '/?tracking=untracked');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    expect(result.current.filters.tracking).toBe('untracked');
+  });
 });

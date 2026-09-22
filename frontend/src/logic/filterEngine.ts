@@ -1,10 +1,18 @@
-import { ItemType as ProtoItemType, ItemState as ProtoItemState, ItemStatus as ProtoItemStatus, type Item, type Label } from '../api/octodeck/v1/resources_pb';
+import {
+  ItemType as ProtoItemType,
+  ItemState as ProtoItemState,
+  ItemStatus as ProtoItemStatus,
+  SubscriptionState,
+  type Item,
+  type Label,
+} from '../api/octodeck/v1/resources_pb';
 import {
   type DashboardFilterState,
   type TriageFilter,
   type ItemStateFilter,
   type ItemTypeFilter,
   type AssignedFilter,
+  type TrackingFilter,
   type SortOption,
   type SortOrder,
   DEFAULT_FILTER_STATE,
@@ -41,6 +49,12 @@ export function parseFilterParams(search: string | URLSearchParams): DashboardFi
       ? rawAssigned
       : DEFAULT_FILTER_STATE.assigned;
 
+  const rawTracking = params.get('tracking')?.toLowerCase();
+  const tracking: TrackingFilter =
+    rawTracking === 'tracked' || rawTracking === 'untracked' || rawTracking === 'all'
+      ? rawTracking
+      : DEFAULT_FILTER_STATE.tracking;
+
   const repo = params.get('repo')?.trim() || null;
   const org = params.get('org')?.trim() || null;
 
@@ -72,6 +86,7 @@ export function parseFilterParams(search: string | URLSearchParams): DashboardFi
     state,
     type,
     assigned,
+    tracking,
     org,
     repo,
     author,
@@ -105,6 +120,10 @@ export function filterStateToSearchParams(filters: DashboardFilterState): URLSea
 
   if (filters.assigned !== DEFAULT_FILTER_STATE.assigned) {
     params.set('assigned', filters.assigned);
+  }
+
+  if (filters.tracking !== DEFAULT_FILTER_STATE.tracking) {
+    params.set('tracking', filters.tracking);
   }
 
   if (filters.repo) {
@@ -153,6 +172,7 @@ export function isDefaultFilterState(filters: DashboardFilterState): boolean {
     filters.state === DEFAULT_FILTER_STATE.state &&
     filters.type === DEFAULT_FILTER_STATE.type &&
     filters.assigned === DEFAULT_FILTER_STATE.assigned &&
+    filters.tracking === DEFAULT_FILTER_STATE.tracking &&
     !filters.org &&
     !filters.repo &&
     !filters.author &&
@@ -174,6 +194,7 @@ export function getActiveFilterCount(filters: DashboardFilterState): number {
   if (filters.state !== DEFAULT_FILTER_STATE.state) count++;
   if (filters.type !== DEFAULT_FILTER_STATE.type) count++;
   if (filters.assigned !== DEFAULT_FILTER_STATE.assigned) count++;
+  if (filters.tracking !== DEFAULT_FILTER_STATE.tracking) count++;
   if (filters.repo || filters.org) count++;
   if (filters.author) count++;
   if (filters.milestone) count++;
@@ -246,7 +267,23 @@ export function applyFilters(
     }
   }
 
-  // 5. Org / Repo filter
+  // 5. Tracking filter: All, Tracked, Untracked
+  if (filters.tracking === 'tracked') {
+    filtered = filtered.filter(
+      item =>
+        item.viewerSubscription !== SubscriptionState.UNSUBSCRIBED &&
+        (item.viewerSubscription as number) !== 2
+    );
+  } else if (filters.tracking === 'untracked') {
+    filtered = filtered.filter(
+      item =>
+        item.viewerSubscription === SubscriptionState.UNSUBSCRIBED ||
+        (item.viewerSubscription as number) === 2
+    );
+  }
+  // 'all' applies no tracking filter
+
+  // 6. Org / Repo filter
   if (filters.repo) {
     const targetRepo = filters.repo.toLowerCase();
     filtered = filtered.filter(item => (item.repo || '').toLowerCase() === targetRepo);
