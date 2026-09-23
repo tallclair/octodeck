@@ -1039,6 +1039,37 @@ describe('DetailsPane Component', () => {
             expect(screen.queryByTestId('details-untracked-spinner')).toBeNull();
         });
 
+        it('disables Untracked button and shows missing notifications scope tooltip when canSubscribe is false', async () => {
+            const onSubscribe = vi.fn();
+            const untrackedItem: Partial<Item> = {
+                ...mockProtoItemWithBody,
+                id: 'PR_details_missing_scope',
+                viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+            };
+
+            render(
+                <DetailsPane
+                    item={untrackedItem as Item}
+                    onAck={vi.fn()}
+                    onUnack={vi.fn()}
+                    onSubscribe={onSubscribe}
+                    canSubscribe={false}
+                    onClose={vi.fn()}
+                />
+            );
+
+            const badge = screen.getByTestId('details-untracked-badge');
+            expect(badge.hasAttribute('disabled')).toBe(true);
+            expect(badge.className).toContain('cursor-not-allowed');
+            expect(badge.getAttribute('title')).toContain('gh auth refresh -s notifications');
+            expect(screen.getByRole('tooltip').textContent).toContain('gh auth refresh -s notifications');
+
+            await act(async () => {
+                fireEvent.click(badge);
+            });
+            expect(onSubscribe).not.toHaveBeenCalled();
+        });
+
     });
 
     describe('Ack / Acked Button', () => {

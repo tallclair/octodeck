@@ -2991,22 +2991,23 @@ func (b0 GetSyncStatusRequest_builder) Build() *GetSyncStatusRequest {
 }
 
 type SyncStatus struct {
-	state                           protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_LastSuccessfulSyncAt *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=last_successful_sync_at,json=lastSuccessfulSyncAt"`
-	xxx_hidden_LastSyncAttemptAt    *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=last_sync_attempt_at,json=lastSyncAttemptAt"`
-	xxx_hidden_LastUpdateReceivedAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=last_update_received_at,json=lastUpdateReceivedAt"`
-	xxx_hidden_LastSyncFailed       bool                   `protobuf:"varint,4,opt,name=last_sync_failed,json=lastSyncFailed"`
-	xxx_hidden_LastErrorMessage     *string                `protobuf:"bytes,5,opt,name=last_error_message,json=lastErrorMessage"`
-	xxx_hidden_FailedAttemptsCount  int32                  `protobuf:"varint,6,opt,name=failed_attempts_count,json=failedAttemptsCount"`
-	xxx_hidden_IsSyncing            bool                   `protobuf:"varint,7,opt,name=is_syncing,json=isSyncing"`
-	xxx_hidden_NotificationRate_24H float64                `protobuf:"fixed64,8,opt,name=notification_rate_24h,json=notificationRate24h"`
-	xxx_hidden_NotificationRate_7D  float64                `protobuf:"fixed64,9,opt,name=notification_rate_7d,json=notificationRate7d"`
-	xxx_hidden_NotificationRate_30D float64                `protobuf:"fixed64,10,opt,name=notification_rate_30d,json=notificationRate30d"`
-	xxx_hidden_LastSyncDurationMs   int64                  `protobuf:"varint,11,opt,name=last_sync_duration_ms,json=lastSyncDurationMs"`
-	XXX_raceDetectHookData          protoimpl.RaceDetectHookData
-	XXX_presence                    [1]uint32
-	unknownFields                   protoimpl.UnknownFields
-	sizeCache                       protoimpl.SizeCache
+	state                            protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_LastSuccessfulSyncAt  *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=last_successful_sync_at,json=lastSuccessfulSyncAt"`
+	xxx_hidden_LastSyncAttemptAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=last_sync_attempt_at,json=lastSyncAttemptAt"`
+	xxx_hidden_LastUpdateReceivedAt  *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=last_update_received_at,json=lastUpdateReceivedAt"`
+	xxx_hidden_LastSyncFailed        bool                   `protobuf:"varint,4,opt,name=last_sync_failed,json=lastSyncFailed"`
+	xxx_hidden_LastErrorMessage      *string                `protobuf:"bytes,5,opt,name=last_error_message,json=lastErrorMessage"`
+	xxx_hidden_FailedAttemptsCount   int32                  `protobuf:"varint,6,opt,name=failed_attempts_count,json=failedAttemptsCount"`
+	xxx_hidden_IsSyncing             bool                   `protobuf:"varint,7,opt,name=is_syncing,json=isSyncing"`
+	xxx_hidden_NotificationRate_24H  float64                `protobuf:"fixed64,8,opt,name=notification_rate_24h,json=notificationRate24h"`
+	xxx_hidden_NotificationRate_7D   float64                `protobuf:"fixed64,9,opt,name=notification_rate_7d,json=notificationRate7d"`
+	xxx_hidden_NotificationRate_30D  float64                `protobuf:"fixed64,10,opt,name=notification_rate_30d,json=notificationRate30d"`
+	xxx_hidden_LastSyncDurationMs    int64                  `protobuf:"varint,11,opt,name=last_sync_duration_ms,json=lastSyncDurationMs"`
+	xxx_hidden_HasNotificationsScope bool                   `protobuf:"varint,12,opt,name=has_notifications_scope,json=hasNotificationsScope"`
+	XXX_raceDetectHookData           protoimpl.RaceDetectHookData
+	XXX_presence                     [1]uint32
+	unknownFields                    protoimpl.UnknownFields
+	sizeCache                        protoimpl.SizeCache
 }
 
 func (x *SyncStatus) Reset() {
@@ -3114,6 +3115,13 @@ func (x *SyncStatus) GetLastSyncDurationMs() int64 {
 	return 0
 }
 
+func (x *SyncStatus) GetHasNotificationsScope() bool {
+	if x != nil {
+		return x.xxx_hidden_HasNotificationsScope
+	}
+	return false
+}
+
 func (x *SyncStatus) SetLastSuccessfulSyncAt(v *timestamppb.Timestamp) {
 	x.xxx_hidden_LastSuccessfulSyncAt = v
 }
@@ -3128,42 +3136,47 @@ func (x *SyncStatus) SetLastUpdateReceivedAt(v *timestamppb.Timestamp) {
 
 func (x *SyncStatus) SetLastSyncFailed(v bool) {
 	x.xxx_hidden_LastSyncFailed = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 12)
 }
 
 func (x *SyncStatus) SetLastErrorMessage(v string) {
 	x.xxx_hidden_LastErrorMessage = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 4, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 4, 12)
 }
 
 func (x *SyncStatus) SetFailedAttemptsCount(v int32) {
 	x.xxx_hidden_FailedAttemptsCount = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 12)
 }
 
 func (x *SyncStatus) SetIsSyncing(v bool) {
 	x.xxx_hidden_IsSyncing = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 12)
 }
 
 func (x *SyncStatus) SetNotificationRate_24H(v float64) {
 	x.xxx_hidden_NotificationRate_24H = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 12)
 }
 
 func (x *SyncStatus) SetNotificationRate_7D(v float64) {
 	x.xxx_hidden_NotificationRate_7D = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 8, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 8, 12)
 }
 
 func (x *SyncStatus) SetNotificationRate_30D(v float64) {
 	x.xxx_hidden_NotificationRate_30D = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 9, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 9, 12)
 }
 
 func (x *SyncStatus) SetLastSyncDurationMs(v int64) {
 	x.xxx_hidden_LastSyncDurationMs = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 10, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 10, 12)
+}
+
+func (x *SyncStatus) SetHasNotificationsScope(v bool) {
+	x.xxx_hidden_HasNotificationsScope = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 11, 12)
 }
 
 func (x *SyncStatus) HasLastSuccessfulSyncAt() bool {
@@ -3243,6 +3256,13 @@ func (x *SyncStatus) HasLastSyncDurationMs() bool {
 	return protoimpl.X.Present(&(x.XXX_presence[0]), 10)
 }
 
+func (x *SyncStatus) HasHasNotificationsScope() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 11)
+}
+
 func (x *SyncStatus) ClearLastSuccessfulSyncAt() {
 	x.xxx_hidden_LastSuccessfulSyncAt = nil
 }
@@ -3295,20 +3315,26 @@ func (x *SyncStatus) ClearLastSyncDurationMs() {
 	x.xxx_hidden_LastSyncDurationMs = 0
 }
 
+func (x *SyncStatus) ClearHasNotificationsScope() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 11)
+	x.xxx_hidden_HasNotificationsScope = false
+}
+
 type SyncStatus_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	LastSuccessfulSyncAt *timestamppb.Timestamp
-	LastSyncAttemptAt    *timestamppb.Timestamp
-	LastUpdateReceivedAt *timestamppb.Timestamp
-	LastSyncFailed       *bool
-	LastErrorMessage     *string
-	FailedAttemptsCount  *int32
-	IsSyncing            *bool
-	NotificationRate_24H *float64
-	NotificationRate_7D  *float64
-	NotificationRate_30D *float64
-	LastSyncDurationMs   *int64
+	LastSuccessfulSyncAt  *timestamppb.Timestamp
+	LastSyncAttemptAt     *timestamppb.Timestamp
+	LastUpdateReceivedAt  *timestamppb.Timestamp
+	LastSyncFailed        *bool
+	LastErrorMessage      *string
+	FailedAttemptsCount   *int32
+	IsSyncing             *bool
+	NotificationRate_24H  *float64
+	NotificationRate_7D   *float64
+	NotificationRate_30D  *float64
+	LastSyncDurationMs    *int64
+	HasNotificationsScope *bool
 }
 
 func (b0 SyncStatus_builder) Build() *SyncStatus {
@@ -3319,36 +3345,40 @@ func (b0 SyncStatus_builder) Build() *SyncStatus {
 	x.xxx_hidden_LastSyncAttemptAt = b.LastSyncAttemptAt
 	x.xxx_hidden_LastUpdateReceivedAt = b.LastUpdateReceivedAt
 	if b.LastSyncFailed != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 12)
 		x.xxx_hidden_LastSyncFailed = *b.LastSyncFailed
 	}
 	if b.LastErrorMessage != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 4, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 4, 12)
 		x.xxx_hidden_LastErrorMessage = b.LastErrorMessage
 	}
 	if b.FailedAttemptsCount != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 12)
 		x.xxx_hidden_FailedAttemptsCount = *b.FailedAttemptsCount
 	}
 	if b.IsSyncing != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 12)
 		x.xxx_hidden_IsSyncing = *b.IsSyncing
 	}
 	if b.NotificationRate_24H != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 12)
 		x.xxx_hidden_NotificationRate_24H = *b.NotificationRate_24H
 	}
 	if b.NotificationRate_7D != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 8, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 8, 12)
 		x.xxx_hidden_NotificationRate_7D = *b.NotificationRate_7D
 	}
 	if b.NotificationRate_30D != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 9, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 9, 12)
 		x.xxx_hidden_NotificationRate_30D = *b.NotificationRate_30D
 	}
 	if b.LastSyncDurationMs != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 10, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 10, 12)
 		x.xxx_hidden_LastSyncDurationMs = *b.LastSyncDurationMs
+	}
+	if b.HasNotificationsScope != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 11, 12)
+		x.xxx_hidden_HasNotificationsScope = *b.HasNotificationsScope
 	}
 	return m0
 }
@@ -4218,7 +4248,7 @@ const file_octodeck_v1_service_proto_rawDesc = "" +
 	"\x05saved\x18\x03 \x01(\bR\x05saved\x12?\n" +
 	"\vquery_stats\x18\x04 \x03(\v2\x1e.octodeck.v1.TrackedQueryStatsR\n" +
 	"queryStats\"\x16\n" +
-	"\x14GetSyncStatusRequest\"\xf7\x04\n" +
+	"\x14GetSyncStatusRequest\"\xaf\x05\n" +
 	"\n" +
 	"SyncStatus\x12Q\n" +
 	"\x17last_successful_sync_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x14lastSuccessfulSyncAt\x12K\n" +
@@ -4233,7 +4263,8 @@ const file_octodeck_v1_service_proto_rawDesc = "" +
 	"\x14notification_rate_7d\x18\t \x01(\x01R\x12notificationRate7d\x122\n" +
 	"\x15notification_rate_30d\x18\n" +
 	" \x01(\x01R\x13notificationRate30d\x121\n" +
-	"\x15last_sync_duration_ms\x18\v \x01(\x03R\x12lastSyncDurationMs\"H\n" +
+	"\x15last_sync_duration_ms\x18\v \x01(\x03R\x12lastSyncDurationMs\x126\n" +
+	"\x17has_notifications_scope\x18\f \x01(\bR\x15hasNotificationsScope\"H\n" +
 	"\x15GetSyncStatusResponse\x12/\n" +
 	"\x06status\x18\x01 \x01(\v2\x17.octodeck.v1.SyncStatusR\x06status\"t\n" +
 	"\x14GetSyncTracesRequest\x12\x14\n" +

@@ -1858,3 +1858,33 @@ func TestIsGitHubScopeError(t *testing.T) {
 		})
 	}
 }
+
+func TestOctoDeckHandler_GetSyncStatus_HasNotificationsScope(t *testing.T) {
+	t.Run("Reports false when notifications scope is missing", func(t *testing.T) {
+		mockGH := &mockGitHubClient{
+			authenticated:         true,
+			hasNotificationsScope: config.Ptr(false),
+		}
+		_, client, addHeaders, _ := setupTestHandlerWithGH(t, mockGH)
+
+		req := connect.NewRequest(&octodeckv1.GetSyncStatusRequest{})
+		addHeaders(req)
+		resp, err := client.GetSyncStatus(t.Context(), req)
+		require.NoError(t, err)
+		assert.False(t, resp.Msg.GetStatus().GetHasNotificationsScope())
+	})
+
+	t.Run("Reports true when notifications scope is present", func(t *testing.T) {
+		mockGH := &mockGitHubClient{
+			authenticated:         true,
+			hasNotificationsScope: config.Ptr(true),
+		}
+		_, client, addHeaders, _ := setupTestHandlerWithGH(t, mockGH)
+
+		req := connect.NewRequest(&octodeckv1.GetSyncStatusRequest{})
+		addHeaders(req)
+		resp, err := client.GetSyncStatus(t.Context(), req)
+		require.NoError(t, err)
+		assert.True(t, resp.Msg.GetStatus().GetHasNotificationsScope())
+	})
+}

@@ -2042,6 +2042,52 @@ describe('Dashboard Component - Generalized Filters & URL Sync', () => {
       expect(screen.queryByRole('button', { name: /Remove tracking filter/i })).toBeNull();
       expect(window.location.search).not.toContain('tracking=');
     });
+
+    it('disables subscribe buttons on card and details pane when hasNotificationsScope is false', () => {
+      const untrackedItem: Item = {
+        ...mockItem,
+        id: 'PR_UNTRACKED_NO_SCOPE',
+        title: 'Untracked No Scope PR',
+        viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+      } as Item;
+
+      vi.mocked(connectQuery.useQuery).mockImplementation((schema: any) => {
+        if (schema?.name === 'GetItems' || schema?.method?.name === 'GetItems') {
+          return {
+            data: { items: [untrackedItem] },
+            isLoading: false,
+            error: null,
+            refetch: vi.fn(),
+          } as any;
+        }
+        if (schema?.name === 'GetSyncStatus' || schema?.method?.name === 'GetSyncStatus') {
+          return {
+            data: { status: { hasNotificationsScope: false } },
+            isLoading: false,
+            error: null,
+            refetch: vi.fn(),
+          } as any;
+        }
+        return {
+          data: { config: mockConfig, currentUserLogin: 'testuser' },
+          isLoading: false,
+          error: null,
+          refetch: vi.fn(),
+        } as any;
+      });
+
+      render(<Dashboard />);
+
+      const cardBadge = screen.getByTestId('untracked-badge');
+      expect(cardBadge.hasAttribute('disabled')).toBe(true);
+      expect(cardBadge.getAttribute('title')).toContain('gh auth refresh -s notifications');
+
+      // Select item to open DetailsPane
+      fireEvent.click(screen.getByText('Untracked No Scope PR'));
+      const detailsBadge = screen.getByTestId('details-untracked-badge');
+      expect(detailsBadge.hasAttribute('disabled')).toBe(true);
+      expect(detailsBadge.getAttribute('title')).toContain('gh auth refresh -s notifications');
+    });
   });
 });
 

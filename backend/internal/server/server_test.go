@@ -19,14 +19,26 @@ import (
 )
 
 type mockGitHubClient struct {
-	authenticated        bool
-	err                  error
-	updateSubscriptionFn func(ctx context.Context, id string, state octodeckv1.SubscriptionState) error
-	countSearchIssuesFn  func(ctx context.Context, searchQuery string) (int32, error)
+	authenticated         bool
+	hasNotificationsScope *bool
+	err                   error
+	updateSubscriptionFn  func(ctx context.Context, id string, state octodeckv1.SubscriptionState) error
+	countSearchIssuesFn   func(ctx context.Context, searchQuery string) (int32, error)
 }
 
 func (m *mockGitHubClient) CheckAuth(_ context.Context) (string, bool, error) {
 	return "testuser", m.authenticated, m.err
+}
+
+func (m *mockGitHubClient) HasNotificationsScope() bool {
+	if m.hasNotificationsScope != nil {
+		return *m.hasNotificationsScope
+	}
+	return true
+}
+
+func (m *mockGitHubClient) SetNotificationsScope(hasScope bool) {
+	m.hasNotificationsScope = &hasScope
 }
 
 func (m *mockGitHubClient) UpdateSubscription(
@@ -86,22 +98,37 @@ func TestStatusHandler(t *testing.T) {
 	tests := []struct {
 		name              string
 		authenticated     bool
+		hasScope          *bool
 		authErr           error
 		wantAuthenticated bool
+		wantHasScope      bool
 		wantError         string
 	}{
 		{
-			name:              "Authenticated",
+			name:              "Authenticated with notifications scope",
 			authenticated:     true,
+			hasScope:          config.Ptr(true),
 			authErr:           nil,
 			wantAuthenticated: true,
+			wantHasScope:      true,
+			wantError:         "",
+		},
+		{
+			name:              "Authenticated without notifications scope",
+			authenticated:     true,
+			hasScope:          config.Ptr(false),
+			authErr:           nil,
+			wantAuthenticated: true,
+			wantHasScope:      false,
 			wantError:         "",
 		},
 		{
 			name:              "Not Authenticated",
 			authenticated:     false,
+			hasScope:          config.Ptr(false),
 			authErr:           errors.New("auth failed"),
 			wantAuthenticated: false,
+			wantHasScope:      false,
 			wantError:         authError,
 		},
 	}
@@ -113,8 +140,9 @@ func TestStatusHandler(t *testing.T) {
 			defer func() { require.NoError(t, db.Close()) }()
 
 			mockGH := &mockGitHubClient{
-				authenticated: tt.authenticated,
-				err:           tt.authErr,
+				authenticated:         tt.authenticated,
+				hasNotificationsScope: tt.hasScope,
+				err:                   tt.authErr,
 			}
 			mockSync := &mockSyncEngine{}
 			cfg := config.NewForTest(&octodeckv1.Config{})
@@ -142,16 +170,18 @@ func TestStatusHandler(t *testing.T) {
 			assert.Equal(t, http.StatusOK, res.StatusCode, "expected status OK")
 
 			var resp struct {
-				GHAuthenticated bool   `json:"gh_authenticated"`
-				Version         string `json:"version"`
-				Error           string `json:"error"`
-				Message         string `json:"message"`
+				GHAuthenticated       bool   `json:"gh_authenticated"`
+				HasNotificationsScope bool   `json:"has_notifications_scope"`
+				Version               string `json:"version"`
+				Error                 string `json:"error"`
+				Message               string `json:"message"`
 			}
 			err = json.NewDecoder(res.Body).Decode(&resp)
 			require.NoError(t, err)
 
 			assert.Equal(t, expectedVersion, resp.Version, "expected version "+expectedVersion)
 			assert.Equal(t, tt.wantAuthenticated, resp.GHAuthenticated, "expected GHAuthenticated match")
+			assert.Equal(t, tt.wantHasScope, resp.HasNotificationsScope, "expected HasNotificationsScope match")
 			assert.Equal(t, tt.wantError, resp.Error, "expected Error match")
 		})
 	}

@@ -6,6 +6,7 @@ import { DEFAULT_API_BASE_URL } from '../utils/constants';
 
 export interface StatusResponse {
   gh_authenticated: boolean;
+  has_notifications_scope?: boolean;
   version: string;
   error?: string;
   message?: string;

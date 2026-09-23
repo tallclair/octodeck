@@ -580,6 +580,7 @@ func (h *octoDeckHandler) UpdateSubscription(
 	if h.ghClient != nil {
 		if err := h.ghClient.UpdateSubscription(ctx, nodeID, targetState); err != nil {
 			if isGitHubScopeError(err) {
+				h.ghClient.SetNotificationsScope(false)
 				return nil, connect.NewError(
 					connect.CodePermissionDenied,
 					fmt.Errorf(
@@ -717,6 +718,14 @@ func isErrorMessageScope(msg string) bool {
 func (h *octoDeckHandler) GetSyncStatus(_ context.Context,
 	_ *connect.Request[octodeckv1.GetSyncStatusRequest]) (*connect.Response[octodeckv1.GetSyncStatusResponse], error) {
 	status := h.syncEngine.GetStatus()
+	if status == nil {
+		status = octodeckv1.SyncStatus_builder{}.Build()
+	}
+	hasScope := true
+	if h.ghClient != nil {
+		hasScope = h.ghClient.HasNotificationsScope()
+	}
+	status.SetHasNotificationsScope(hasScope)
 	return connect.NewResponse(octodeckv1.GetSyncStatusResponse_builder{
 		Status: status,
 	}.Build()), nil

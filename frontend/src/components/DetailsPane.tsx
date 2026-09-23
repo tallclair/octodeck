@@ -27,6 +27,7 @@ export interface DetailsPaneProps {
     onStar?: (id: string, starred: boolean) => Promise<void> | void;
     onSetNotes?: (id: string, notes: string) => Promise<void> | void;
     onSubscribe?: (id: string) => Promise<void> | void;
+    canSubscribe?: boolean;
     knownBots?: string[];
     onClose: () => void;
     showItemId?: boolean;
@@ -42,6 +43,7 @@ export function DetailsPane({
     onStar,
     onSetNotes,
     onSubscribe,
+    canSubscribe = true,
     onClose,
     showItemId = false,
     onOpenDebug,
@@ -126,31 +128,60 @@ export function DetailsPane({
                         </span>
                         {isUntracked && (
                             onSubscribe ? (
-                                <button
-                                    type="button"
-                                    disabled={isSubscribing}
-                                    onClick={async () => {
-                                        if (isSubscribing) return;
-                                        setIsSubscribing(true);
-                                        try {
-                                            await onSubscribe(item.id);
-                                        } catch (err) {
-                                            console.error('Failed to subscribe:', err);
-                                            showError(err, 'Failed to subscribe to item on GitHub');
-                                        } finally {
-                                            setIsSubscribing(false);
-                                        }
-                                    }}
-                                    className="px-1.5 py-0.5 rounded text-[10px] font-bold border bg-slate-100 hover:bg-blue-50 dark:bg-slate-800 dark:hover:bg-blue-950/60 text-slate-600 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 border-slate-300 hover:border-blue-400 dark:border-slate-700 dark:hover:border-blue-500 font-sans flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-60"
-                                    title="Not subscribed on GitHub. Live updates won't be received automatically unless you subscribe or are mentioned."
-                                    aria-label="Subscribe to item (untracked)"
-                                    data-testid="details-untracked-badge"
+                                <span
+                                    className="inline-flex items-center"
+                                    onClick={(e) => e.stopPropagation()}
+                                    title={
+                                        canSubscribe
+                                            ? "Not subscribed on GitHub. Live updates won't be received automatically unless you subscribe or are mentioned."
+                                            : "Missing GitHub 'notifications' scope. Run 'gh auth refresh -s notifications' in your terminal to enable subscribing."
+                                    }
                                 >
-                                    {isSubscribing && (
-                                        <RefreshCw size={10} className="animate-spin text-blue-500 shrink-0" data-testid="details-untracked-spinner" />
+                                    <button
+                                        type="button"
+                                        disabled={isSubscribing || !canSubscribe}
+                                        aria-disabled={isSubscribing || !canSubscribe}
+                                        onClick={async (e) => {
+                                            e.stopPropagation();
+                                            if (isSubscribing || !canSubscribe) return;
+                                            setIsSubscribing(true);
+                                            try {
+                                                await onSubscribe(item.id);
+                                            } catch (err) {
+                                                console.error('Failed to subscribe:', err);
+                                                showError(err, 'Failed to subscribe to item on GitHub');
+                                            } finally {
+                                                setIsSubscribing(false);
+                                            }
+                                        }}
+                                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold border bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700 font-sans flex items-center gap-1 transition-colors ${
+                                            canSubscribe
+                                                ? 'hover:bg-blue-50 dark:hover:bg-blue-950/60 hover:text-blue-600 dark:hover:text-blue-400 hover:border-blue-400 dark:hover:border-blue-500 cursor-pointer disabled:opacity-60'
+                                                : 'opacity-60 cursor-not-allowed'
+                                        }`}
+                                        title={
+                                            canSubscribe
+                                                ? "Not subscribed on GitHub. Live updates won't be received automatically unless you subscribe or are mentioned."
+                                                : "Missing GitHub 'notifications' scope. Run 'gh auth refresh -s notifications' in your terminal to enable subscribing."
+                                        }
+                                        aria-label={
+                                            canSubscribe
+                                                ? 'Subscribe to item (untracked)'
+                                                : "Missing GitHub 'notifications' scope. Run 'gh auth refresh -s notifications' in your terminal to enable subscribing."
+                                        }
+                                        data-testid="details-untracked-badge"
+                                    >
+                                        {isSubscribing && (
+                                            <RefreshCw size={10} className="animate-spin text-blue-500 shrink-0" data-testid="details-untracked-spinner" />
+                                        )}
+                                        <span>Untracked</span>
+                                    </button>
+                                    {!canSubscribe && (
+                                        <span role="tooltip" className="sr-only">
+                                            Missing GitHub &apos;notifications&apos; scope. Run &apos;gh auth refresh -s notifications&apos; in your terminal to enable subscribing.
+                                        </span>
                                     )}
-                                    <span>Untracked</span>
-                                </button>
+                                </span>
                             ) : (
                                 <span
                                     className="px-1.5 py-0.5 rounded text-[10px] font-bold border bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-700 font-sans"

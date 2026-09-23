@@ -30,6 +30,8 @@ var Version = "dev"
 // GitHubClient defines the interface for GitHub authentication checks and mutations.
 type GitHubClient interface {
 	CheckAuth(ctx context.Context) (string, bool, error)
+	HasNotificationsScope() bool
+	SetNotificationsScope(hasScope bool)
 	UpdateSubscription(ctx context.Context, id string, state octodeckv1.SubscriptionState) error
 	CountSearchIssues(ctx context.Context, searchQuery string) (int32, error)
 }
@@ -143,19 +145,21 @@ func spaFileServer(root fs.FS) http.Handler {
 }
 
 type statusResponse struct {
-	GHAuthenticated bool   `json:"gh_authenticated"`
-	Version         string `json:"version"`
-	Error           string `json:"error,omitempty"`
-	Message         string `json:"message,omitempty"`
-	LocalAuthError  string `json:"local_auth_error,omitempty"`
+	GHAuthenticated       bool   `json:"gh_authenticated"`
+	HasNotificationsScope bool   `json:"has_notifications_scope"`
+	Version               string `json:"version"`
+	Error                 string `json:"error,omitempty"`
+	Message               string `json:"message,omitempty"`
+	LocalAuthError        string `json:"local_auth_error,omitempty"`
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	_, authenticated, err := s.ghClient.CheckAuth(r.Context())
 
 	resp := statusResponse{
-		GHAuthenticated: authenticated,
-		Version:         Version,
+		GHAuthenticated:       authenticated,
+		HasNotificationsScope: s.ghClient.HasNotificationsScope(),
+		Version:               Version,
 	}
 
 	if err != nil {

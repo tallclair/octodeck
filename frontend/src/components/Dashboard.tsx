@@ -97,13 +97,17 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   const [daemonVersion, setDaemonVersion] = useState<string>(() => {
     return typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
   });
+  const [statusHasNotificationsScope, setStatusHasNotificationsScope] = useState<boolean>(true);
 
-  // Fetch daemon version for Settings
+  // Fetch daemon version and OAuth scope status
   useEffect(() => {
     checkStatus()
       .then((status) => {
         if (status.version) {
           setDaemonVersion(status.version);
+        }
+        if (typeof status.has_notifications_scope === 'boolean') {
+          setStatusHasNotificationsScope(status.has_notifications_scope);
         }
       })
       .catch(() => {
@@ -225,6 +229,8 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
     ? `${syncStatusData.status.lastSuccessfulSyncAt.seconds}_${syncStatusData.status.lastSuccessfulSyncAt.nanos || 0}`
     : '';
   const daemonIsSyncing = Boolean(syncStatusData?.status?.isSyncing);
+  const hasNotificationsScope =
+    syncStatusData?.status?.hasNotificationsScope ?? statusHasNotificationsScope;
 
   const prevSyncingRef = useRef(daemonIsSyncing);
   useEffect(() => {
@@ -1896,6 +1902,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                         onAck={handleAck}
                         onUnack={handleUnack}
                         onSubscribe={handleSubscribe}
+                        canSubscribe={hasNotificationsScope}
                         showItemId={debugMode}
                         onOpenDebug={debugMode ? onOpenDebug : undefined}
                         grayAckedBackground={filters.triage === 'all'}
@@ -1942,6 +1949,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                 onStar={handleStar}
                 onSetNotes={handleSetNotes}
                 onSubscribe={handleSubscribe}
+                canSubscribe={hasNotificationsScope}
                 onClose={() => setFilter('item', null)}
                 showItemId={debugMode}
                 onOpenDebug={debugMode ? onOpenDebug : undefined}

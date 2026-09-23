@@ -52,6 +52,7 @@ export interface PullRequestCardProps {
   onAck?: (id: string) => Promise<void> | void;
   onUnack?: (id: string) => Promise<void> | void;
   onSubscribe?: (id: string) => Promise<void> | void;
+  canSubscribe?: boolean;
   showItemId?: boolean;
   onOpenDebug?: (targetItemId?: string) => void;
   grayAckedBackground?: boolean;
@@ -65,6 +66,7 @@ export function PullRequestCard({
   onAck,
   onUnack,
   onSubscribe,
+  canSubscribe = true,
   showItemId = false,
   onOpenDebug,
   grayAckedBackground = false,
@@ -225,11 +227,11 @@ export function PullRequestCard({
                   onSubscribe ? (
                     <button
                       type="button"
-                      disabled={isSubscribing}
-                      aria-disabled={isSubscribing}
+                      disabled={isSubscribing || !canSubscribe}
+                      aria-disabled={isSubscribing || !canSubscribe}
                       onClick={async (e) => {
                         e.stopPropagation();
-                        if (isSubscribing) return;
+                        if (isSubscribing || !canSubscribe) return;
                         setIsSubscribing(true);
                         try {
                           await onSubscribe(item.id);
@@ -240,22 +242,49 @@ export function PullRequestCard({
                           setIsSubscribing(false);
                         }
                       }}
-                      className={`flex items-center justify-center p-0.5 rounded transition-colors cursor-pointer shrink-0 ${
+                      className={`flex items-center justify-center p-0.5 rounded transition-colors shrink-0 ${
                         statusText ? 'ml-1.5' : ''
-                      } text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 disabled:opacity-60`}
-                      title="Untracked"
-                      aria-label="Subscribe to item (untracked)"
+                      } text-slate-400 dark:text-slate-500 ${
+                        canSubscribe
+                          ? 'cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 disabled:opacity-60'
+                          : 'opacity-50 cursor-not-allowed'
+                      }`}
+                      title={
+                        canSubscribe
+                          ? 'Untracked'
+                          : "Untracked — Missing GitHub 'notifications' scope. Run 'gh auth refresh -s notifications' to enable subscribing."
+                      }
+                      aria-label={
+                        canSubscribe
+                          ? 'Subscribe to item (untracked)'
+                          : "Untracked — Missing GitHub 'notifications' scope. Run 'gh auth refresh -s notifications' to enable subscribing."
+                      }
                       data-testid="untracked-badge"
                     >
-                      {isSubscribing ? (
-                        <RefreshCw
-                          size={14}
-                          className="animate-spin text-blue-500 shrink-0 pointer-events-none"
-                          data-testid="untracked-spinner"
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      ) : (
-                        <BellOff size={14} className="shrink-0" />
+                      <span
+                        className="inline-flex items-center justify-center"
+                        onClick={(e) => e.stopPropagation()}
+                        title={
+                          canSubscribe
+                            ? 'Untracked'
+                            : "Untracked — Missing GitHub 'notifications' scope. Run 'gh auth refresh -s notifications' to enable subscribing."
+                        }
+                      >
+                        {isSubscribing ? (
+                          <RefreshCw
+                            size={14}
+                            className="animate-spin text-blue-500 shrink-0 pointer-events-none"
+                            data-testid="untracked-spinner"
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        ) : (
+                          <BellOff size={14} className="shrink-0" />
+                        )}
+                      </span>
+                      {!canSubscribe && (
+                        <span role="tooltip" className="sr-only">
+                          Untracked — Missing GitHub &apos;notifications&apos; scope. Run &apos;gh auth refresh -s notifications&apos; to enable subscribing.
+                        </span>
                       )}
                     </button>
                   ) : (

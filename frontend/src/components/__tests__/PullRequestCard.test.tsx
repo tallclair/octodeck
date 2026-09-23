@@ -1084,4 +1084,35 @@ describe('PullRequestCard', () => {
     expect(onUnack).toHaveBeenCalledWith(mockItem.id);
     expect(onSelect).not.toHaveBeenCalled();
   });
+
+  it('disables subscribe button and displays missing notifications scope tooltip when canSubscribe is false', async () => {
+    const onSubscribe = vi.fn();
+    const onSelect = vi.fn();
+    const untrackedItem: Partial<Item> = {
+      ...mockItem,
+      viewerSubscription: SubscriptionState.UNSUBSCRIBED,
+    };
+
+    render(
+      <PullRequestCard
+        item={untrackedItem as Item}
+        isSelected={false}
+        onSelect={onSelect}
+        onSubscribe={onSubscribe}
+        canSubscribe={false}
+      />
+    );
+
+    const badge = screen.getByTestId('untracked-badge');
+    expect(badge.hasAttribute('disabled')).toBe(true);
+    expect(badge.className).toContain('cursor-not-allowed');
+    expect(badge.getAttribute('title')).toContain('gh auth refresh -s notifications');
+    expect(screen.getByRole('tooltip').textContent).toContain('gh auth refresh -s notifications');
+
+    await act(async () => {
+      fireEvent.click(badge);
+    });
+    expect(onSubscribe).not.toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
 });

@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cli/go-gh/v2/pkg/api"
@@ -42,6 +43,15 @@ const (
 	notificationsPerPage = 50
 	// defaultGitHubAPIBase is the default base URL for GitHub REST API calls.
 	defaultGitHubAPIBase = "https://api.github.com"
+
+	// headerAcceptGitHubJSON is the standard Accept header value for GitHub REST v3 JSON responses.
+	headerAcceptGitHubJSON = "application/vnd.github+json"
+	// headerGitHubAPIVersion is the canonical header key for specifying the GitHub REST API version.
+	headerGitHubAPIVersion = "X-Github-Api-Version"
+	// gitHubAPIVersionValue is the REST API version string sent to GitHub.
+	gitHubAPIVersionValue = "2022-11-28"
+	// headerOAuthScopes is the canonical response header key containing comma-separated OAuth token scopes.
+	headerOAuthScopes = "X-Oauth-Scopes"
 
 	// expectedSubjectURLMatches is the expected number of capture groups in subjectURLRegex.
 	expectedSubjectURLMatches = 5
@@ -102,6 +112,12 @@ type Client struct {
 	GraphQLClient GraphQLClient
 	HTTPClient    HTTPClient
 	CurrentUser   string
+
+	isDefaultClient       bool
+	useHTTPForAuth        bool
+	scopeMu               sync.RWMutex
+	scopesChecked         bool
+	hasNotificationsScope bool
 }
 
 // NewClient creates a new GitHub client using default gh auth.
@@ -118,29 +134,190 @@ func NewClient() (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create default HTTP client: %w", err)
 	}
-	return &Client{RestClient: rest, GraphQLClient: gql, HTTPClient: httpClient}, nil
+	return &Client{
+		RestClient:            rest,
+		GraphQLClient:         gql,
+		HTTPClient:            httpClient,
+		isDefaultClient:       true,
+		useHTTPForAuth:        true,
+		hasNotificationsScope: true,
+	}, nil
 }
 
-// SetCurrentUser sets the authenticated user login for the client.
+// parseNotificationsScope splits a comma-separated X-OAuth-Scopes header string
+// and returns true if "notifications" is present (case-insensitive, trimmed).
+func parseNotificationsScope(scopesHeader string) bool {
+	for scope := range strings.SplitSeq(scopesHeader, ",") {
+		if strings.EqualFold(strings.TrimSpace(scope), "notifications") {
+			return true
+		}
+	}
+	return false
+}
+
+// SetNotificationsScope explicitly sets the cached notifications scope availability on the client.
+func (c *Client) SetNotificationsScope(hasScope bool) {
+	if c == nil {
+		return
+	}
+	c.scopeMu.Lock()
+	c.scopesChecked = true
+	c.hasNotificationsScope = hasScope
+	c.scopeMu.Unlock()
+}
+
+func (c *Client) updateScopesFromHeader(header http.Header) {
+	if c == nil || header == nil {
+		return
+	}
+	vals := header.Values(headerOAuthScopes)
+	joined := strings.TrimSpace(strings.Join(vals, ","))
+	if joined == "" {
+		// Fine-grained PATs and GitHub App tokens return an empty or absent X-OAuth-Scopes header;
+		// do not mark hasNotificationsScope = false from an empty header alone.
+		return
+	}
+	c.SetNotificationsScope(parseNotificationsScope(joined))
+}
+
+// HasNotificationsScope reports whether the authenticated GitHub token includes the "notifications" scope.
+// Defaults to true prior to observing any X-OAuth-Scopes response header.
+func (c *Client) HasNotificationsScope() bool {
+	if c == nil {
+		return true
+	}
+	c.scopeMu.RLock()
+	defer c.scopeMu.RUnlock()
+	if !c.scopesChecked {
+		return true
+	}
+	return c.hasNotificationsScope
+}
+
+func (c *Client) reloadDefaultClientsIfNeeded() {
+	if c == nil || !c.isDefaultClient || c.HasNotificationsScope() {
+		return
+	}
+	rest, errRest := api.DefaultRESTClient()
+	gql, errGQL := api.DefaultGraphQLClient()
+	httpClient, errHTTP := api.DefaultHTTPClient()
+	if errRest != nil || errGQL != nil || errHTTP != nil {
+		return
+	}
+	c.scopeMu.Lock()
+	c.RestClient = rest
+	c.GraphQLClient = gql
+	c.HTTPClient = httpClient
+	c.scopeMu.Unlock()
+}
+
+func (c *Client) getHTTPClient() HTTPClient {
+	if c == nil {
+		return nil
+	}
+	c.scopeMu.RLock()
+	defer c.scopeMu.RUnlock()
+	return c.HTTPClient
+}
+
+func (c *Client) getRESTClient() RESTClient {
+	if c == nil {
+		return nil
+	}
+	c.scopeMu.RLock()
+	defer c.scopeMu.RUnlock()
+	return c.RestClient
+}
+
+func (c *Client) getGraphQLClient() GraphQLClient {
+	if c == nil {
+		return nil
+	}
+	c.scopeMu.RLock()
+	defer c.scopeMu.RUnlock()
+	return c.GraphQLClient
+}
+
+func (c *Client) getCurrentUser() string {
+	if c == nil {
+		return ""
+	}
+	c.scopeMu.RLock()
+	defer c.scopeMu.RUnlock()
+	return c.CurrentUser
+}
+
+// SetCurrentUser sets the authenticated user login for the client safely under lock.
 func (c *Client) SetCurrentUser(login string) {
 	if c != nil {
+		c.scopeMu.Lock()
 		c.CurrentUser = login
+		c.scopeMu.Unlock()
 	}
 }
 
-// CheckAuth verifies if the client is authenticated with GitHub.
+// CheckAuth verifies if the client is authenticated with GitHub and inspects X-OAuth-Scopes headers when available.
 func (c *Client) CheckAuth(ctx context.Context) (string, bool, error) {
-	if c == nil || c.RestClient == nil {
-		return "", false, errors.New("github rest client is not initialized")
+	if c == nil {
+		return "", false, errors.New("github client is not initialized")
+	}
+	c.reloadDefaultClientsIfNeeded()
+
+	httpClient := c.getHTTPClient()
+	restClient := c.getRESTClient()
+	if httpClient == nil && restClient == nil {
+		return "", false, errors.New("github client is not initialized")
+	}
+	if httpClient != nil && (restClient == nil || c.useHTTPForAuth) {
+		return c.checkAuthViaHTTP(ctx, httpClient)
+	}
+
+	var user struct {
+		Login string `json:"login"`
+	}
+	err := restClient.DoWithContext(ctx, "GET", "user", nil, &user)
+	if err != nil {
+		return "", false, fmt.Errorf("authentication check failed: %w", err)
+	}
+	c.SetCurrentUser(user.Login)
+	return user.Login, true, nil
+}
+
+func (c *Client) checkAuthViaHTTP(ctx context.Context, httpClient HTTPClient) (string, bool, error) {
+	reqURL := fmt.Sprintf("%s/user", defaultGitHubAPIBase)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to create auth check request: %w", err)
+	}
+	req.Header.Set("Accept", headerAcceptGitHubJSON)
+	req.Header.Set(headerGitHubAPIVersion, gitHubAPIVersionValue)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", false, fmt.Errorf("authentication check failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	c.updateScopesFromHeader(resp.Header)
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to read auth check response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", false, fmt.Errorf(
+			"authentication check failed with status %d: %s",
+			resp.StatusCode,
+			string(bodyBytes),
+		)
 	}
 	var user struct {
 		Login string `json:"login"`
 	}
-	err := c.RestClient.DoWithContext(ctx, "GET", "user", nil, &user)
-	if err != nil {
-		return "", false, fmt.Errorf("authentication check failed: %w", err)
+	if err := json.Unmarshal(bodyBytes, &user); err != nil {
+		return "", false, fmt.Errorf("failed to decode user response: %w", err)
 	}
-	c.CurrentUser = user.Login
+	c.SetCurrentUser(user.Login)
 	return user.Login, true, nil
 }
 
@@ -183,7 +360,7 @@ func (c *Client) ResolveNodeIDs(ctx context.Context, targets []ItemTarget) (map[
 	if len(targets) == 0 {
 		return make(map[ItemTarget]string), nil
 	}
-	if c == nil || c.HTTPClient == nil {
+	if c == nil || c.getHTTPClient() == nil {
 		return nil, errors.New("github http client is not initialized")
 	}
 
@@ -243,10 +420,10 @@ func (c *Client) resolveNodeIDsBatch(ctx context.Context, batch []ItemTarget) (m
 		return nil, fmt.Errorf("failed to create resolve-ids request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-Github-Api-Version", "2022-11-28")
+	req.Header.Set("Accept", headerAcceptGitHubJSON)
+	req.Header.Set(headerGitHubAPIVersion, gitHubAPIVersionValue)
 
-	resp, err := c.HTTPClient.Do(req)
+	resp, err := c.getHTTPClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("resolve-ids request failed: %w", err)
 	}
@@ -392,24 +569,40 @@ func (c *Client) fetchNotificationPage(
 	pageCount int,
 	lastModified string,
 ) (*notificationPageResult, error) {
+	c.reloadDefaultClientsIfNeeded()
+	httpClient := c.getHTTPClient()
+	if httpClient == nil {
+		return nil, errors.New("github http client is not initialized")
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create notifications request: %w", err)
 	}
 
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-Github-Api-Version", "2022-11-28")
+	req.Header.Set("Accept", headerAcceptGitHubJSON)
+	req.Header.Set(headerGitHubAPIVersion, gitHubAPIVersionValue)
 
 	// Only send If-Modified-Since on Page 1
 	if pageCount == 1 && lastModified != "" {
 		req.Header.Set("If-Modified-Since", lastModified)
 	}
 
-	resp, err := c.HTTPClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("notifications request failed: %w", err)
 	}
 	defer resp.Body.Close()
+
+	c.updateScopesFromHeader(resp.Header)
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusNotModified:
+		if strings.TrimSpace(strings.Join(resp.Header.Values(headerOAuthScopes), ",")) == "" {
+			c.SetNotificationsScope(true)
+		}
+	case http.StatusForbidden:
+		c.SetNotificationsScope(false)
+	}
 
 	if resp.StatusCode == http.StatusNotModified {
 		return &notificationPageResult{
@@ -453,7 +646,7 @@ func (c *Client) FetchNotifications(
 	since time.Time,
 	lastModified string,
 ) ([]NotificationThread, string, int, error) {
-	if c == nil || c.HTTPClient == nil {
+	if c == nil || c.getHTTPClient() == nil {
 		return nil, "", 0, errors.New("github http client is not initialized")
 	}
 
@@ -1130,12 +1323,13 @@ func (c *Client) fetchAllItems(ctx context.Context, searchQuery string) ([]*octo
 			"cursor": gqlCursor, //nolint:goconst // GraphQL variable name
 		}
 
-		if err := c.GraphQLClient.QueryWithContext(ctx, "InventorySearch", &query, vars); err != nil {
+		if err := c.getGraphQLClient().QueryWithContext(ctx, "InventorySearch", &query, vars); err != nil {
 			return nil, err
 		}
 
+		currentUser := c.getCurrentUser()
 		for _, node := range query.Search.Nodes {
-			item, err := node.toProto(c.CurrentUser)
+			item, err := node.toProto(currentUser)
 			if err == nil {
 				allItems = append(allItems, item)
 			} else {
@@ -1232,12 +1426,13 @@ func (c *Client) fetchNodesBatch(ctx context.Context, ids []string) ([]*octodeck
 		"ids": ids,
 	}
 
-	if err := c.GraphQLClient.QueryWithContext(ctx, "ItemsFetch", &query, vars); err != nil {
+	if err := c.getGraphQLClient().QueryWithContext(ctx, "ItemsFetch", &query, vars); err != nil {
 		return nil, nil, fmt.Errorf("graphql request failed: %w", err)
 	}
 
 	var foundItems []*octodeckv1.Item
 	var missingIDs []string
+	currentUser := c.getCurrentUser()
 
 	for i, node := range query.Nodes {
 		requestedID := ids[i]
@@ -1246,7 +1441,7 @@ func (c *Client) fetchNodesBatch(ctx context.Context, ids []string) ([]*octodeck
 			continue
 		}
 
-		item, err := node.toProto(c.CurrentUser)
+		item, err := node.toProto(currentUser)
 		if err != nil {
 			slog.WarnContext(ctx, "Failed to parse item during GC", "id", requestedID, "error", err)
 			missingIDs = append(missingIDs, requestedID)
@@ -1303,7 +1498,7 @@ func (c *Client) fetchCommentNodesBatch(
 		"cursor": gqlCursor,
 	}
 
-	if err := c.GraphQLClient.QueryWithContext(ctx, "FetchItemComments", &query, vars); err != nil {
+	if err := c.getGraphQLClient().QueryWithContext(ctx, "FetchItemComments", &query, vars); err != nil {
 		return nil, "", false, fmt.Errorf("failed to fetch item comments: %w", err)
 	}
 
@@ -1419,7 +1614,7 @@ func (c *Client) UpdateSubscription(ctx context.Context, id string, state octode
 			State:          graphql.String(gqlState),
 		},
 	}
-	if err := c.GraphQLClient.MutateWithContext(ctx, "UpdateSubscription", &mutation, vars); err != nil {
+	if err := c.getGraphQLClient().MutateWithContext(ctx, "UpdateSubscription", &mutation, vars); err != nil {
 		return fmt.Errorf("failed to update subscription: %w", err)
 	}
 	return nil
@@ -1460,7 +1655,8 @@ func (n gqlSearchCandidateIDNode) id() string {
 // for issues and pull requests matching the given search query string.
 // It returns a deduplicated list of GraphQL Node IDs. Non-issue/PR nodes are ignored.
 func (c *Client) SearchCandidateIDs(ctx context.Context, searchQuery string, limit int) ([]string, error) {
-	if c == nil || c.GraphQLClient == nil {
+	gqlClient := c.getGraphQLClient()
+	if c == nil || gqlClient == nil {
 		return nil, errors.New("github graphql client is not initialized")
 	}
 
@@ -1486,7 +1682,7 @@ func (c *Client) SearchCandidateIDs(ctx context.Context, searchQuery string, lim
 		"limit": graphql.Int(limit),
 	}
 
-	if err := c.GraphQLClient.QueryWithContext(ctx, "SearchCandidateIDs", &query, vars); err != nil {
+	if err := gqlClient.QueryWithContext(ctx, "SearchCandidateIDs", &query, vars); err != nil {
 		return nil, fmt.Errorf("failed to search candidate IDs: %w", err)
 	}
 
@@ -1510,7 +1706,8 @@ func (c *Client) SearchCandidateIDs(ctx context.Context, searchQuery string, lim
 // CountSearchIssues executes a lightweight GraphQL search query against GitHub
 // and returns the total number of matching issues and pull requests (issueCount).
 func (c *Client) CountSearchIssues(ctx context.Context, searchQuery string) (int32, error) {
-	if c == nil || c.GraphQLClient == nil {
+	gqlClient := c.getGraphQLClient()
+	if c == nil || gqlClient == nil {
 		return 0, errors.New("github graphql client is not initialized")
 	}
 
@@ -1529,7 +1726,7 @@ func (c *Client) CountSearchIssues(ctx context.Context, searchQuery string) (int
 		"query": graphql.String(trimmedQuery),
 	}
 
-	if err := c.GraphQLClient.QueryWithContext(ctx, "CountSearchIssues", &query, vars); err != nil {
+	if err := gqlClient.QueryWithContext(ctx, "CountSearchIssues", &query, vars); err != nil {
 		return 0, fmt.Errorf("failed to count search issues: %w", err)
 	}
 

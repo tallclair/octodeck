@@ -84,6 +84,142 @@ func TestCheckAuth_Unit(t *testing.T) {
 	}
 }
 
+func TestCheckAuth_OAuthScopes(t *testing.T) {
+	tests := []struct {
+		name             string
+		scopesHeader     string
+		omitScopesHeader bool
+		statusCode       int
+		body             string
+		wantLogin        string
+		wantAuth         bool
+		wantHasScope     bool
+		wantErr          bool
+	}{
+		{
+			name:         "Missing notifications scope",
+			scopesHeader: "repo, read:org",
+			statusCode:   http.StatusOK,
+			body:         `{"login": "octocat"}`,
+			wantLogin:    "octocat",
+			wantAuth:     true,
+			wantHasScope: false,
+			wantErr:      false,
+		},
+		{
+			name:         "Present notifications scope",
+			scopesHeader: "repo, notifications, read:org",
+			statusCode:   http.StatusOK,
+			body:         `{"login": "octocat"}`,
+			wantLogin:    "octocat",
+			wantAuth:     true,
+			wantHasScope: true,
+			wantErr:      false,
+		},
+		{
+			name:             "No X-OAuth-Scopes header defaults to true",
+			omitScopesHeader: true,
+			statusCode:       http.StatusOK,
+			body:             `{"login": "octocat"}`,
+			wantLogin:        "octocat",
+			wantAuth:         true,
+			wantHasScope:     true,
+			wantErr:          false,
+		},
+		{
+			name:         "Empty X-OAuth-Scopes header preserves default true (Fine-Grained PAT)",
+			scopesHeader: "",
+			statusCode:   http.StatusOK,
+			body:         `{"login": "octocat"}`,
+			wantLogin:    "octocat",
+			wantAuth:     true,
+			wantHasScope: true,
+			wantErr:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockHTTPClient{
+				doFunc: func(req *http.Request) (*http.Response, error) {
+					assert.Equal(t, "https://api.github.com/user", req.URL.String())
+					assert.Equal(t, "application/vnd.github+json", req.Header.Get("Accept"))
+					assert.Equal(t, "2022-11-28", req.Header.Get("X-Github-Api-Version"))
+
+					resp := &http.Response{
+						StatusCode: tt.statusCode,
+						Header:     make(http.Header),
+						Body:       io.NopCloser(bytes.NewReader([]byte(tt.body))),
+					}
+					if !tt.omitScopesHeader {
+						resp.Header.Set("X-Oauth-Scopes", tt.scopesHeader)
+					}
+					return resp, nil
+				},
+			}
+			client := &Client{HTTPClient: mock}
+			// Initially defaults to true before CheckAuth
+			assert.True(t, client.HasNotificationsScope())
+
+			login, gotAuth, err := client.CheckAuth(t.Context())
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tt.wantLogin, login)
+			assert.Equal(t, tt.wantAuth, gotAuth)
+			assert.Equal(t, tt.wantHasScope, client.HasNotificationsScope())
+		})
+	}
+}
+
+func TestFetchNotifications_ScopeDetection(t *testing.T) {
+	t.Run("304 Not Modified updates X-OAuth-Scopes and recovers from missing scope", func(t *testing.T) {
+		mock := &mockHTTPClient{
+			doFunc: func(_ *http.Request) (*http.Response, error) {
+				resp := &http.Response{
+					StatusCode: http.StatusNotModified,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(bytes.NewReader(nil)),
+				}
+				resp.Header.Set("X-Oauth-Scopes", "repo, notifications")
+				return resp, nil
+			},
+		}
+		client := &Client{HTTPClient: mock}
+		client.SetNotificationsScope(false)
+		assert.False(t, client.HasNotificationsScope())
+
+		_, _, status, err := client.FetchNotifications(t.Context(), time.Time{}, "Wed, 21 Oct 2015 07:28:00 GMT")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusNotModified, status)
+		assert.True(t, client.HasNotificationsScope())
+	})
+
+	t.Run("403 Forbidden sets notifications scope to false even when X-OAuth-Scopes is empty", func(t *testing.T) {
+		mock := &mockHTTPClient{
+			doFunc: func(_ *http.Request) (*http.Response, error) {
+				errBody := `{"message": "Resource not accessible by personal access token"}`
+				resp := &http.Response{
+					StatusCode: http.StatusForbidden,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(bytes.NewReader([]byte(errBody))),
+				}
+				resp.Header.Set("X-Oauth-Scopes", "")
+				return resp, nil
+			},
+		}
+		client := &Client{HTTPClient: mock}
+		assert.True(t, client.HasNotificationsScope())
+
+		_, _, status, err := client.FetchNotifications(t.Context(), time.Time{}, "")
+		require.Error(t, err)
+		assert.Equal(t, http.StatusForbidden, status)
+		assert.False(t, client.HasNotificationsScope())
+	})
+}
+
 func TestParseSubjectURL(t *testing.T) {
 	tests := []struct {
 		name         string

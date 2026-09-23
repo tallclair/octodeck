@@ -24,6 +24,7 @@ describe('SyncStatusDisplay Component', () => {
       notificationRate7d: 0,
       notificationRate30d: 0,
       lastSyncDurationMs: 0n,
+      hasNotificationsScope: true,
     };
 
     render(<SyncStatusDisplay status={status} onManualSync={vi.fn()} />);
@@ -45,6 +46,7 @@ describe('SyncStatusDisplay Component', () => {
       notificationRate7d: 0,
       notificationRate30d: 0,
       lastSyncDurationMs: 0n,
+      hasNotificationsScope: true,
     };
 
     render(<SyncStatusDisplay status={status} onManualSync={vi.fn()} />);
@@ -87,6 +89,7 @@ describe('SyncStatusDisplay Component', () => {
       notificationRate7d: 8.2,
       notificationRate30d: 5.0,
       lastSyncDurationMs: BigInt(350),
+      hasNotificationsScope: true,
     };
 
     render(<SyncStatusDisplay status={status} onManualSync={vi.fn()} />);

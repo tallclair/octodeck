@@ -209,6 +209,7 @@ message SyncStatus {
   double notification_rate_7d = 9;
   double notification_rate_30d = 10;
   int64 last_sync_duration_ms = 11;
+  bool has_notifications_scope = 12;
 }
 
 message GetSyncStatusResponse {
