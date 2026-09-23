@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	octodeckv1 "github.com/tallclair/octodeck/backend/internal/api/octodeck/v1"
 	"github.com/tallclair/octodeck/backend/internal/database"
 )
 
@@ -49,22 +50,26 @@ func BuildDiscoveryPreFlightQuery(baseQuery string, since time.Time) string {
 
 // DiscoverySyncPayload represents the structured diagnostic payload stored in sync_traces for discovery runs.
 type DiscoverySyncPayload struct {
-	QueriesCount      int               `json:"queries_count"`
-	CandidatesFound   int               `json:"candidates_found"`
-	KnownSkippedCount int               `json:"known_skipped_count"`
-	UniqueNewCount    int               `json:"unique_new_count"`
-	HydratedCount     int               `json:"hydrated_count"`
-	HydratedIDs       []string          `json:"hydrated_ids,omitempty"`
-	MissingIDs        []string          `json:"missing_ids,omitempty"`
-	QueryErrors       map[string]string `json:"query_errors,omitempty"`
-	Error             *string           `json:"error,omitempty"`
+	QueriesCount        int               `json:"queries_count"`
+	CandidatesFound     int               `json:"candidates_found"`
+	KnownSkippedCount   int               `json:"known_skipped_count"`
+	UniqueNewCount      int               `json:"unique_new_count"`
+	HydratedCount       int               `json:"hydrated_count"`
+	HydratedIDs         []string          `json:"hydrated_ids,omitempty"`
+	MissingIDs          []string          `json:"missing_ids,omitempty"`
+	AutoSubscribedCount int               `json:"auto_subscribed_count,omitempty"`
+	AutoSubscribedIDs   []string          `json:"auto_subscribed_ids,omitempty"`
+	AutoSubscribeErrors map[string]string `json:"auto_subscribe_errors,omitempty"`
+	QueryErrors         map[string]string `json:"query_errors,omitempty"`
+	Error               *string           `json:"error,omitempty"`
 }
 
 type candidateCollectionResult struct {
-	candidatesFound int
-	toHydrate       []string
-	queryErrors     map[string]string
-	queryErrList    []error
+	candidatesFound  int
+	toHydrate        []string
+	autoSubscribeIDs map[string]struct{}
+	queryErrors      map[string]string
+	queryErrList     []error
 }
 
 // RunDiscovery executes the discovery engine pipeline across all configured tracked_queries.
@@ -159,7 +164,12 @@ func (s *SyncEngine) runDiscovery(ctx context.Context, triggerSource string) err
 	}
 
 	if uniqueNewCount > 0 {
-		itemsPersisted, runErr = s.hydrateAndPersistDiscoveredItems(ctx, candidates.toHydrate, &payload)
+		itemsPersisted, runErr = s.hydrateAndPersistDiscoveredItems(
+			ctx,
+			candidates.toHydrate,
+			candidates.autoSubscribeIDs,
+			&payload,
+		)
 		if runErr != nil {
 			return runErr
 		}
@@ -226,7 +236,8 @@ func (s *SyncEngine) collectDiscoveryCandidates(
 	knownIDs map[string]struct{},
 ) (candidateCollectionResult, error) {
 	res := candidateCollectionResult{
-		queryErrors: make(map[string]string),
+		autoSubscribeIDs: make(map[string]struct{}),
+		queryErrors:      make(map[string]string),
 	}
 	seenInRun := make(map[string]struct{})
 
@@ -256,6 +267,16 @@ func (s *SyncEngine) collectDiscoveryCandidates(
 
 		s.advanceDiscoveryCursor(ctx, q, searchStartTime)
 		res.candidatesFound += len(ids)
+		if s.cfg != nil && s.cfg.IsQueryAutoSubscribe(q) {
+			for _, id := range ids {
+				if id == "" {
+					continue
+				}
+				if _, isKnown := knownIDs[id]; !isKnown {
+					res.autoSubscribeIDs[id] = struct{}{}
+				}
+			}
+		}
 		newIDs := filterNewCandidateIDs(ids, knownIDs, seenInRun)
 		s.recordDiscoveryQueryYield(ctx, q, searchStartTime, len(newIDs))
 		res.toHydrate = append(res.toHydrate, newIDs...)
@@ -276,6 +297,7 @@ func (s *SyncEngine) recordDiscoveryQueryYield(ctx context.Context, q string, t 
 func (s *SyncEngine) hydrateAndPersistDiscoveredItems(
 	ctx context.Context,
 	candidateIDs []string,
+	autoSubscribeIDs map[string]struct{},
 	payload *DiscoverySyncPayload,
 ) (int, error) {
 	slog.InfoContext(ctx, "Hydrating newly discovered items", "new_count", len(candidateIDs))
@@ -301,9 +323,82 @@ func (s *SyncEngine) hydrateAndPersistDiscoveredItems(
 		itemsToProcess = FilterItemsByRepo(itemsToProcess, nil, excluded)
 	}
 
+	s.autoSubscribeDiscoveredItems(ctx, itemsToProcess, autoSubscribeIDs, payload)
+
 	if err := s.processItemsDirect(ctx, itemsToProcess, false); err != nil {
 		return 0, fmt.Errorf("failed to process discovered items: %w", err)
 	}
 
 	return len(itemsToProcess), nil
+}
+
+func (s *SyncEngine) autoSubscribeDiscoveredItems(
+	ctx context.Context,
+	items []*octodeckv1.Item,
+	autoSubscribeIDs map[string]struct{},
+	payload *DiscoverySyncPayload,
+) {
+	if len(autoSubscribeIDs) == 0 || s.gh == nil {
+		return
+	}
+
+	for _, item := range items {
+		if err := ctx.Err(); err != nil {
+			break
+		}
+		if item == nil {
+			continue
+		}
+		id := item.GetId()
+		if _, shouldAutoSub := autoSubscribeIDs[id]; !shouldAutoSub {
+			continue
+		}
+		subState := item.GetViewerSubscription()
+		if subState == octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED ||
+			subState == octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_IGNORED {
+			continue
+		}
+		if !s.gh.HasNotificationsScope() {
+			slog.DebugContext(
+				ctx,
+				"Skipping auto-subscribe for discovered item due to missing notifications scope",
+				"id", id,
+			)
+			continue
+		}
+
+		subErr := s.gh.UpdateSubscription(ctx, id, octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED)
+		if subErr == nil {
+			item.SetViewerSubscription(octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED)
+			payload.AutoSubscribedIDs = append(payload.AutoSubscribedIDs, id)
+			payload.AutoSubscribedCount++
+			continue
+		}
+
+		slog.WarnContext(ctx, "Failed to auto-subscribe discovered item on GitHub", "id", id, "error", subErr)
+		if payload.AutoSubscribeErrors == nil {
+			payload.AutoSubscribeErrors = make(map[string]string)
+		}
+		payload.AutoSubscribeErrors[id] = subErr.Error()
+		if isDiscoveryScopeError(subErr) {
+			s.gh.SetNotificationsScope(false)
+		}
+	}
+}
+
+func isDiscoveryScopeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	hasScopeKeywords := strings.Contains(msg, "scope") ||
+		strings.Contains(msg, "permission") ||
+		strings.Contains(msg, "forbidden")
+	return strings.Contains(msg, "insufficient_scopes") ||
+		strings.Contains(msg, "insufficient scope") ||
+		strings.Contains(msg, "required scope") ||
+		strings.Contains(msg, "resource not accessible by integration") ||
+		strings.Contains(msg, "resource not accessible by personal access token") ||
+		(strings.Contains(msg, "notifications") && hasScopeKeywords) ||
+		strings.Contains(msg, "status 403")
 }

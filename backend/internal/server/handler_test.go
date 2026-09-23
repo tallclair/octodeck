@@ -1888,3 +1888,34 @@ func TestOctoDeckHandler_GetSyncStatus_HasNotificationsScope(t *testing.T) {
 		assert.True(t, resp.Msg.GetStatus().GetHasNotificationsScope())
 	})
 }
+
+func TestOctoDeckHandler_UpdateConfig_PartialMaskAutoSubscribeQueries(t *testing.T) {
+	_, client, addHeaders, _ := setupTestHandler(t)
+	query := "repo:kubernetes/kubernetes is:open label:sig/node"
+
+	// First set tracked_queries
+	req1 := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+		Config: octodeckv1.Config_builder{
+			TrackedQueries: []string{query},
+		}.Build(),
+		ForceSave: config.Ptr(true),
+	}.Build())
+	addHeaders(req1)
+	resp1, err := client.UpdateConfig(t.Context(), req1)
+	require.NoError(t, err)
+	assert.Equal(t, []string{query}, resp1.Msg.GetConfig().GetTrackedQueries())
+
+	// Now update ONLY auto_subscribe_queries via FieldMask without resending tracked_queries
+	req2 := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+		Config: octodeckv1.Config_builder{
+			AutoSubscribeQueries: []string{query},
+		}.Build(),
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"auto_subscribe_queries"}},
+		ForceSave:  config.Ptr(true),
+	}.Build())
+	addHeaders(req2)
+	resp2, err := client.UpdateConfig(t.Context(), req2)
+	require.NoError(t, err)
+	assert.Equal(t, []string{query}, resp2.Msg.GetConfig().GetTrackedQueries())
+	assert.Equal(t, []string{query}, resp2.Msg.GetConfig().GetAutoSubscribeQueries())
+}

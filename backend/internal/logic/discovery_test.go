@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -22,6 +23,8 @@ import (
 type mockCallTracker struct {
 	searchedQueries []string
 	hydratedIDs     []string
+	subscribedIDs   []string
+	subscribeErr    error
 	searchCalls     int
 	fetchCalls      int
 }
@@ -122,6 +125,15 @@ func setupMockDiscoveryEngine(
 			default:
 				return nil
 			}
+		},
+		mutateFunc: func(_ context.Context, name string, _ any, vars map[string]any) error {
+			if name == "UpdateSubscription" {
+				if input, ok := vars["input"].(github.UpdateSubscriptionInput); ok {
+					tracker.subscribedIDs = append(tracker.subscribedIDs, fmt.Sprint(input.SubscribableID))
+				}
+				return tracker.subscribeErr
+			}
+			return nil
 		},
 	}
 
@@ -474,4 +486,114 @@ func TestRunDiscovery_NoBackfill_SeedsCursorOnAdd(t *testing.T) {
 	// Verify that the query sent had an updated:> filter
 	require.Len(t, tracker.searchedQueries, 1)
 	assert.Contains(t, tracker.searchedQueries[0], "updated:>")
+}
+
+func TestRunDiscovery_AutoSubscribeOnDiscover(t *testing.T) {
+	const queryAuto = "repo:kubernetes/kubernetes is:open label:sig-node"
+	const queryManual = "repo:kubernetes/kubernetes is:open label:sig-storage"
+	candidates := map[string][]string{
+		queryAuto:   {"PR_AUTO_1", "PR_IGNORED_3"},
+		queryManual: {"PR_MANUAL_2"},
+	}
+	ignoredNode := mockPullRequestNode("PR_IGNORED_3", "kubernetes/kubernetes", 903)
+	ignoredNode["pullRequest"].(map[string]any)["viewerSubscription"] = "IGNORED"
+	nodes := map[string]map[string]any{
+		"PR_AUTO_1":    mockPullRequestNode("PR_AUTO_1", "kubernetes/kubernetes", 901),
+		"PR_MANUAL_2":  mockPullRequestNode("PR_MANUAL_2", "kubernetes/kubernetes", 902),
+		"PR_IGNORED_3": ignoredNode,
+	}
+
+	engine, db, tracker := setupMockDiscoveryEngine(t, []string{queryAuto, queryManual}, nil, candidates, nodes)
+	defer func() { require.NoError(t, db.Close()) }()
+
+	require.NoError(t, engine.cfg.UpdateProto(octodeckv1.Config_builder{
+		TrackedQueries:       []string{queryAuto, queryManual},
+		AutoSubscribeQueries: []string{queryAuto},
+	}.Build(), nil))
+
+	require.NoError(t, engine.RunDiscovery(t.Context()))
+
+	assert.Equal(t, []string{"PR_AUTO_1"}, tracker.subscribedIDs)
+
+	autoItem, err := db.GetItem(t.Context(), "PR_AUTO_1")
+	require.NoError(t, err)
+	assert.Equal(t, octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED, autoItem.GetViewerSubscription())
+
+	manualItem, err := db.GetItem(t.Context(), "PR_MANUAL_2")
+	require.NoError(t, err)
+	assert.Equal(t, octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED, manualItem.GetViewerSubscription())
+
+	ignoredItem, err := db.GetItem(t.Context(), "PR_IGNORED_3")
+	require.NoError(t, err)
+	assert.Equal(t, octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_IGNORED, ignoredItem.GetViewerSubscription())
+}
+
+func TestRunDiscovery_AutoSubscribeOverlappingQueries(t *testing.T) {
+	const queryFirstNonAuto = "repo:kubernetes/kubernetes is:open label:kind/bug"
+	const querySecondAuto = "repo:kubernetes/kubernetes is:open label:sig-node"
+	candidates := map[string][]string{
+		queryFirstNonAuto: {"PR_OVERLAP_1"},
+		querySecondAuto:   {"PR_OVERLAP_1"},
+	}
+	nodes := map[string]map[string]any{
+		"PR_OVERLAP_1": mockPullRequestNode("PR_OVERLAP_1", "kubernetes/kubernetes", 903),
+	}
+
+	engine, db, tracker := setupMockDiscoveryEngine(
+		t,
+		[]string{queryFirstNonAuto, querySecondAuto},
+		nil,
+		candidates,
+		nodes,
+	)
+	defer func() { require.NoError(t, db.Close()) }()
+
+	require.NoError(t, engine.cfg.UpdateProto(octodeckv1.Config_builder{
+		TrackedQueries:       []string{queryFirstNonAuto, querySecondAuto},
+		AutoSubscribeQueries: []string{querySecondAuto},
+	}.Build(), nil))
+
+	require.NoError(t, engine.RunDiscovery(t.Context()))
+
+	assert.Equal(t, []string{"PR_OVERLAP_1"}, tracker.subscribedIDs)
+	overlapItem, err := db.GetItem(t.Context(), "PR_OVERLAP_1")
+	require.NoError(t, err)
+	assert.Equal(t, octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED, overlapItem.GetViewerSubscription())
+}
+
+func TestRunDiscovery_AutoSubscribeGracefulFallback(t *testing.T) {
+	const queryAuto = "repo:kubernetes/kubernetes is:open label:sig-node"
+	candidates := map[string][]string{
+		queryAuto: {"PR_FAIL_SUB_1", "PR_SKIP_SCOPE_2"},
+	}
+	nodes := map[string]map[string]any{
+		"PR_FAIL_SUB_1":   mockPullRequestNode("PR_FAIL_SUB_1", "kubernetes/kubernetes", 904),
+		"PR_SKIP_SCOPE_2": mockPullRequestNode("PR_SKIP_SCOPE_2", "kubernetes/kubernetes", 905),
+	}
+
+	engine, db, tracker := setupMockDiscoveryEngine(t, []string{queryAuto}, nil, candidates, nodes)
+	defer func() { require.NoError(t, db.Close()) }()
+
+	require.NoError(t, engine.cfg.UpdateProto(octodeckv1.Config_builder{
+		TrackedQueries:       []string{queryAuto},
+		AutoSubscribeQueries: []string{queryAuto},
+	}.Build(), nil))
+
+	// Simulate an insufficient notifications scope error on the first item
+	tracker.subscribeErr = errors.New("INSUFFICIENT_SCOPES: missing notifications scope")
+
+	require.NoError(t, engine.RunDiscovery(t.Context()))
+
+	// First item attempted UpdateSubscription and tripped scope protection; second item skipped UpdateSubscription
+	assert.Equal(t, []string{"PR_FAIL_SUB_1"}, tracker.subscribedIDs)
+	assert.False(t, engine.gh.HasNotificationsScope())
+
+	// Both items are still persisted in SQLite as UNSUBSCRIBED
+	item1, err := db.GetItem(t.Context(), "PR_FAIL_SUB_1")
+	require.NoError(t, err)
+	assert.Equal(t, octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED, item1.GetViewerSubscription())
+
+	item2, err := db.GetItem(t.Context(), "PR_SKIP_SCOPE_2")
+	require.NoError(t, err)
+	assert.Equal(t, octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_UNSUBSCRIBED, item2.GetViewerSubscription())
 }

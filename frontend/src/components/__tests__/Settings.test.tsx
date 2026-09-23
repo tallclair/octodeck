@@ -987,6 +987,123 @@ describe('Settings Component', () => {
       );
       expect(onCloseMock).toHaveBeenCalledTimes(1);
     });
+
+    it('shows bell indicator only on auto-subscribe rows, toggles via Add/Edit modal checkbox, and saves autoSubscribeQueries', async () => {
+      const mockMutateAsync = vi.fn().mockResolvedValue({ saved: true });
+      vi.mocked(connectQuery.useMutation).mockReturnValue({
+        mutateAsync: mockMutateAsync,
+        isPending: false,
+      } as any);
+      vi.mocked(connectQuery.useQuery).mockReturnValue({
+        data: {
+          config: {
+            ...mockConfig,
+            trackedQueries: [
+              'repo:kubernetes/kubernetes is:open label:sig/node',
+              'repo:golang/go is:open',
+            ],
+            autoSubscribeQueries: ['repo:golang/go is:open'],
+          },
+        },
+        isLoading: false,
+        isError: false,
+        refetch: vi.fn(),
+      } as any);
+
+      render(<Settings />);
+
+      // Row 0 is NOT auto-subscribe -> no bell icon rendered
+      expect(screen.queryByTestId('query-autosubscribe-0')).toBeNull();
+
+      // Row 1 IS auto-subscribe -> bell icon indicator rendered immediately to the left of Edit button
+      const autoSubIndicator1 = screen.getByTestId('query-autosubscribe-1');
+      const editBtn1 = screen.getByRole('button', {
+        name: /Edit query repo:golang\/go is:open/i,
+      });
+      expect(autoSubIndicator1.nextElementSibling).toBe(editBtn1);
+      expect(within(autoSubIndicator1).getByRole('tooltip').textContent).toContain(
+        'Auto-subscribe on discover enabled'
+      );
+
+      // Open Edit modal for query 0, check the auto-subscribe checkbox, and update query text
+      const editBtn0 = screen.getByRole('button', {
+        name: /Edit query repo:kubernetes\/kubernetes is:open label:sig\/node/i,
+      });
+      fireEvent.click(editBtn0);
+
+      const checkbox = screen.getByTestId('query-editor-autosubscribe-checkbox') as HTMLInputElement;
+      expect(checkbox.checked).toBe(false);
+      fireEvent.click(checkbox);
+      expect(checkbox.checked).toBe(true);
+
+      const editInput = screen.getByDisplayValue('repo:kubernetes/kubernetes is:open label:sig/node');
+      fireEvent.change(editInput, {
+        target: { value: 'repo:kubernetes/kubernetes is:open label:sig/auth' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: /^Save Query$/i }));
+
+      // Now row 0 should display the Bell indicator
+      const autoSubIndicator0 = screen.getByTestId('query-autosubscribe-0');
+      expect(autoSubIndicator0).toBeDefined();
+
+      // Save configuration and verify autoSubscribeQueries contains both queries
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Save Settings/i }));
+      });
+
+      expect(mockMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          config: expect.objectContaining({
+            trackedQueries: [
+              'repo:kubernetes/kubernetes is:open label:sig/auth',
+              'repo:golang/go is:open',
+            ],
+            autoSubscribeQueries: [
+              'repo:kubernetes/kubernetes is:open label:sig/auth',
+              'repo:golang/go is:open',
+            ],
+          }),
+        })
+      );
+    });
+
+    it('disables auto-subscribe checkbox in query modal with remediation notice when canSubscribe is false', () => {
+      vi.mocked(connectQuery.useQuery).mockReturnValue({
+        data: {
+          config: {
+            ...mockConfig,
+            trackedQueries: [
+              'repo:kubernetes/kubernetes is:open label:sig/node',
+              'repo:golang/go is:open',
+            ],
+            autoSubscribeQueries: ['repo:golang/go is:open'],
+          },
+        },
+        isLoading: false,
+        isError: false,
+        refetch: vi.fn(),
+      } as any);
+
+      render(<Settings canSubscribe={false} />);
+
+      // Row 0 has no bell icon; Row 1 (already configured) shows amber bell indicator with remediation tooltip
+      expect(screen.queryByTestId('query-autosubscribe-0')).toBeNull();
+      const autoSubIndicator1 = screen.getByTestId('query-autosubscribe-1');
+      expect(within(autoSubIndicator1).getByRole('tooltip').textContent).toContain(
+        'gh auth refresh -s notifications'
+      );
+
+      // Open Add Query modal and verify checkbox is disabled with remediation tooltip
+      fireEvent.click(screen.getByRole('button', { name: /Add tracked query/i }));
+      const modal = screen.getByTestId('query-editor-modal');
+      const checkbox = within(modal).getByTestId(
+        'query-editor-autosubscribe-checkbox'
+      ) as HTMLInputElement;
+      expect(checkbox.disabled).toBe(true);
+      expect(within(modal).getByRole('tooltip').textContent).toContain(
+        'gh auth refresh -s notifications'
+      );
+    });
   });
 });
 

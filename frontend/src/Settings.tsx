@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useQuery, useMutation } from '@connectrpc/connect-query';
 import { useQueryClient } from '@tanstack/react-query';
 import { getConfig, updateConfig } from './api/octodeck/v1/service-OctoDeckService_connectquery';
-import { Save, CheckCircle, AlertCircle, AlertTriangle, RefreshCw, X, Settings as SettingsIcon, Terminal, Sun, Moon, Monitor, ChevronDown, ChevronUp, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Save, CheckCircle, AlertCircle, AlertTriangle, RefreshCw, X, Settings as SettingsIcon, Terminal, Sun, Moon, Monitor, ChevronDown, ChevronUp, Plus, Pencil, Trash2, Bell } from 'lucide-react';
 import type { Config, TrackedQueryWarning } from './api/octodeck/v1/service_pb';
 import {
   DEFAULT_POLLING_INTERVAL_MIN,
@@ -50,6 +50,7 @@ export interface SettingsProps {
   showItemIds?: boolean;
   onToggleShowItemIds?: (enabled: boolean) => void;
   daemonVersion?: string;
+  canSubscribe?: boolean;
 }
 
 function getInitialKnownBots(bots?: string[]): string {
@@ -75,6 +76,7 @@ export function Settings({
   showItemIds,
   onToggleShowItemIds,
   daemonVersion,
+  canSubscribe = true,
 }: SettingsProps) {
   const queryClient = useQueryClient();
   const { data, isLoading, isError, refetch } = useQuery(getConfig, {});
@@ -146,11 +148,15 @@ export function Settings({
   const [trackedQueriesList, setTrackedQueriesList] = useState<string[]>(() =>
     getInitialTrackedQueriesList(data?.config?.trackedQueries)
   );
+  const [autoSubscribeQueries, setAutoSubscribeQueries] = useState<string[]>(() =>
+    getInitialTrackedQueriesList(data?.config?.autoSubscribeQueries)
+  );
   const [queriesValidationError, setQueriesValidationError] = useState<string | null>(null);
   const [queryEditorModal, setQueryEditorModal] = useState<{
     mode: 'add' | 'edit';
     index?: number;
     value: string;
+    autoSubscribe: boolean;
     error: string | null;
   } | null>(null);
 
@@ -195,6 +201,7 @@ export function Settings({
     setLabelValidationError(null);
 
     setTrackedQueriesList(getInitialTrackedQueriesList(cfg.trackedQueries));
+    setAutoSubscribeQueries(getInitialTrackedQueriesList(cfg.autoSubscribeQueries));
     setQueriesValidationError(null);
 
     setDiscoveryInterval(cfg.discoveryIntervalMin || DEFAULT_DISCOVERY_INTERVAL_MIN);
@@ -215,12 +222,22 @@ export function Settings({
       data?.config?.excludedLabels
     );
     const savedTrackedQueries = getInitialTrackedQueriesList(data?.config?.trackedQueries);
+    const savedAutoSubscribeQueries = new Set(
+      getInitialTrackedQueriesList(data?.config?.autoSubscribeQueries)
+    );
     const savedDiscoveryInterval =
       data?.config?.discoveryIntervalMin || DEFAULT_DISCOVERY_INTERVAL_MIN;
 
     const queriesChanged =
       trackedQueriesList.length !== savedTrackedQueries.length ||
       trackedQueriesList.some((q, i) => q !== savedTrackedQueries[i]);
+
+    const currentAutoSubscribeList = trackedQueriesList.filter((q) =>
+      autoSubscribeQueries.includes(q.trim())
+    );
+    const autoSubChanged =
+      currentAutoSubscribeList.length !== savedAutoSubscribeQueries.size ||
+      currentAutoSubscribeList.some((q) => !savedAutoSubscribeQueries.has(q.trim()));
 
     return (
       Number(pollingInterval) !== savedPolling ||
@@ -230,6 +247,7 @@ export function Settings({
       autoAckOwnActivity !== savedAutoAck ||
       labelPatterns !== savedLabelPatterns ||
       queriesChanged ||
+      autoSubChanged ||
       Number(discoveryInterval) !== savedDiscoveryInterval
     );
   }, [
@@ -241,6 +259,7 @@ export function Settings({
     autoAckOwnActivity,
     labelPatterns,
     trackedQueriesList,
+    autoSubscribeQueries,
     discoveryInterval,
   ]);
 
@@ -267,6 +286,7 @@ export function Settings({
     setLabelPatterns('');
     setLabelValidationError(null);
     setTrackedQueriesList([]);
+    setAutoSubscribeQueries([]);
     setQueriesValidationError(null);
     setDiscoveryInterval(DEFAULT_DISCOVERY_INTERVAL_MIN);
     setDiscoveryIntervalError(null);
@@ -284,11 +304,25 @@ export function Settings({
     }
     if (queryEditorModal.mode === 'add') {
       setTrackedQueriesList((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
+      setAutoSubscribeQueries((prev) => {
+        if (queryEditorModal.autoSubscribe) {
+          return prev.includes(trimmed) ? prev : [...prev, trimmed];
+        }
+        return prev.filter((q) => q !== trimmed);
+      });
     } else if (queryEditorModal.mode === 'edit' && queryEditorModal.index !== undefined) {
+      const oldQuery = trackedQueriesList[queryEditorModal.index!]?.trim();
       setTrackedQueriesList((prev) => {
         const next = [...prev];
         next[queryEditorModal.index!] = trimmed;
         return Array.from(new Set(next));
+      });
+      setAutoSubscribeQueries((prev) => {
+        const filtered = prev.filter((q) => q !== oldQuery && q !== trimmed);
+        if (queryEditorModal.autoSubscribe) {
+          return [...filtered, trimmed];
+        }
+        return filtered;
       });
     }
     setQueriesValidationError(null);
@@ -372,6 +406,9 @@ export function Settings({
       const parsedRepos = parseFilterPatterns(repoPatterns);
       const parsedLabels = parseFilterPatterns(labelPatterns);
       const dedupedQueries = Array.from(new Set(rawQueries));
+      const dedupedAutoSubscribeQueries = dedupedQueries.filter((q) =>
+        autoSubscribeQueries.includes(q)
+      );
 
       const currentCfg = data?.config;
       const newConfig = {
@@ -385,6 +422,7 @@ export function Settings({
         includedLabels: parsedLabels.includes,
         excludedLabels: parsedLabels.excludes,
         trackedQueries: dedupedQueries,
+        autoSubscribeQueries: dedupedAutoSubscribeQueries,
         discoveryIntervalMin: Math.max(MIN_DISCOVERY_INTERVAL_MIN, Math.round(parsedDiscoveryInterval)),
       };
 
@@ -398,6 +436,9 @@ export function Settings({
         return;
       }
       setPendingQueryWarnings([]);
+      if (res?.config) {
+        setAutoSubscribeQueries(getInitialTrackedQueriesList(res.config.autoSubscribeQueries));
+      }
 
       if (queryClient?.invalidateQueries) {
         await queryClient.invalidateQueries();
@@ -731,7 +772,14 @@ export function Settings({
                 </span>
                 <button
                   type="button"
-                  onClick={() => setQueryEditorModal({ mode: 'add', value: '', error: null })}
+                  onClick={() =>
+                    setQueryEditorModal({
+                      mode: 'add',
+                      value: '',
+                      autoSubscribe: false,
+                      error: null,
+                    })
+                  }
                   aria-label="Add tracked query"
                   className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800/60 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
                 >
@@ -747,9 +795,14 @@ export function Settings({
               ) : (
                 <ul className="space-y-2" aria-label="Tracked Queries List">
                   {trackedQueriesList.map((q, idx) => {
-                    const stats = queryStatsMap.get(q.trim()) ?? { avg7d: 0, avg30d: 0 };
+                    const trimmedQ = q.trim();
+                    const stats = queryStatsMap.get(trimmedQ) ?? { avg7d: 0, avg30d: 0 };
                     const avg7dText = `${stats.avg7d.toFixed(1)}/day`;
                     const avg30dTooltip = `30-day avg: ${stats.avg30d.toFixed(1)}/day`;
+                    const isAutoSub = autoSubscribeQueries.includes(trimmedQ);
+                    const autoSubTooltip = !canSubscribe
+                      ? "Auto-subscribe enabled — Missing GitHub 'notifications' scope. Run 'gh auth refresh -s notifications' to enable auto-subscribe."
+                      : 'Auto-subscribe on discover enabled';
                     return (
                       <li
                         key={`${idx}-${q}`}
@@ -771,6 +824,27 @@ export function Settings({
                               {avg30dTooltip}
                             </div>
                           </div>
+                          {isAutoSub && (
+                            <span
+                              data-testid={`query-autosubscribe-${idx}`}
+                              aria-label={autoSubTooltip}
+                              className={`relative group/autosub inline-flex items-center p-1.5 rounded-md cursor-default ${
+                                !canSubscribe
+                                  ? 'text-amber-500 dark:text-amber-400 opacity-75'
+                                  : 'text-blue-600 dark:text-blue-400'
+                              }`}
+                            >
+                              <Bell size={14} />
+                              <div
+                                role="tooltip"
+                                className={`pointer-events-none invisible opacity-0 group-hover/autosub:visible group-hover/autosub:opacity-100 transition-opacity duration-150 absolute bottom-full right-0 mb-1.5 px-2 py-1 rounded bg-slate-900 dark:bg-slate-800 text-white text-[11px] font-normal shadow-lg border border-slate-700 z-20 ${
+                                  !canSubscribe ? 'w-max max-w-xs whitespace-normal text-left' : 'whitespace-nowrap'
+                                }`}
+                              >
+                                {autoSubTooltip}
+                              </div>
+                            </span>
+                          )}
                           <button
                             type="button"
                             onClick={() =>
@@ -778,6 +852,7 @@ export function Settings({
                                 mode: 'edit',
                                 index: idx,
                                 value: q,
+                                autoSubscribe: isAutoSub,
                                 error: null,
                               })
                             }
@@ -791,6 +866,7 @@ export function Settings({
                             type="button"
                             onClick={() => {
                               setTrackedQueriesList((prev) => prev.filter((_, i) => i !== idx));
+                              setAutoSubscribeQueries((prev) => prev.filter((item) => item !== trimmedQ));
                               setQueriesValidationError(null);
                             }}
                             aria-label={`Remove query ${q}`}
@@ -985,6 +1061,7 @@ export function Settings({
         {/* Add / Edit Tracked Query Modal */}
         {queryEditorModal && (
           <div
+            data-testid="query-editor-modal"
             className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs"
             role="dialog"
             aria-modal="true"
@@ -1042,6 +1119,50 @@ export function Settings({
                     <span>{queryEditorModal.error}</span>
                   </p>
                 )}
+              </div>
+              <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <div className="relative group/modalautosub">
+                  <label
+                    htmlFor="queryEditorAutoSubscribe"
+                    className={`flex items-start gap-3 ${
+                      !canSubscribe && !queryEditorModal.autoSubscribe
+                        ? 'opacity-60 cursor-not-allowed'
+                        : 'cursor-pointer'
+                    }`}
+                  >
+                    <input
+                      id="queryEditorAutoSubscribe"
+                      data-testid="query-editor-autosubscribe-checkbox"
+                      type="checkbox"
+                      checked={queryEditorModal.autoSubscribe}
+                      disabled={!canSubscribe && !queryEditorModal.autoSubscribe}
+                      onChange={(e) =>
+                        setQueryEditorModal({
+                          ...queryEditorModal,
+                          autoSubscribe: e.target.checked,
+                        })
+                      }
+                      className="form-checkbox mt-0.5 h-4 w-4 text-blue-600 rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 focus:ring-blue-500 disabled:cursor-not-allowed"
+                    />
+                    <div>
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                        <Bell size={13} className="text-blue-600 dark:text-blue-400 shrink-0" />
+                        <span>Auto-subscribe on discover</span>
+                      </span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400 block mt-0.5">
+                        Automatically subscribe on GitHub to newly discovered items matching this query.
+                      </span>
+                      {!canSubscribe && (
+                        <span
+                          role="tooltip"
+                          className="text-xs text-amber-600 dark:text-amber-400 block mt-1"
+                        >
+                          Missing GitHub &apos;notifications&apos; scope. Run &apos;gh auth refresh -s notifications&apos; to enable auto-subscribe.
+                        </span>
+                      )}
+                    </div>
+                  </label>
+                </div>
               </div>
               <div className="flex items-center justify-end gap-3 mt-5">
                 <button
@@ -1111,6 +1232,9 @@ export function Settings({
                           mode: 'edit',
                           index: idx,
                           value: trackedQueriesList[idx],
+                          autoSubscribe: autoSubscribeQueries.includes(
+                            trackedQueriesList[idx].trim()
+                          ),
                           error: null,
                         });
                       }

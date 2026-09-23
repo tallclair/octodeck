@@ -159,6 +159,7 @@ message Config {
   repeated string excluded_labels = 10;
   repeated string tracked_queries = 11;
   int32 discovery_interval_min = 12;
+  repeated string auto_subscribe_queries = 13;
 }
 
 message TrackedQueryStats {

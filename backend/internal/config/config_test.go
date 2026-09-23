@@ -192,6 +192,34 @@ func TestConfigAccessors(t *testing.T) {
 		}.Build())
 		assert.Equal(t, []string{"repo:a/b is:open", "org:test is:pr"}, cfg.GetTrackedQueries())
 	})
+
+	t.Run("AutoSubscribeQueries", func(t *testing.T) {
+		tracked := []string{" repo:a/b is:open ", "org:test is:pr"}
+		autoSub := []string{"  org:test is:pr ", "org:test is:pr", "repo:untracked/repo is:open", ""}
+
+		sanitized := SanitizeAutoSubscribeQueries(autoSub, tracked)
+		assert.Equal(t, []string{"org:test is:pr"}, sanitized)
+
+		cfg := NewForTest(octodeckv1.Config_builder{
+			TrackedQueries:       tracked,
+			AutoSubscribeQueries: autoSub,
+		}.Build())
+		assert.Equal(t, []string{"org:test is:pr"}, cfg.GetAutoSubscribeQueries())
+		assert.True(t, cfg.IsQueryAutoSubscribe("org:test is:pr"))
+		assert.True(t, cfg.IsQueryAutoSubscribe("  org:test is:pr  "))
+		assert.False(t, cfg.IsQueryAutoSubscribe("repo:a/b is:open"))
+		assert.False(t, cfg.IsQueryAutoSubscribe(""))
+
+		// Test FieldMask update with auto_subscribe_queries
+		err := cfg.UpdateProto(octodeckv1.Config_builder{
+			TrackedQueries:       []string{"repo:a/b is:open", "org:test is:pr"},
+			AutoSubscribeQueries: []string{"repo:a/b is:open"},
+		}.Build(), &fieldmaskpb.FieldMask{Paths: []string{"tracked_queries", "auto_subscribe_queries"}})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"repo:a/b is:open"}, cfg.GetAutoSubscribeQueries())
+		assert.True(t, cfg.IsQueryAutoSubscribe("repo:a/b is:open"))
+		assert.False(t, cfg.IsQueryAutoSubscribe("org:test is:pr"))
+	})
 }
 
 func TestConfig_DiscoveryAndTrackedQueriesJSON(t *testing.T) {

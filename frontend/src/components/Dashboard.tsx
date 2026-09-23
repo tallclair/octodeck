@@ -794,6 +794,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
           debugMode={debugMode}
           onToggleDebugMode={handleToggleDebugMode}
           daemonVersion={daemonVersion}
+          canSubscribe={hasNotificationsScope}
         />
       )}
 

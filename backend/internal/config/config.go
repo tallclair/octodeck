@@ -69,6 +69,35 @@ func SanitizeTrackedQueries(queries []string) []string {
 	return result
 }
 
+// SanitizeAutoSubscribeQueries trims whitespace, ignores empty entries, deduplicates
+// while preserving original order, and retains only queries that are present in trackedQueries.
+func SanitizeAutoSubscribeQueries(autoSubscribeQueries, trackedQueries []string) []string {
+	if len(autoSubscribeQueries) == 0 || len(trackedQueries) == 0 {
+		return nil
+	}
+	sanitizedTracked := SanitizeTrackedQueries(trackedQueries)
+	trackedSet := make(map[string]struct{}, len(sanitizedTracked))
+	for _, q := range sanitizedTracked {
+		trackedSet[q] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(autoSubscribeQueries))
+	var result []string
+	for _, q := range autoSubscribeQueries {
+		trimmed := strings.TrimSpace(q)
+		if trimmed == "" {
+			continue
+		}
+		if _, isTracked := trackedSet[trimmed]; !isTracked {
+			continue
+		}
+		if _, ok := seen[trimmed]; !ok {
+			seen[trimmed] = struct{}{}
+			result = append(result, trimmed)
+		}
+	}
+	return result
+}
+
 var updatedFilterRegex = regexp.MustCompile(`(?i)(?:^|[\s(])(?:-)?updated:`)
 
 // HasUpdatedFilter checks whether a search query string contains an 'updated:' qualifier.
@@ -206,6 +235,11 @@ func NewForTest(data *octodeckv1.Config) *Config {
 	if len(val.GetTrackedQueries()) > 0 {
 		val.SetTrackedQueries(SanitizeTrackedQueries(val.GetTrackedQueries()))
 	}
+	if len(val.GetAutoSubscribeQueries()) > 0 {
+		val.SetAutoSubscribeQueries(
+			SanitizeAutoSubscribeQueries(val.GetAutoSubscribeQueries(), val.GetTrackedQueries()),
+		)
+	}
 	cfg.data.Store(val)
 	return cfg
 }
@@ -312,6 +346,27 @@ func (c *Config) GetTrackedQueries() []string {
 	return slices.Clone(d.GetTrackedQueries())
 }
 
+// GetAutoSubscribeQueries returns the list of tracked queries configured for auto-subscribing on discover.
+func (c *Config) GetAutoSubscribeQueries() []string {
+	d := c.data.Load()
+	if d == nil {
+		return nil
+	}
+	return slices.Clone(d.GetAutoSubscribeQueries())
+}
+
+// IsQueryAutoSubscribe returns true if the given query is configured for auto-subscribing on discover.
+func (c *Config) IsQueryAutoSubscribe(query string) bool {
+	if c == nil {
+		return false
+	}
+	trimmed := strings.TrimSpace(query)
+	if trimmed == "" {
+		return false
+	}
+	return slices.Contains(c.GetAutoSubscribeQueries(), trimmed)
+}
+
 // GetDiscoveryIntervalMin returns the discovery interval in minutes.
 func (c *Config) GetDiscoveryIntervalMin() int32 {
 	return c.data.Load().GetDiscoveryIntervalMin()
@@ -400,6 +455,9 @@ func (c *Config) UpdateProto(newCfg *octodeckv1.Config, mask *fieldmaskpb.FieldM
 	if target.GetTrackedQueries() != nil {
 		target.SetTrackedQueries(SanitizeTrackedQueries(target.GetTrackedQueries()))
 	}
+	target.SetAutoSubscribeQueries(
+		SanitizeAutoSubscribeQueries(target.GetAutoSubscribeQueries(), target.GetTrackedQueries()),
+	)
 	c.data.Store(target)
 	return c.saveLocked()
 }
@@ -488,6 +546,9 @@ func Load(customPath string, overrides Overrides) (*Config, error) {
 	if len(newData.GetTrackedQueries()) > 0 {
 		newData.SetTrackedQueries(SanitizeTrackedQueries(newData.GetTrackedQueries()))
 	}
+	newData.SetAutoSubscribeQueries(
+		SanitizeAutoSubscribeQueries(newData.GetAutoSubscribeQueries(), newData.GetTrackedQueries()),
+	)
 	cfg.data.Store(newData)
 
 	return cfg, nil

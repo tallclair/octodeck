@@ -1937,6 +1937,7 @@ type Config struct {
 	xxx_hidden_ExcludedLabels       []string               `protobuf:"bytes,10,rep,name=excluded_labels,json=excludedLabels"`
 	xxx_hidden_TrackedQueries       []string               `protobuf:"bytes,11,rep,name=tracked_queries,json=trackedQueries"`
 	xxx_hidden_DiscoveryIntervalMin int32                  `protobuf:"varint,12,opt,name=discovery_interval_min,json=discoveryIntervalMin"`
+	xxx_hidden_AutoSubscribeQueries []string               `protobuf:"bytes,13,rep,name=auto_subscribe_queries,json=autoSubscribeQueries"`
 	XXX_raceDetectHookData          protoimpl.RaceDetectHookData
 	XXX_presence                    [1]uint32
 	unknownFields                   protoimpl.UnknownFields
@@ -2055,6 +2056,13 @@ func (x *Config) GetDiscoveryIntervalMin() int32 {
 	return 0
 }
 
+func (x *Config) GetAutoSubscribeQueries() []string {
+	if x != nil {
+		return x.xxx_hidden_AutoSubscribeQueries
+	}
+	return nil
+}
+
 func (x *Config) SetWatchedRepos(v []string) {
 	x.xxx_hidden_WatchedRepos = v
 }
@@ -2069,7 +2077,7 @@ func (x *Config) SetExcludedRepos(v []string) {
 
 func (x *Config) SetPollingIntervalMin(v int32) {
 	x.xxx_hidden_PollingIntervalMin = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 12)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 13)
 }
 
 func (x *Config) SetKnownBots(v []string) {
@@ -2078,17 +2086,17 @@ func (x *Config) SetKnownBots(v []string) {
 
 func (x *Config) SetAutoAckOwnActivity(v bool) {
 	x.xxx_hidden_AutoAckOwnActivity = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 12)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 13)
 }
 
 func (x *Config) SetPort(v int32) {
 	x.xxx_hidden_Port = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 12)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 13)
 }
 
 func (x *Config) SetDbPath(v string) {
 	x.xxx_hidden_DbPath = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 12)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 13)
 }
 
 func (x *Config) SetIncludedLabels(v []string) {
@@ -2105,7 +2113,11 @@ func (x *Config) SetTrackedQueries(v []string) {
 
 func (x *Config) SetDiscoveryIntervalMin(v int32) {
 	x.xxx_hidden_DiscoveryIntervalMin = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 11, 12)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 11, 13)
+}
+
+func (x *Config) SetAutoSubscribeQueries(v []string) {
+	x.xxx_hidden_AutoSubscribeQueries = v
 }
 
 func (x *Config) HasPollingIntervalMin() bool {
@@ -2183,6 +2195,7 @@ type Config_builder struct {
 	ExcludedLabels       []string
 	TrackedQueries       []string
 	DiscoveryIntervalMin *int32
+	AutoSubscribeQueries []string
 }
 
 func (b0 Config_builder) Build() *Config {
@@ -2193,29 +2206,30 @@ func (b0 Config_builder) Build() *Config {
 	x.xxx_hidden_PinnedRepos = b.PinnedRepos
 	x.xxx_hidden_ExcludedRepos = b.ExcludedRepos
 	if b.PollingIntervalMin != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 12)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 13)
 		x.xxx_hidden_PollingIntervalMin = *b.PollingIntervalMin
 	}
 	x.xxx_hidden_KnownBots = b.KnownBots
 	if b.AutoAckOwnActivity != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 12)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 13)
 		x.xxx_hidden_AutoAckOwnActivity = *b.AutoAckOwnActivity
 	}
 	if b.Port != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 12)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 13)
 		x.xxx_hidden_Port = *b.Port
 	}
 	if b.DbPath != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 12)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 13)
 		x.xxx_hidden_DbPath = b.DbPath
 	}
 	x.xxx_hidden_IncludedLabels = b.IncludedLabels
 	x.xxx_hidden_ExcludedLabels = b.ExcludedLabels
 	x.xxx_hidden_TrackedQueries = b.TrackedQueries
 	if b.DiscoveryIntervalMin != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 11, 12)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 11, 13)
 		x.xxx_hidden_DiscoveryIntervalMin = *b.DiscoveryIntervalMin
 	}
+	x.xxx_hidden_AutoSubscribeQueries = b.AutoSubscribeQueries
 	return m0
 }
 
@@ -4205,7 +4219,7 @@ const file_octodeck_v1_service_proto_rawDesc = "" +
 	"\aitem_id\x18\x01 \x01(\tR\x06itemId\x124\n" +
 	"\x05state\x18\x02 \x01(\x0e2\x1e.octodeck.v1.SubscriptionStateR\x05state\"C\n" +
 	"\x1aUpdateSubscriptionResponse\x12%\n" +
-	"\x04item\x18\x01 \x01(\v2\x11.octodeck.v1.ItemR\x04item\"\xd9\x03\n" +
+	"\x04item\x18\x01 \x01(\v2\x11.octodeck.v1.ItemR\x04item\"\x8f\x04\n" +
 	"\x06Config\x12#\n" +
 	"\rwatched_repos\x18\x01 \x03(\tR\fwatchedRepos\x12!\n" +
 	"\fpinned_repos\x18\x02 \x03(\tR\vpinnedRepos\x12%\n" +
@@ -4220,7 +4234,8 @@ const file_octodeck_v1_service_proto_rawDesc = "" +
 	"\x0fexcluded_labels\x18\n" +
 	" \x03(\tR\x0eexcludedLabels\x12'\n" +
 	"\x0ftracked_queries\x18\v \x03(\tR\x0etrackedQueries\x124\n" +
-	"\x16discovery_interval_min\x18\f \x01(\x05R\x14discoveryIntervalMin\"\x7f\n" +
+	"\x16discovery_interval_min\x18\f \x01(\x05R\x14discoveryIntervalMin\x124\n" +
+	"\x16auto_subscribe_queries\x18\r \x03(\tR\x14autoSubscribeQueries\"\x7f\n" +
 	"\x11TrackedQueryStats\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12(\n" +
 	"\x10daily_average_7d\x18\x02 \x01(\x01R\x0edailyAverage7d\x12*\n" +
