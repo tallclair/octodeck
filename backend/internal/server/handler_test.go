@@ -1248,6 +1248,16 @@ func TestOctoDeckHandler_UpdateConfig_ValidationAndErrorPaths(t *testing.T) {
 		assert.True(t, respForce.Msg.GetSaved())
 		assert.Empty(t, respForce.Msg.GetQueryWarnings())
 		assert.Equal(t, []string{broadQuery, narrowQuery}, respForce.Msg.GetConfig().GetTrackedQueries())
+		require.Len(t, respForce.Msg.GetQueryStats(), 2)
+		assert.Equal(t, broadQuery, respForce.Msg.GetQueryStats()[0].GetQuery())
+		assert.Equal(t, narrowQuery, respForce.Msg.GetQueryStats()[1].GetQuery())
+
+		// Verify GetConfig also returns QueryStats for each tracked query
+		getReq := connect.NewRequest(&octodeckv1.GetConfigRequest{})
+		ghAddHeaders(getReq)
+		getResp, err := ghClient.GetConfig(t.Context(), getReq)
+		require.NoError(t, err)
+		require.Len(t, getResp.Msg.GetQueryStats(), 2)
 	})
 }
 

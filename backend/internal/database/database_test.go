@@ -822,3 +822,57 @@ func TestDiscoveryCursorCRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, exists2)
 }
+
+func TestDiscoveryQueryStats(t *testing.T) {
+	ctx := t.Context()
+	db := setupTestDB(t)
+	defer func() { require.NoError(t, db.Close()) }()
+
+	const q = "repo:kubernetes/kubernetes is:open label:sig/node"
+	now := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+
+	// 1. Brand new query (< 1 day elapsed): denominator clamped to 1.0 day
+	addedSub1d := now.Add(-6 * time.Hour)
+	require.NoError(t, db.EnsureDiscoveryAddedAt(ctx, q, addedSub1d))
+	require.NoError(t, db.RecordDiscoveryQueryCount(ctx, q, now.Add(-2*time.Hour), 4))
+
+	avg7d, avg30d, err := db.GetDiscoveryQueryStats(ctx, q, now)
+	require.NoError(t, err)
+	assert.InDelta(t, 4.0, avg7d, 0.01)
+	assert.InDelta(t, 4.0, avg30d, 0.01)
+
+	// 2. Query tracked for 3.5 days: both 7d and 30d windows use 3.5 days
+	const q35d = "repo:kubernetes/kubernetes is:open label:sig/auth"
+	added35d := now.Add(-84 * time.Hour) // 3.5 days
+	require.NoError(t, db.EnsureDiscoveryAddedAt(ctx, q35d, added35d))
+	require.NoError(t, db.RecordDiscoveryQueryCount(ctx, q35d, now.Add(-48*time.Hour), 7))
+	require.NoError(t, db.RecordDiscoveryQueryCount(ctx, q35d, now.Add(-12*time.Hour), 7))
+
+	avg7d, avg30d, err = db.GetDiscoveryQueryStats(ctx, q35d, now)
+	require.NoError(t, err)
+	assert.InDelta(t, 4.0, avg7d, 0.01)  // 14 / 3.5 = 4.0
+	assert.InDelta(t, 4.0, avg30d, 0.01) // 14 / 3.5 = 4.0
+
+	// 3. Query tracked for 45 days: 7d window uses 7.0 days, 30d window uses 30.0 days
+	const q45d = "org:kubernetes is:issue label:security"
+	added45d := now.Add(-45 * 24 * time.Hour)
+	require.NoError(t, db.EnsureDiscoveryAddedAt(ctx, q45d, added45d))
+	// 14 items in last 7 days (avg 2.0/day)
+	require.NoError(t, db.RecordDiscoveryQueryCount(ctx, q45d, now.Add(-3*24*time.Hour), 14))
+	// 46 more items 15 days ago (total 60 in last 30 days -> avg 2.0/day)
+	require.NoError(t, db.RecordDiscoveryQueryCount(ctx, q45d, now.Add(-15*24*time.Hour), 46))
+	// 100 items 40 days ago (outside 30d window, should be ignored)
+	require.NoError(t, db.RecordDiscoveryQueryCount(ctx, q45d, now.Add(-40*24*time.Hour), 100))
+
+	avg7d, avg30d, err = db.GetDiscoveryQueryStats(ctx, q45d, now)
+	require.NoError(t, err)
+	assert.InDelta(t, 2.0, avg7d, 0.01)
+	assert.InDelta(t, 2.0, avg30d, 0.01)
+
+	// 4. Pruning removes stats and added_at for inactive queries
+	require.NoError(t, db.PruneDiscoveryCursors(ctx, []string{q45d}))
+	avg7dPruned, avg30dPruned, err := db.GetDiscoveryQueryStats(ctx, q35d, now)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.0, avg7dPruned, 0.001)
+	assert.InDelta(t, 0.0, avg30dPruned, 0.001)
+}

@@ -34,13 +34,43 @@ func (h *octoDeckHandler) GetConfig(ctx context.Context,
 	if h.ghClient != nil {
 		currentUser, _, _ = h.ghClient.CheckAuth(ctx)
 	}
+	cfgProto := h.cfg.GetProto()
 	res := octodeckv1.GetConfigResponse_builder{
-		Config: h.cfg.GetProto(),
+		Config:     cfgProto,
+		QueryStats: h.buildTrackedQueryStats(ctx, cfgProto.GetTrackedQueries()),
 	}
 	if currentUser != "" {
 		res.CurrentUserLogin = &currentUser
 	}
 	return connect.NewResponse(res.Build()), nil
+}
+
+func (h *octoDeckHandler) buildTrackedQueryStats(
+	ctx context.Context,
+	queries []string,
+) []*octodeckv1.TrackedQueryStats {
+	if len(queries) == 0 {
+		return nil
+	}
+	now := time.Now().UTC()
+	out := make([]*octodeckv1.TrackedQueryStats, 0, len(queries))
+	for _, q := range queries {
+		var avg7d, avg30d float64
+		if h.db != nil {
+			a7, a30, err := h.db.GetDiscoveryQueryStats(ctx, q, now)
+			if err == nil {
+				avg7d = a7
+				avg30d = a30
+			}
+		}
+		qCopy := q
+		out = append(out, octodeckv1.TrackedQueryStats_builder{
+			Query:            &qCopy,
+			DailyAverage_7D:  &avg7d,
+			DailyAverage_30D: &avg30d,
+		}.Build())
+	}
+	return out
 }
 
 func (h *octoDeckHandler) UpdateConfig(ctx context.Context,
@@ -78,10 +108,12 @@ func (h *octoDeckHandler) UpdateConfig(ctx context.Context,
 	if !req.Msg.GetForceSave() {
 		warnings := h.evaluateTrackedQueryWarnings(ctx, newCfg.GetTrackedQueries())
 		if len(warnings) > 0 {
+			cfgProto := h.cfg.GetProto()
 			return connect.NewResponse(octodeckv1.UpdateConfigResponse_builder{
-				Config:        h.cfg.GetProto(),
+				Config:        cfgProto,
 				QueryWarnings: warnings,
 				Saved:         config.Ptr(false),
+				QueryStats:    h.buildTrackedQueryStats(ctx, cfgProto.GetTrackedQueries()),
 			}.Build()), nil
 		}
 	}
@@ -98,6 +130,8 @@ func (h *octoDeckHandler) UpdateConfig(ctx context.Context,
 		for _, q := range activeQueries {
 			if _, exists, _ := h.db.GetDiscoveryCursor(ctx, q); !exists {
 				_ = h.db.SetDiscoveryCursor(ctx, q, now)
+			} else {
+				_ = h.db.EnsureDiscoveryAddedAt(ctx, q, now)
 			}
 		}
 		_ = h.db.PruneDiscoveryCursors(ctx, activeQueries)
@@ -107,9 +141,11 @@ func (h *octoDeckHandler) UpdateConfig(ctx context.Context,
 		h.syncEngine.ResetTicker()
 	}
 
+	updatedProto := h.cfg.GetProto()
 	return connect.NewResponse(octodeckv1.UpdateConfigResponse_builder{
-		Config: h.cfg.GetProto(),
-		Saved:  config.Ptr(true),
+		Config:     updatedProto,
+		Saved:      config.Ptr(true),
+		QueryStats: h.buildTrackedQueryStats(ctx, updatedProto.GetTrackedQueries()),
 	}.Build()), nil
 }
 

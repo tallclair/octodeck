@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useQuery, useMutation } from '@connectrpc/connect-query';
 import { useQueryClient } from '@tanstack/react-query';
 import { getConfig, updateConfig } from './api/octodeck/v1/service-OctoDeckService_connectquery';
-import { Save, CheckCircle, AlertCircle, AlertTriangle, RefreshCw, X, Settings as SettingsIcon, Terminal, Sun, Moon, Monitor, ChevronDown, ChevronUp } from 'lucide-react';
+import { Save, CheckCircle, AlertCircle, AlertTriangle, RefreshCw, X, Settings as SettingsIcon, Terminal, Sun, Moon, Monitor, ChevronDown, ChevronUp, Plus, Pencil, Trash2 } from 'lucide-react';
 import type { Config, TrackedQueryWarning } from './api/octodeck/v1/service_pb';
 import {
   DEFAULT_POLLING_INTERVAL_MIN,
@@ -20,6 +20,26 @@ import {
 } from './utils/repos';
 
 const SCOPE_QUALIFIER_REGEX = /(?:^|[\s(])(?:(?:org|user):[^\s)]+|repo:[^\s)/]+\/[^\s)]+)/i;
+
+function validateSingleTrackedQuery(raw: string): string | null {
+  const q = raw.trim();
+  if (!q) {
+    return 'Search query cannot be empty.';
+  }
+  if (q.includes('\0')) {
+    return 'Search query cannot contain null characters.';
+  }
+  if (/(?:^|[\s(])(?:-)?updated:/i.test(q)) {
+    return "Tracked queries cannot contain an 'updated' filter (updated filter is managed automatically).";
+  }
+  if (!SCOPE_QUALIFIER_REGEX.test(q)) {
+    return `Query "${q}" must include a positive scope qualifier ('repo:owner/name', 'org:name', or 'user:name') to prevent unbounded searches.`;
+  }
+  if (q.length > 500) {
+    return 'Search query cannot exceed 500 characters.';
+  }
+  return null;
+}
 
 export interface SettingsProps {
   onClose?: () => void;
@@ -39,11 +59,11 @@ function getInitialKnownBots(bots?: string[]): string {
   return '';
 }
 
-function getInitialTrackedQueries(queries?: string[]): string {
+function getInitialTrackedQueriesList(queries?: string[]): string[] {
   if (queries && queries.length > 0) {
-    return queries.join('\n');
+    return queries.map((q) => q.trim()).filter(Boolean);
   }
-  return '';
+  return [];
 }
 
 export function Settings({
@@ -123,10 +143,29 @@ export function Settings({
   const [labelPatterns, setLabelPatterns] = useState(initialLabelPatterns);
   const [labelValidationError, setLabelValidationError] = useState<string | null>(null);
 
-  const [trackedQueries, setTrackedQueries] = useState(
-    getInitialTrackedQueries(data?.config?.trackedQueries)
+  const [trackedQueriesList, setTrackedQueriesList] = useState<string[]>(() =>
+    getInitialTrackedQueriesList(data?.config?.trackedQueries)
   );
   const [queriesValidationError, setQueriesValidationError] = useState<string | null>(null);
+  const [queryEditorModal, setQueryEditorModal] = useState<{
+    mode: 'add' | 'edit';
+    index?: number;
+    value: string;
+    error: string | null;
+  } | null>(null);
+
+  const queryStatsMap = useMemo(() => {
+    const map = new Map<string, { avg7d: number; avg30d: number }>();
+    for (const s of data?.queryStats || []) {
+      if (s.query) {
+        map.set(s.query.trim(), {
+          avg7d: Number(s.dailyAverage7d ?? 0),
+          avg30d: Number(s.dailyAverage30d ?? 0),
+        });
+      }
+    }
+    return map;
+  }, [data?.queryStats]);
 
   const [discoveryInterval, setDiscoveryInterval] = useState<number | string>(
     data?.config?.discoveryIntervalMin || DEFAULT_DISCOVERY_INTERVAL_MIN
@@ -155,7 +194,7 @@ export function Settings({
     setLabelPatterns(serializeFilterPatterns(cfg.includedLabels, cfg.excludedLabels));
     setLabelValidationError(null);
 
-    setTrackedQueries(getInitialTrackedQueries(cfg.trackedQueries));
+    setTrackedQueriesList(getInitialTrackedQueriesList(cfg.trackedQueries));
     setQueriesValidationError(null);
 
     setDiscoveryInterval(cfg.discoveryIntervalMin || DEFAULT_DISCOVERY_INTERVAL_MIN);
@@ -175,9 +214,13 @@ export function Settings({
       data?.config?.includedLabels,
       data?.config?.excludedLabels
     );
-    const savedTrackedQueries = getInitialTrackedQueries(data?.config?.trackedQueries);
+    const savedTrackedQueries = getInitialTrackedQueriesList(data?.config?.trackedQueries);
     const savedDiscoveryInterval =
       data?.config?.discoveryIntervalMin || DEFAULT_DISCOVERY_INTERVAL_MIN;
+
+    const queriesChanged =
+      trackedQueriesList.length !== savedTrackedQueries.length ||
+      trackedQueriesList.some((q, i) => q !== savedTrackedQueries[i]);
 
     return (
       Number(pollingInterval) !== savedPolling ||
@@ -186,7 +229,7 @@ export function Settings({
       knownBots !== savedBots ||
       autoAckOwnActivity !== savedAutoAck ||
       labelPatterns !== savedLabelPatterns ||
-      trackedQueries !== savedTrackedQueries ||
+      queriesChanged ||
       Number(discoveryInterval) !== savedDiscoveryInterval
     );
   }, [
@@ -197,7 +240,7 @@ export function Settings({
     knownBots,
     autoAckOwnActivity,
     labelPatterns,
-    trackedQueries,
+    trackedQueriesList,
     discoveryInterval,
   ]);
 
@@ -223,7 +266,7 @@ export function Settings({
     setAutoAckOwnActivity(DEFAULT_AUTO_ACK_OWN_ACTIVITY);
     setLabelPatterns('');
     setLabelValidationError(null);
-    setTrackedQueries('');
+    setTrackedQueriesList([]);
     setQueriesValidationError(null);
     setDiscoveryInterval(DEFAULT_DISCOVERY_INTERVAL_MIN);
     setDiscoveryIntervalError(null);
@@ -231,11 +274,34 @@ export function Settings({
     setStatus({ type: 'success', message: 'Default values restored. Click Save to persist.' });
   };
 
+  const handleConfirmQueryModal = () => {
+    if (!queryEditorModal) return;
+    const trimmed = queryEditorModal.value.trim();
+    const err = validateSingleTrackedQuery(trimmed);
+    if (err) {
+      setQueryEditorModal({ ...queryEditorModal, error: err });
+      return;
+    }
+    if (queryEditorModal.mode === 'add') {
+      setTrackedQueriesList((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
+    } else if (queryEditorModal.mode === 'edit' && queryEditorModal.index !== undefined) {
+      setTrackedQueriesList((prev) => {
+        const next = [...prev];
+        next[queryEditorModal.index!] = trimmed;
+        return Array.from(new Set(next));
+      });
+    }
+    setQueriesValidationError(null);
+    setQueryEditorModal(null);
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        if (pendingQueryWarnings.length > 0) {
+        if (queryEditorModal) {
+          setQueryEditorModal(null);
+        } else if (pendingQueryWarnings.length > 0) {
           setPendingQueryWarnings([]);
         } else if (showDefaultsConfirm) {
           setShowDefaultsConfirm(false);
@@ -248,7 +314,13 @@ export function Settings({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [pendingQueryWarnings.length, showDefaultsConfirm, showDiscardConfirm, handleRequestClose]);
+  }, [
+    queryEditorModal,
+    pendingQueryWarnings.length,
+    showDefaultsConfirm,
+    showDiscardConfirm,
+    handleRequestClose,
+  ]);
 
   useEffect(() => {
     if (status) {
@@ -276,30 +348,12 @@ export function Settings({
       setLabelValidationError(null);
 
       // Validate Tracked Queries
-      const rawQueries = trackedQueries.split('\n').map((q) => q.trim()).filter(Boolean);
+      const rawQueries = trackedQueriesList.map((q) => q.trim()).filter(Boolean);
       for (const q of rawQueries) {
-        if (q.includes('\0')) {
-          const err = 'Search query cannot contain null characters.';
-          setQueriesValidationError(err);
-          setStatus({ type: 'error', message: err });
-          return;
-        }
-        if (/(?:^|[\s(])(?:-)?updated:/i.test(q)) {
-          const err = "Tracked queries cannot contain an 'updated' filter (updated filter is managed automatically).";
-          setQueriesValidationError(err);
-          setStatus({ type: 'error', message: err });
-          return;
-        }
-        if (!SCOPE_QUALIFIER_REGEX.test(q)) {
-          const err = `Query "${q}" must include a positive scope qualifier ('repo:owner/name', 'org:name', or 'user:name') to prevent unbounded searches.`;
-          setQueriesValidationError(err);
-          setStatus({ type: 'error', message: err });
-          return;
-        }
-        if (q.length > 500) {
-          const err = 'Search query cannot exceed 500 characters.';
-          setQueriesValidationError(err);
-          setStatus({ type: 'error', message: err });
+        const qErr = validateSingleTrackedQuery(q);
+        if (qErr) {
+          setQueriesValidationError(qErr);
+          setStatus({ type: 'error', message: qErr });
           return;
         }
       }
@@ -671,30 +725,95 @@ export function Settings({
           {/* Tracked Queries Section */}
           <div className="pt-6 border-t border-slate-200 dark:border-slate-800">
             <div>
-              <label htmlFor="trackedQueries" className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                Tracked Queries
-              </label>
-              <textarea
-                id="trackedQueries"
-                className={`w-full p-2.5 bg-white dark:bg-slate-800 border rounded-lg text-slate-900 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition placeholder-slate-400 dark:placeholder-slate-500 font-mono text-xs ${
-                  queriesValidationError ? 'border-red-500 dark:border-red-500 ring-1 ring-red-500/50' : 'border-slate-300 dark:border-slate-700'
-                }`}
-                placeholder="org:kubernetes is:issue is:open label:security&#10;repo:kubernetes/kubernetes is:open label:sig/node"
-                rows={4}
-                value={trackedQueries}
-                onChange={(e) => {
-                  setTrackedQueries(e.target.value);
-                  setQueriesValidationError(null);
-                }}
-              />
+              <div className="flex items-center justify-between mb-2">
+                <span className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                  Tracked Queries
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setQueryEditorModal({ mode: 'add', value: '', error: null })}
+                  aria-label="Add tracked query"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800/60 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  <Plus size={14} />
+                  <span>Add Query</span>
+                </button>
+              </div>
+
+              {trackedQueriesList.length === 0 ? (
+                <div className="p-3.5 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30 text-center text-xs text-slate-500 dark:text-slate-400">
+                  No tracked queries configured. Click <span className="font-semibold">+ Add Query</span> to periodically discover candidate items.
+                </div>
+              ) : (
+                <ul className="space-y-2" aria-label="Tracked Queries List">
+                  {trackedQueriesList.map((q, idx) => {
+                    const stats = queryStatsMap.get(q.trim()) ?? { avg7d: 0, avg30d: 0 };
+                    const avg7dText = `${stats.avg7d.toFixed(1)}/day`;
+                    const avg30dTooltip = `30-day avg: ${stats.avg30d.toFixed(1)}/day`;
+                    return (
+                      <li
+                        key={`${idx}-${q}`}
+                        className="flex items-center justify-between gap-3 p-2.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-lg"
+                      >
+                        <span className="font-mono text-xs text-slate-800 dark:text-slate-200 break-all flex-1">
+                          {q}
+                        </span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <div
+                            className="relative group/qstat inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-200/70 dark:bg-slate-700/70 text-slate-700 dark:text-slate-300 cursor-default select-none"
+                            aria-label={`7-day average ${avg7dText} (${avg30dTooltip})`}
+                          >
+                            <span>{avg7dText} (7d)</span>
+                            <div
+                              role="tooltip"
+                              className="pointer-events-none invisible opacity-0 group-hover/qstat:visible group-hover/qstat:opacity-100 transition-opacity duration-150 absolute bottom-full right-0 mb-1.5 px-2 py-1 rounded bg-slate-900 dark:bg-slate-800 text-white text-[11px] font-normal whitespace-nowrap shadow-lg border border-slate-700 z-20"
+                            >
+                              {avg30dTooltip}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setQueryEditorModal({
+                                mode: 'edit',
+                                index: idx,
+                                value: q,
+                                error: null,
+                              })
+                            }
+                            aria-label={`Edit query ${q}`}
+                            title="Edit query"
+                            className="p-1.5 text-slate-500 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 rounded-md transition-colors cursor-pointer"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTrackedQueriesList((prev) => prev.filter((_, i) => i !== idx));
+                              setQueriesValidationError(null);
+                            }}
+                            aria-label={`Remove query ${q}`}
+                            title="Remove query"
+                            className="p-1.5 text-slate-500 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 rounded-md transition-colors cursor-pointer"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+
               {queriesValidationError ? (
-                <p className="text-xs text-red-600 dark:text-red-400 mt-1 flex items-center gap-1">
+                <p className="text-xs text-red-600 dark:text-red-400 mt-1.5 flex items-center gap-1">
                   <AlertCircle size={13} className="shrink-0" />
                   <span>{queriesValidationError}</span>
                 </p>
               ) : (
-                <p className="text-xs text-slate-500 dark:text-slate-500 mt-1">
-                  Enter one GitHub search query per line with a scope qualifier (<code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">repo:</code>, <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">org:</code>, or <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">user:</code>). The <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">updated</code> filter is managed automatically. Discovered candidate items appear on your dashboard with an Untracked badge.
+                <p className="text-xs text-slate-500 dark:text-slate-500 mt-1.5">
+                  Each query must include a scope qualifier (<code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">repo:</code>, <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">org:</code>, or <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">user:</code>). The <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">updated</code> filter is managed automatically. Discovered candidate items appear on your dashboard with an Untracked badge.
                 </p>
               )}
             </div>
@@ -863,6 +982,87 @@ export function Settings({
           );
         })()}
 
+        {/* Add / Edit Tracked Query Modal */}
+        {queryEditorModal && (
+          <div
+            className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="query-editor-title"
+          >
+            <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-6">
+              <div className="flex items-center justify-between mb-3">
+                <h3 id="query-editor-title" className="text-base font-bold text-slate-900 dark:text-white">
+                  {queryEditorModal.mode === 'add' ? 'Add Tracked Query' : 'Edit Tracked Query'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setQueryEditorModal(null)}
+                  aria-label="Close query editor"
+                  className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                Enter a GitHub search query including at least one positive scope qualifier (<code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">repo:owner/name</code>, <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">org:name</code>, or <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">user:name</code>).
+              </p>
+              <div>
+                <label htmlFor="queryEditorInput" className="sr-only">
+                  Tracked Query
+                </label>
+                <input
+                  id="queryEditorInput"
+                  type="text"
+                  autoFocus
+                  value={queryEditorModal.value}
+                  onChange={(e) =>
+                    setQueryEditorModal({
+                      ...queryEditorModal,
+                      value: e.target.value,
+                      error: null,
+                    })
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleConfirmQueryModal();
+                    }
+                  }}
+                  placeholder="repo:kubernetes/kubernetes is:open label:sig/node"
+                  className={`w-full p-2.5 bg-white dark:bg-slate-800 border rounded-lg text-slate-900 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition placeholder-slate-400 dark:placeholder-slate-500 font-mono text-xs ${
+                    queryEditorModal.error
+                      ? 'border-red-500 dark:border-red-500 ring-1 ring-red-500/50'
+                      : 'border-slate-300 dark:border-slate-700'
+                  }`}
+                />
+                {queryEditorModal.error && (
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-2 flex items-start gap-1.5">
+                    <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                    <span>{queryEditorModal.error}</span>
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center justify-end gap-3 mt-5">
+                <button
+                  type="button"
+                  onClick={() => setQueryEditorModal(null)}
+                  className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmQueryModal}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs transition-colors cursor-pointer"
+                >
+                  {queryEditorModal.mode === 'add' ? 'Add Query' : 'Save Query'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* High-Volume Tracked Query Pre-Flight Warning Modal */}
         {pendingQueryWarnings.length > 0 && (
           <div
@@ -899,7 +1099,23 @@ export function Settings({
               <div className="flex items-center justify-center gap-3 mt-6">
                 <button
                   type="button"
-                  onClick={() => setPendingQueryWarnings([])}
+                  onClick={() => {
+                    const firstWarning = pendingQueryWarnings[0];
+                    setPendingQueryWarnings([]);
+                    if (firstWarning?.query) {
+                      const idx = trackedQueriesList.findIndex(
+                        (q) => q.trim() === firstWarning.query.trim()
+                      );
+                      if (idx !== -1) {
+                        setQueryEditorModal({
+                          mode: 'edit',
+                          index: idx,
+                          value: trackedQueriesList[idx],
+                          error: null,
+                        });
+                      }
+                    }
+                  }}
                   className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
                 >
                   Edit Query

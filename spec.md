@@ -87,8 +87,8 @@ The backend exposes a ConnectRPC API alongside HTTP REST endpoints. See `api/oct
   * `UpdateSubscription`: Update item subscription state on GitHub and in local storage with actionable OAuth scope error remediation.
   * `GetSyncStatus`: Retrieve synchronization status metrics (last successful sync, last update received, failure details, sync duration, and 24h/7d/30d notification rates).
   * `GetDatabaseStats`: Retrieve database and storage metrics (total items, open/closed, PRs/issues, inbox/acked, repo count, trace count, database size on disk, and file path).
-  * `GetConfig`: Retrieve current backend configuration and authenticated `current_user_login`.
-  * `UpdateConfig`: Update backend configuration. Supports partial updates via `FieldMask`.
+  * `GetConfig`: Retrieve current backend configuration, authenticated `current_user_login`, and per-query discovery statistics (`query_stats` with trailing 7-day and 30-day daily averages).
+  * `UpdateConfig`: Update backend configuration, running 48-hour `created:>` pre-flight volume checks on newly added tracked queries unless `force_save` is set. Supports partial updates via `FieldMask`.
 
 * **Configuration Model (`Config`)**
   * Configurable daemon settings managed via `GetConfig` and `UpdateConfig`, including repository filters (`watched_repos`, `pinned_repos`, `excluded_repos`), label filters (`included_labels`, `excluded_labels`), auxiliary search queries (`tracked_queries`), discovery check interval (`discovery_interval_min`, default 10 min), notification polling interval (`polling_interval_min`), bot account definitions (`known_bots`), auto-acknowledgement preferences (`auto_ack_own_activity`), server port, and database path.

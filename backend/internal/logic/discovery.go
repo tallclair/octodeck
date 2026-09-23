@@ -257,10 +257,20 @@ func (s *SyncEngine) collectDiscoveryCandidates(
 		s.advanceDiscoveryCursor(ctx, q, searchStartTime)
 		res.candidatesFound += len(ids)
 		newIDs := filterNewCandidateIDs(ids, knownIDs, seenInRun)
+		s.recordDiscoveryQueryYield(ctx, q, searchStartTime, len(newIDs))
 		res.toHydrate = append(res.toHydrate, newIDs...)
 	}
 
 	return res, nil
+}
+
+func (s *SyncEngine) recordDiscoveryQueryYield(ctx context.Context, q string, t time.Time, count int) {
+	if s.db == nil {
+		return
+	}
+	if err := s.db.RecordDiscoveryQueryCount(ctx, q, t, count); err != nil {
+		slog.WarnContext(ctx, "Failed to record discovery query count", "query", q, "error", err)
+	}
 }
 
 func (s *SyncEngine) hydrateAndPersistDiscoveredItems(

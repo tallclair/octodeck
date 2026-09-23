@@ -695,9 +695,23 @@ describe('Settings Component', () => {
   });
 
   describe('Tracked Queries & Discovery Interval Configuration', () => {
-    it('renders tracked queries and discovery interval with initial values and helper text', () => {
+    it('renders read-only tracked query rows with 7-day average badge and 30-day average tooltip', () => {
       vi.mocked(connectQuery.useQuery).mockReturnValue({
-        data: { config: mockConfig },
+        data: {
+          config: mockConfig,
+          queryStats: [
+            {
+              query: 'repo:kubernetes/kubernetes is:open label:sig/node',
+              dailyAverage7d: 4.25,
+              dailyAverage30d: 2.8,
+            },
+            {
+              query: 'org:kubernetes is:issue is:open label:security',
+              dailyAverage7d: 0.5,
+              dailyAverage30d: 1.2,
+            },
+          ],
+        },
         isLoading: false,
         isError: false,
         refetch: vi.fn(),
@@ -705,13 +719,18 @@ describe('Settings Component', () => {
 
       render(<Settings />);
 
-      // Tracked Queries textarea in main section
-      const queriesTextarea = screen.getByLabelText(/Tracked Queries/i) as HTMLTextAreaElement;
-      expect(queriesTextarea).toBeDefined();
-      expect(queriesTextarea.value).toBe(
-        'repo:kubernetes/kubernetes is:open label:sig/node\norg:kubernetes is:issue is:open label:security'
-      );
-      expect(screen.getByText(/Discovered candidate items appear on your dashboard/i)).toBeDefined();
+      // Read-only query rows
+      const list = screen.getByRole('list', { name: /Tracked Queries List/i });
+      expect(within(list).getByText('repo:kubernetes/kubernetes is:open label:sig/node')).toBeDefined();
+      expect(within(list).getByText('org:kubernetes is:issue is:open label:security')).toBeDefined();
+
+      // 7-day averages displayed next to queries
+      expect(within(list).getByText('4.3/day (7d)')).toBeDefined();
+      expect(within(list).getByText('0.5/day (7d)')).toBeDefined();
+
+      // 30-day averages displayed in tooltips
+      expect(within(list).getByText('30-day avg: 2.8/day')).toBeDefined();
+      expect(within(list).getByText('30-day avg: 1.2/day')).toBeDefined();
 
       // Discovery Interval in Advanced section
       fireEvent.click(screen.getByRole('button', { name: /Advanced/i }));
@@ -721,7 +740,7 @@ describe('Settings Component', () => {
       expect(screen.getByText(/Interval for periodic background discovery/i)).toBeDefined();
     });
 
-    it('marks form dirty and warns on discard when editing tracked queries or discovery interval', () => {
+    it('marks form dirty and warns on discard when adding, editing, or removing a tracked query', () => {
       vi.mocked(connectQuery.useQuery).mockReturnValue({
         data: { config: mockConfig },
         isLoading: false,
@@ -732,9 +751,11 @@ describe('Settings Component', () => {
       const onClose = vi.fn();
       render(<Settings onClose={onClose} />);
 
-      // Edit tracked queries
-      const queriesTextarea = screen.getByLabelText(/Tracked Queries/i);
-      fireEvent.change(queriesTextarea, { target: { value: 'repo:golang/go is:open' } });
+      // Remove one query
+      const removeBtn = screen.getByRole('button', {
+        name: /Remove query repo:kubernetes\/kubernetes is:open label:sig\/node/i,
+      });
+      fireEvent.click(removeBtn);
 
       // Attempt to close
       fireEvent.click(screen.getByRole('button', { name: /Close settings/i }));
@@ -767,12 +788,7 @@ describe('Settings Component', () => {
       expect(screen.getAllByText(/Discovery interval must be at least 1 minute/i).length).toBeGreaterThanOrEqual(1);
     });
 
-    it('blocks save and shows error when tracked query contains null characters', async () => {
-      const updateConfigMock = vi.fn().mockResolvedValue({});
-      vi.mocked(connectQuery.useMutation).mockReturnValue({
-        mutateAsync: updateConfigMock,
-        isPending: false,
-      } as any);
+    it('validates null characters, updated filter, and missing scope qualifier inside Add/Edit Query modal', () => {
       vi.mocked(connectQuery.useQuery).mockReturnValue({
         data: { config: mockConfig },
         isLoading: false,
@@ -782,16 +798,27 @@ describe('Settings Component', () => {
 
       render(<Settings />);
 
-      const queriesTextarea = screen.getByLabelText(/Tracked Queries/i);
-      fireEvent.change(queriesTextarea, { target: { value: 'bad\0query' } });
+      fireEvent.click(screen.getByRole('button', { name: /Add tracked query/i }));
+      const modalInput = screen.getByPlaceholderText(/repo:kubernetes\/kubernetes is:open label:sig\/node/i);
+      const submitBtn = screen.getByRole('button', { name: /^Add Query$/i });
 
-      fireEvent.click(screen.getByRole('button', { name: /Save Settings/i }));
+      // 1. Null characters
+      fireEvent.change(modalInput, { target: { value: 'repo:a/b bad\0query' } });
+      fireEvent.click(submitBtn);
+      expect(screen.getByText(/Search query cannot contain null characters/i)).toBeDefined();
 
-      expect(updateConfigMock).not.toHaveBeenCalled();
-      expect(screen.getAllByText(/Search query cannot contain null characters/i).length).toBeGreaterThanOrEqual(1);
+      // 2. Disallowed updated: filter
+      fireEvent.change(modalInput, { target: { value: 'repo:kubernetes/kubernetes is:open updated:>2026-01-01' } });
+      fireEvent.click(submitBtn);
+      expect(screen.getByText(/Tracked queries cannot contain an 'updated' filter/i)).toBeDefined();
+
+      // 3. Missing positive scope qualifier
+      fireEvent.change(modalInput, { target: { value: 'is:issue is:open label:security' } });
+      fireEvent.click(submitBtn);
+      expect(screen.getByText(/must include a positive scope qualifier/i)).toBeDefined();
     });
 
-    it('trims whitespace, ignores blank lines, and saves tracked queries and discovery interval', async () => {
+    it('adds, edits, and removes tracked queries via modal and saves configuration', async () => {
       const updateConfigMock = vi.fn().mockResolvedValue({});
       vi.mocked(connectQuery.useMutation).mockReturnValue({
         mutateAsync: updateConfigMock,
@@ -806,11 +833,28 @@ describe('Settings Component', () => {
 
       render(<Settings />);
 
-      // Multi-line queries with excess whitespace and blank lines
-      const queriesTextarea = screen.getByLabelText(/Tracked Queries/i);
-      fireEvent.change(queriesTextarea, {
-        target: { value: '  repo:octodeck/octodeck is:pr  \n\n  org:octodeck is:issue is:open label:bug  \n   ' },
-      });
+      // 1. Remove second initial query
+      fireEvent.click(
+        screen.getByRole('button', {
+          name: /Remove query org:kubernetes is:issue is:open label:security/i,
+        })
+      );
+
+      // 2. Edit first initial query via Edit modal
+      fireEvent.click(
+        screen.getByRole('button', {
+          name: /Edit query repo:kubernetes\/kubernetes is:open label:sig\/node/i,
+        })
+      );
+      const editInput = screen.getByDisplayValue('repo:kubernetes/kubernetes is:open label:sig/node');
+      fireEvent.change(editInput, { target: { value: '  repo:octodeck/octodeck is:pr  ' } });
+      fireEvent.click(screen.getByRole('button', { name: /^Save Query$/i }));
+
+      // 3. Add a new query via Add modal
+      fireEvent.click(screen.getByRole('button', { name: /Add tracked query/i }));
+      const addInput = screen.getByPlaceholderText(/repo:kubernetes\/kubernetes is:open label:sig\/node/i);
+      fireEvent.change(addInput, { target: { value: '  org:octodeck is:issue is:open label:bug  ' } });
+      fireEvent.click(screen.getByRole('button', { name: /^Add Query$/i }));
 
       fireEvent.click(screen.getByRole('button', { name: /Advanced/i }));
       const intervalInput = screen.getByLabelText(/Discovery Interval/i);
@@ -845,8 +889,7 @@ describe('Settings Component', () => {
       const confirmBtn = within(dialog).getByRole('button', { name: /^Restore Defaults$/i });
       fireEvent.click(confirmBtn);
 
-      const queriesTextarea = screen.getByLabelText(/Tracked Queries/i) as HTMLTextAreaElement;
-      expect(queriesTextarea.value).toBe('');
+      expect(screen.getByText(/No tracked queries configured/i)).toBeDefined();
 
       fireEvent.click(screen.getByRole('button', { name: /Advanced/i }));
       const intervalInput = screen.getByLabelText(/Discovery Interval/i) as HTMLInputElement;
@@ -863,68 +906,11 @@ describe('Settings Component', () => {
 
       render(<Settings />);
 
-      const queriesTextarea = screen.getByLabelText(/Tracked Queries/i) as HTMLTextAreaElement;
-      expect(queriesTextarea.value).toBe('');
+      expect(screen.getByText(/No tracked queries configured/i)).toBeDefined();
 
       fireEvent.click(screen.getByRole('button', { name: /Advanced/i }));
       const intervalInput = screen.getByLabelText(/Discovery Interval/i) as HTMLInputElement;
       expect(intervalInput.value).toBe('10');
-    });
-
-    it('blocks save and shows error when a tracked query contains an updated filter', async () => {
-      const mockMutateAsync = vi.fn();
-      vi.mocked(connectQuery.useMutation).mockReturnValue({
-        mutateAsync: mockMutateAsync,
-        isPending: false,
-      } as any);
-      vi.mocked(connectQuery.useQuery).mockReturnValue({
-        data: { config: mockConfig },
-        isLoading: false,
-        isError: false,
-        refetch: vi.fn(),
-      } as any);
-
-      render(<Settings />);
-
-      const queriesTextarea = screen.getByLabelText(/Tracked Queries/i);
-      fireEvent.change(queriesTextarea, {
-        target: { value: 'repo:kubernetes/kubernetes is:open updated:>2026-01-01' },
-      });
-
-      fireEvent.click(screen.getByRole('button', { name: /Save Settings/i }));
-
-      expect(mockMutateAsync).not.toHaveBeenCalled();
-      expect(
-        screen.getAllByText(/Tracked queries cannot contain an 'updated' filter/i).length,
-      ).toBeGreaterThanOrEqual(1);
-    });
-
-    it('blocks save and shows error when a tracked query is missing a scope qualifier', async () => {
-      const mockMutateAsync = vi.fn();
-      vi.mocked(connectQuery.useMutation).mockReturnValue({
-        mutateAsync: mockMutateAsync,
-        isPending: false,
-      } as any);
-      vi.mocked(connectQuery.useQuery).mockReturnValue({
-        data: { config: mockConfig },
-        isLoading: false,
-        isError: false,
-        refetch: vi.fn(),
-      } as any);
-
-      render(<Settings />);
-
-      const queriesTextarea = screen.getByLabelText(/Tracked Queries/i);
-      fireEvent.change(queriesTextarea, {
-        target: { value: 'is:issue is:open label:security' },
-      });
-
-      fireEvent.click(screen.getByRole('button', { name: /Save Settings/i }));
-
-      expect(mockMutateAsync).not.toHaveBeenCalled();
-      expect(
-        screen.getAllByText(/must include a positive scope qualifier/i).length,
-      ).toBeGreaterThanOrEqual(1);
     });
 
     it('shows confirmation prompt when pre-flight check warns of >50/day volume and saves on Save Anyway', async () => {
@@ -960,10 +946,11 @@ describe('Settings Component', () => {
 
       render(<Settings onClose={onCloseMock} />);
 
-      const queriesTextarea = screen.getByLabelText(/Tracked Queries/i);
-      fireEvent.change(queriesTextarea, {
-        target: { value: 'org:kubernetes is:open' },
-      });
+      // Add a broad query via the Add Query modal
+      fireEvent.click(screen.getByRole('button', { name: /Add tracked query/i }));
+      const addInput = screen.getByPlaceholderText(/repo:kubernetes\/kubernetes is:open label:sig\/node/i);
+      fireEvent.change(addInput, { target: { value: 'org:kubernetes is:open' } });
+      fireEvent.click(screen.getByRole('button', { name: /^Add Query$/i }));
 
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: /Save Settings/i }));

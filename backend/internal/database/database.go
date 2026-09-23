@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -678,10 +679,50 @@ func (d *DB) GetDatabaseStats(ctx context.Context, dbPath string) (*octodeckv1.D
 	}.Build(), nil
 }
 
+// discoveryQueryHash returns the normalized SHA-256 hex digest for a tracked query string.
+func discoveryQueryHash(query string) string {
+	hash := sha256.Sum256([]byte(strings.TrimSpace(query)))
+	return hex.EncodeToString(hash[:])
+}
+
 // discoveryCursorKey returns the metadata key for tracking a query's discovery cursor.
 func discoveryCursorKey(query string) string {
-	hash := sha256.Sum256([]byte(strings.TrimSpace(query)))
-	return fmt.Sprintf("discovery:cursor:%x", hash)
+	return "discovery:cursor:" + discoveryQueryHash(query)
+}
+
+// discoveryAddedKey returns the metadata key for tracking when a query was first added.
+func discoveryAddedKey(query string) string {
+	return "discovery:added:" + discoveryQueryHash(query)
+}
+
+// EnsureDiscoveryAddedAt records the initial added timestamp for a tracked query if not already present.
+func (d *DB) EnsureDiscoveryAddedAt(ctx context.Context, query string, t time.Time) error {
+	key := discoveryAddedKey(query)
+	val := t.UTC().Format(time.RFC3339)
+	const insertQuery = `
+		INSERT INTO metadata (key, value, updated_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(key) DO NOTHING
+	`
+	_, err := d.ExecContext(ctx, insertQuery, key, val, val)
+	return err
+}
+
+// GetDiscoveryAddedAt retrieves the timestamp when a tracked query was first added.
+func (d *DB) GetDiscoveryAddedAt(ctx context.Context, query string) (time.Time, bool, error) {
+	key := discoveryAddedKey(query)
+	val, err := d.GetMetadata(ctx, key)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return time.Time{}, false, nil
+		}
+		return time.Time{}, false, err
+	}
+	t, err := time.Parse(time.RFC3339, val)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("failed to parse discovery added timestamp %q: %w", val, err)
+	}
+	return t, true, nil
 }
 
 // GetDiscoveryCursor retrieves the last search time or added time recorded for a tracked query.
@@ -701,37 +742,142 @@ func (d *DB) GetDiscoveryCursor(ctx context.Context, query string) (time.Time, b
 	return t, true, nil
 }
 
-// SetDiscoveryCursor records the discovery cursor timestamp for a tracked query.
+// SetDiscoveryCursor records the discovery cursor timestamp for a tracked query
+// and ensures its initial added timestamp is recorded.
 func (d *DB) SetDiscoveryCursor(ctx context.Context, query string, t time.Time) error {
+	if err := d.EnsureDiscoveryAddedAt(ctx, query, t); err != nil {
+		return err
+	}
 	key := discoveryCursorKey(query)
 	val := t.UTC().Format(time.RFC3339)
 	return d.SetMetadata(ctx, key, val)
 }
 
-// DeleteDiscoveryCursor removes the discovery cursor for a query.
+// RecordDiscoveryQueryCount records the number of newly discovered candidate items for a query
+// in the hourly bucket corresponding to t, and ensures the query's added timestamp is set.
+func (d *DB) RecordDiscoveryQueryCount(ctx context.Context, query string, t time.Time, count int) error {
+	if err := d.EnsureDiscoveryAddedAt(ctx, query, t); err != nil {
+		return err
+	}
+	if count <= 0 {
+		return nil
+	}
+	qHash := discoveryQueryHash(query)
+	bucketHour := t.UTC().Truncate(time.Hour).Format(time.RFC3339)
+	const upsertQuery = `
+		INSERT INTO discovery_query_stats (query_hash, bucket_hour, count)
+		VALUES (?, ?, ?)
+		ON CONFLICT(query_hash, bucket_hour) DO UPDATE SET count = count + excluded.count
+	`
+	_, err := d.ExecContext(ctx, upsertQuery, qHash, bucketHour, count)
+	if err != nil {
+		return fmt.Errorf("failed to record discovery query count: %w", err)
+	}
+	return nil
+}
+
+// GetDiscoveryQueryStats computes the trailing 7-day and 30-day daily discovery averages
+// for a tracked query, normalized by elapsed tracking time (clamped to [1, 7] and [1, 30] days).
+func (d *DB) GetDiscoveryQueryStats(
+	ctx context.Context,
+	query string,
+	now time.Time,
+) (avg7d, avg30d float64, err error) {
+	const (
+		hoursPerDay  = 24.0
+		daysPerWeek  = 7.0
+		daysPerMonth = 30.0
+		minDays      = 1.0
+	)
+
+	qHash := discoveryQueryHash(query)
+	since7d := now.Add(-time.Duration(daysPerWeek*hoursPerDay) * time.Hour).
+		UTC().Truncate(time.Hour).Format(time.RFC3339)
+	since30d := now.Add(-time.Duration(daysPerMonth*hoursPerDay) * time.Hour).
+		UTC().Truncate(time.Hour).Format(time.RFC3339)
+
+	var stats struct {
+		Count7d  int64 `db:"count_7d"`
+		Count30d int64 `db:"count_30d"`
+	}
+
+	const statsSQL = `
+		SELECT
+			COALESCE(SUM(CASE WHEN bucket_hour >= ? THEN count ELSE 0 END), 0) AS count_7d,
+			COALESCE(SUM(CASE WHEN bucket_hour >= ? THEN count ELSE 0 END), 0) AS count_30d
+		FROM discovery_query_stats
+		WHERE query_hash = ? AND bucket_hour >= ?
+	`
+	if err := d.GetContext(ctx, &stats, statsSQL, since7d, since30d, qHash, since30d); err != nil {
+		return 0, 0, fmt.Errorf("failed to query discovery stats: %w", err)
+	}
+
+	var elapsedDays float64
+	addedAt, exists, addedErr := d.GetDiscoveryAddedAt(ctx, query)
+	if addedErr == nil && !exists {
+		addedAt, exists, _ = d.GetDiscoveryCursor(ctx, query)
+	}
+	if exists && now.After(addedAt) {
+		elapsedDays = now.Sub(addedAt).Hours() / hoursPerDay
+	}
+
+	window7d := min(daysPerWeek, max(minDays, elapsedDays))
+	window30d := min(daysPerMonth, max(minDays, elapsedDays))
+
+	avg7d = float64(stats.Count7d) / window7d
+	avg30d = float64(stats.Count30d) / window30d
+	return avg7d, avg30d, nil
+}
+
+// DeleteDiscoveryCursor removes the discovery cursor, added timestamp, and stats for a query.
 func (d *DB) DeleteDiscoveryCursor(ctx context.Context, query string) error {
-	key := discoveryCursorKey(query)
-	_, err := d.ExecContext(ctx, "DELETE FROM metadata WHERE key = ?", key)
+	cKey := discoveryCursorKey(query)
+	aKey := discoveryAddedKey(query)
+	qHash := discoveryQueryHash(query)
+	if _, err := d.ExecContext(ctx, "DELETE FROM metadata WHERE key IN (?, ?)", cKey, aKey); err != nil {
+		return err
+	}
+	_, err := d.ExecContext(ctx, "DELETE FROM discovery_query_stats WHERE query_hash = ?", qHash)
 	return err
 }
 
-// PruneDiscoveryCursors removes discovery cursors for any queries not in the active list.
+// PruneDiscoveryCursors removes discovery cursors, added timestamps, and stats for any queries
+// not in the active list.
 func (d *DB) PruneDiscoveryCursors(ctx context.Context, activeQueries []string) error {
-	activeKeys := make(map[string]struct{}, len(activeQueries))
+	activeCursorKeys := make(map[string]struct{}, len(activeQueries))
+	activeAddedKeys := make(map[string]struct{}, len(activeQueries))
+	activeHashes := make(map[string]struct{}, len(activeQueries))
 	for _, q := range activeQueries {
-		activeKeys[discoveryCursorKey(q)] = struct{}{}
+		activeCursorKeys[discoveryCursorKey(q)] = struct{}{}
+		activeAddedKeys[discoveryAddedKey(q)] = struct{}{}
+		activeHashes[discoveryQueryHash(q)] = struct{}{}
 	}
 
 	var storedKeys []string
-	err := d.SelectContext(ctx, &storedKeys, "SELECT key FROM metadata WHERE key LIKE 'discovery:cursor:%'")
-	if err != nil {
-		return fmt.Errorf("failed to query discovery cursor keys: %w", err)
+	const selectKeysSQL = "SELECT key FROM metadata WHERE key LIKE 'discovery:cursor:%' OR key LIKE 'discovery:added:%'"
+	if err := d.SelectContext(ctx, &storedKeys, selectKeysSQL); err != nil {
+		return fmt.Errorf("failed to query discovery metadata keys: %w", err)
 	}
 
 	for _, k := range storedKeys {
-		if _, keep := activeKeys[k]; !keep {
+		_, keepCursor := activeCursorKeys[k]
+		_, keepAdded := activeAddedKeys[k]
+		if !keepCursor && !keepAdded {
 			if _, delErr := d.ExecContext(ctx, "DELETE FROM metadata WHERE key = ?", k); delErr != nil {
-				return fmt.Errorf("failed to delete stale discovery cursor %q: %w", k, delErr)
+				return fmt.Errorf("failed to delete stale discovery metadata %q: %w", k, delErr)
+			}
+		}
+	}
+
+	var storedHashes []string
+	if err := d.SelectContext(ctx, &storedHashes, "SELECT DISTINCT query_hash FROM discovery_query_stats"); err != nil {
+		return fmt.Errorf("failed to query discovery stat hashes: %w", err)
+	}
+	const deleteStatsSQL = "DELETE FROM discovery_query_stats WHERE query_hash = ?"
+	for _, h := range storedHashes {
+		if _, keep := activeHashes[h]; !keep {
+			if _, delErr := d.ExecContext(ctx, deleteStatsSQL, h); delErr != nil {
+				return fmt.Errorf("failed to delete stale discovery stats %q: %w", h, delErr)
 			}
 		}
 	}

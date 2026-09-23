@@ -161,11 +161,18 @@ message Config {
   int32 discovery_interval_min = 12;
 }
 
+message TrackedQueryStats {
+  string query = 1;
+  double daily_average_7d = 2;
+  double daily_average_30d = 3;
+}
+
 message GetConfigRequest {}
 
 message GetConfigResponse {
   Config config = 1;
   string current_user_login = 2;
+  repeated TrackedQueryStats query_stats = 3;
 }
 
 message UpdateConfigRequest {
@@ -185,6 +192,7 @@ message UpdateConfigResponse {
   Config config = 1;
   repeated TrackedQueryWarning query_warnings = 2;
   bool saved = 3;
+  repeated TrackedQueryStats query_stats = 4;
 }
 
 message GetSyncStatusRequest {}
