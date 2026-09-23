@@ -31,7 +31,7 @@ const mockConfig = {
   excludedLabels: ['kind/flake'],
   trackedQueries: [
     'repo:kubernetes/kubernetes is:open label:sig/node',
-    'is:issue is:open label:security',
+    'org:kubernetes is:issue is:open label:security',
   ],
   discoveryIntervalMin: 30,
 };
@@ -709,7 +709,7 @@ describe('Settings Component', () => {
       const queriesTextarea = screen.getByLabelText(/Tracked Queries/i) as HTMLTextAreaElement;
       expect(queriesTextarea).toBeDefined();
       expect(queriesTextarea.value).toBe(
-        'repo:kubernetes/kubernetes is:open label:sig/node\nis:issue is:open label:security'
+        'repo:kubernetes/kubernetes is:open label:sig/node\norg:kubernetes is:issue is:open label:security'
       );
       expect(screen.getByText(/Discovered candidate items appear on your dashboard/i)).toBeDefined();
 
@@ -809,7 +809,7 @@ describe('Settings Component', () => {
       // Multi-line queries with excess whitespace and blank lines
       const queriesTextarea = screen.getByLabelText(/Tracked Queries/i);
       fireEvent.change(queriesTextarea, {
-        target: { value: '  repo:octodeck/octodeck is:pr  \n\n  is:issue is:open label:bug  \n   ' },
+        target: { value: '  repo:octodeck/octodeck is:pr  \n\n  org:octodeck is:issue is:open label:bug  \n   ' },
       });
 
       fireEvent.click(screen.getByRole('button', { name: /Advanced/i }));
@@ -823,7 +823,7 @@ describe('Settings Component', () => {
       expect(updateConfigMock).toHaveBeenCalledWith(
         expect.objectContaining({
           config: expect.objectContaining({
-            trackedQueries: ['repo:octodeck/octodeck is:pr', 'is:issue is:open label:bug'],
+            trackedQueries: ['repo:octodeck/octodeck is:pr', 'org:octodeck is:issue is:open label:bug'],
             discoveryIntervalMin: 45,
           }),
         })
@@ -897,6 +897,108 @@ describe('Settings Component', () => {
       expect(
         screen.getAllByText(/Tracked queries cannot contain an 'updated' filter/i).length,
       ).toBeGreaterThanOrEqual(1);
+    });
+
+    it('blocks save and shows error when a tracked query is missing a scope qualifier', async () => {
+      const mockMutateAsync = vi.fn();
+      vi.mocked(connectQuery.useMutation).mockReturnValue({
+        mutateAsync: mockMutateAsync,
+        isPending: false,
+      } as any);
+      vi.mocked(connectQuery.useQuery).mockReturnValue({
+        data: { config: mockConfig },
+        isLoading: false,
+        isError: false,
+        refetch: vi.fn(),
+      } as any);
+
+      render(<Settings />);
+
+      const queriesTextarea = screen.getByLabelText(/Tracked Queries/i);
+      fireEvent.change(queriesTextarea, {
+        target: { value: 'is:issue is:open label:security' },
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /Save Settings/i }));
+
+      expect(mockMutateAsync).not.toHaveBeenCalled();
+      expect(
+        screen.getAllByText(/must include a positive scope qualifier/i).length,
+      ).toBeGreaterThanOrEqual(1);
+    });
+
+    it('shows confirmation prompt when pre-flight check warns of >50/day volume and saves on Save Anyway', async () => {
+      const onCloseMock = vi.fn();
+      const mockMutateAsync = vi
+        .fn()
+        .mockResolvedValueOnce({
+          saved: false,
+          queryWarnings: [
+            {
+              query: 'org:kubernetes is:open',
+              matchCount48h: 160,
+              dailyAverage: 80.0,
+              message: 'Query "org:kubernetes is:open" matched 160 items created in the last 48h (avg 80.0/day).',
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          saved: true,
+          queryWarnings: [],
+        });
+
+      vi.mocked(connectQuery.useMutation).mockReturnValue({
+        mutateAsync: mockMutateAsync,
+        isPending: false,
+      } as any);
+      vi.mocked(connectQuery.useQuery).mockReturnValue({
+        data: { config: mockConfig },
+        isLoading: false,
+        isError: false,
+        refetch: vi.fn(),
+      } as any);
+
+      render(<Settings onClose={onCloseMock} />);
+
+      const queriesTextarea = screen.getByLabelText(/Tracked Queries/i);
+      fireEvent.change(queriesTextarea, {
+        target: { value: 'org:kubernetes is:open' },
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /Save Settings/i }));
+      });
+
+      // First call was without forceSave
+      expect(mockMutateAsync).toHaveBeenCalledTimes(1);
+      expect(mockMutateAsync).toHaveBeenNthCalledWith(
+        1,
+        expect.not.objectContaining({
+          forceSave: true,
+        }),
+      );
+      expect(onCloseMock).not.toHaveBeenCalled();
+
+      // Warning confirmation modal is displayed
+      const warningDialog = screen.getByRole('alertdialog');
+      expect(within(warningDialog).getByText(/High-Volume Tracked Query Detected/i)).toBeDefined();
+      expect(within(warningDialog).getByText(/160 items created in last 48h/i)).toBeDefined();
+      expect(within(warningDialog).getByText(/~80\.0\/day avg/i)).toBeDefined();
+
+      // Click Save Anyway
+      const saveAnywayBtn = within(warningDialog).getByRole('button', { name: /^Save Anyway$/i });
+      await act(async () => {
+        fireEvent.click(saveAnywayBtn);
+      });
+
+      expect(mockMutateAsync).toHaveBeenCalledTimes(2);
+      expect(mockMutateAsync).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          forceSave: true,
+        }),
+      );
+      expect(onCloseMock).toHaveBeenCalledTimes(1);
     });
   });
 });

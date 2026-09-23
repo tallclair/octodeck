@@ -3,7 +3,7 @@ import { useQuery, useMutation } from '@connectrpc/connect-query';
 import { useQueryClient } from '@tanstack/react-query';
 import { getConfig, updateConfig } from './api/octodeck/v1/service-OctoDeckService_connectquery';
 import { Save, CheckCircle, AlertCircle, AlertTriangle, RefreshCw, X, Settings as SettingsIcon, Terminal, Sun, Moon, Monitor, ChevronDown, ChevronUp } from 'lucide-react';
-import type { Config } from './api/octodeck/v1/service_pb';
+import type { Config, TrackedQueryWarning } from './api/octodeck/v1/service_pb';
 import {
   DEFAULT_POLLING_INTERVAL_MIN,
   DEFAULT_AUTO_ACK_OWN_ACTIVITY,
@@ -18,6 +18,8 @@ import {
   parseFilterPatterns,
   serializeFilterPatterns,
 } from './utils/repos';
+
+const SCOPE_QUALIFIER_REGEX = /(?:^|[\s(])(?:(?:org|user):[^\s)]+|repo:[^\s)/]+\/[^\s)]+)/i;
 
 export interface SettingsProps {
   onClose?: () => void;
@@ -134,6 +136,7 @@ export function Settings({
   const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [showDefaultsConfirm, setShowDefaultsConfirm] = useState(false);
+  const [pendingQueryWarnings, setPendingQueryWarnings] = useState<TrackedQueryWarning[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [prevConfig, setPrevConfig] = useState(data?.config);
@@ -232,7 +235,9 @@ export function Settings({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        if (showDefaultsConfirm) {
+        if (pendingQueryWarnings.length > 0) {
+          setPendingQueryWarnings([]);
+        } else if (showDefaultsConfirm) {
           setShowDefaultsConfirm(false);
         } else if (showDiscardConfirm) {
           setShowDiscardConfirm(false);
@@ -243,7 +248,7 @@ export function Settings({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showDefaultsConfirm, showDiscardConfirm, handleRequestClose]);
+  }, [pendingQueryWarnings.length, showDefaultsConfirm, showDiscardConfirm, handleRequestClose]);
 
   useEffect(() => {
     if (status) {
@@ -252,7 +257,7 @@ export function Settings({
     }
   }, [status]);
 
-  const handleSave = async () => {
+  const handleSave = async (forceSave = false) => {
     try {
       const repoValidationErr = validateRepoFilterPatterns(repoPatterns);
       if (repoValidationErr) {
@@ -281,6 +286,12 @@ export function Settings({
         }
         if (/(?:^|[\s(])(?:-)?updated:/i.test(q)) {
           const err = "Tracked queries cannot contain an 'updated' filter (updated filter is managed automatically).";
+          setQueriesValidationError(err);
+          setStatus({ type: 'error', message: err });
+          return;
+        }
+        if (!SCOPE_QUALIFIER_REGEX.test(q)) {
+          const err = `Query "${q}" must include a positive scope qualifier ('repo:owner/name', 'org:name', or 'user:name') to prevent unbounded searches.`;
           setQueriesValidationError(err);
           setStatus({ type: 'error', message: err });
           return;
@@ -323,9 +334,16 @@ export function Settings({
         discoveryIntervalMin: Math.max(MIN_DISCOVERY_INTERVAL_MIN, Math.round(parsedDiscoveryInterval)),
       };
 
-      await updateConfigMutate({
+      const res = await updateConfigMutate({
         config: newConfig as Partial<Config> as Config,
+        ...(forceSave ? { forceSave: true } : {}),
       });
+
+      if (res?.queryWarnings && res.queryWarnings.length > 0 && !res.saved) {
+        setPendingQueryWarnings(res.queryWarnings);
+        return;
+      }
+      setPendingQueryWarnings([]);
 
       if (queryClient?.invalidateQueries) {
         await queryClient.invalidateQueries();
@@ -661,7 +679,7 @@ export function Settings({
                 className={`w-full p-2.5 bg-white dark:bg-slate-800 border rounded-lg text-slate-900 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition placeholder-slate-400 dark:placeholder-slate-500 font-mono text-xs ${
                   queriesValidationError ? 'border-red-500 dark:border-red-500 ring-1 ring-red-500/50' : 'border-slate-300 dark:border-slate-700'
                 }`}
-                placeholder="is:issue is:open label:security&#10;repo:kubernetes/kubernetes is:open label:sig/node"
+                placeholder="org:kubernetes is:issue is:open label:security&#10;repo:kubernetes/kubernetes is:open label:sig/node"
                 rows={4}
                 value={trackedQueries}
                 onChange={(e) => {
@@ -676,7 +694,7 @@ export function Settings({
                 </p>
               ) : (
                 <p className="text-xs text-slate-500 dark:text-slate-500 mt-1">
-                  Enter one GitHub search query per line (e.g., <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">is:issue is:open label:security</code>). The <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">updated</code> filter is managed automatically. Discovered candidate items appear on your dashboard with an Untracked badge.
+                  Enter one GitHub search query per line with a scope qualifier (<code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">repo:</code>, <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">org:</code>, or <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">user:</code>). The <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">updated</code> filter is managed automatically. Discovered candidate items appear on your dashboard with an Untracked badge.
                 </p>
               )}
             </div>
@@ -833,7 +851,7 @@ export function Settings({
                 </button>
                 <button
                   type="button"
-                  onClick={handleSave}
+                  onClick={() => void handleSave(false)}
                   disabled={isSaving}
                   className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
                 >
@@ -844,6 +862,60 @@ export function Settings({
             </div>
           );
         })()}
+
+        {/* High-Volume Tracked Query Pre-Flight Warning Modal */}
+        {pendingQueryWarnings.length > 0 && (
+          <div
+            className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="query-warning-title"
+          >
+            <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-6">
+              <div className="w-12 h-12 rounded-full bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto mb-4 border border-amber-200 dark:border-amber-800/60">
+                <AlertTriangle size={24} />
+              </div>
+              <h3 id="query-warning-title" className="text-base font-bold text-slate-900 dark:text-white text-center">
+                High-Volume Tracked Query Detected
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 text-center">
+                One or more tracked queries exceeded the recommended safety threshold of 50 newly created items per day (evaluated over the last 48 hours):
+              </p>
+              <ul className="mt-4 space-y-2 max-h-48 overflow-y-auto text-left">
+                {pendingQueryWarnings.map((w) => (
+                  <li
+                    key={w.query}
+                    className="p-2.5 rounded-lg bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-xs"
+                  >
+                    <div className="font-mono font-semibold text-slate-900 dark:text-slate-200 break-all">
+                      {w.query}
+                    </div>
+                    <div className="text-amber-800 dark:text-amber-300 mt-1">
+                      {w.matchCount48h} items created in last 48h (~{Number(w.dailyAverage).toFixed(1)}/day avg)
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <div className="flex items-center justify-center gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setPendingQueryWarnings([])}
+                  className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
+                >
+                  Edit Query
+                </button>
+                <button
+                  type="button"
+                  disabled={isSaving}
+                  onClick={() => void handleSave(true)}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 rounded-lg shadow-xs transition-colors cursor-pointer"
+                >
+                  Save Anyway
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Unsaved Changes Confirmation Modal */}
         {showDiscardConfirm && (

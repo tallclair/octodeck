@@ -2366,11 +2366,14 @@ func (b0 GetConfigResponse_builder) Build() *GetConfigResponse {
 }
 
 type UpdateConfigRequest struct {
-	state                 protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Config     *Config                `protobuf:"bytes,1,opt,name=config"`
-	xxx_hidden_UpdateMask *fieldmaskpb.FieldMask `protobuf:"bytes,2,opt,name=update_mask,json=updateMask"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Config      *Config                `protobuf:"bytes,1,opt,name=config"`
+	xxx_hidden_UpdateMask  *fieldmaskpb.FieldMask `protobuf:"bytes,2,opt,name=update_mask,json=updateMask"`
+	xxx_hidden_ForceSave   bool                   `protobuf:"varint,3,opt,name=force_save,json=forceSave"`
+	XXX_raceDetectHookData protoimpl.RaceDetectHookData
+	XXX_presence           [1]uint32
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *UpdateConfigRequest) Reset() {
@@ -2412,12 +2415,24 @@ func (x *UpdateConfigRequest) GetUpdateMask() *fieldmaskpb.FieldMask {
 	return nil
 }
 
+func (x *UpdateConfigRequest) GetForceSave() bool {
+	if x != nil {
+		return x.xxx_hidden_ForceSave
+	}
+	return false
+}
+
 func (x *UpdateConfigRequest) SetConfig(v *Config) {
 	x.xxx_hidden_Config = v
 }
 
 func (x *UpdateConfigRequest) SetUpdateMask(v *fieldmaskpb.FieldMask) {
 	x.xxx_hidden_UpdateMask = v
+}
+
+func (x *UpdateConfigRequest) SetForceSave(v bool) {
+	x.xxx_hidden_ForceSave = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 3)
 }
 
 func (x *UpdateConfigRequest) HasConfig() bool {
@@ -2434,6 +2449,13 @@ func (x *UpdateConfigRequest) HasUpdateMask() bool {
 	return x.xxx_hidden_UpdateMask != nil
 }
 
+func (x *UpdateConfigRequest) HasForceSave() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 2)
+}
+
 func (x *UpdateConfigRequest) ClearConfig() {
 	x.xxx_hidden_Config = nil
 }
@@ -2442,11 +2464,17 @@ func (x *UpdateConfigRequest) ClearUpdateMask() {
 	x.xxx_hidden_UpdateMask = nil
 }
 
+func (x *UpdateConfigRequest) ClearForceSave() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 2)
+	x.xxx_hidden_ForceSave = false
+}
+
 type UpdateConfigRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	Config     *Config
 	UpdateMask *fieldmaskpb.FieldMask
+	ForceSave  *bool
 }
 
 func (b0 UpdateConfigRequest_builder) Build() *UpdateConfigRequest {
@@ -2455,19 +2483,198 @@ func (b0 UpdateConfigRequest_builder) Build() *UpdateConfigRequest {
 	_, _ = b, x
 	x.xxx_hidden_Config = b.Config
 	x.xxx_hidden_UpdateMask = b.UpdateMask
+	if b.ForceSave != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 3)
+		x.xxx_hidden_ForceSave = *b.ForceSave
+	}
+	return m0
+}
+
+type TrackedQueryWarning struct {
+	state                     protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Query          *string                `protobuf:"bytes,1,opt,name=query"`
+	xxx_hidden_MatchCount_48H int32                  `protobuf:"varint,2,opt,name=match_count_48h,json=matchCount48h"`
+	xxx_hidden_DailyAverage   float64                `protobuf:"fixed64,3,opt,name=daily_average,json=dailyAverage"`
+	xxx_hidden_Message        *string                `protobuf:"bytes,4,opt,name=message"`
+	XXX_raceDetectHookData    protoimpl.RaceDetectHookData
+	XXX_presence              [1]uint32
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
+}
+
+func (x *TrackedQueryWarning) Reset() {
+	*x = TrackedQueryWarning{}
+	mi := &file_octodeck_v1_service_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TrackedQueryWarning) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TrackedQueryWarning) ProtoMessage() {}
+
+func (x *TrackedQueryWarning) ProtoReflect() protoreflect.Message {
+	mi := &file_octodeck_v1_service_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *TrackedQueryWarning) GetQuery() string {
+	if x != nil {
+		if x.xxx_hidden_Query != nil {
+			return *x.xxx_hidden_Query
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *TrackedQueryWarning) GetMatchCount_48H() int32 {
+	if x != nil {
+		return x.xxx_hidden_MatchCount_48H
+	}
+	return 0
+}
+
+func (x *TrackedQueryWarning) GetDailyAverage() float64 {
+	if x != nil {
+		return x.xxx_hidden_DailyAverage
+	}
+	return 0
+}
+
+func (x *TrackedQueryWarning) GetMessage() string {
+	if x != nil {
+		if x.xxx_hidden_Message != nil {
+			return *x.xxx_hidden_Message
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *TrackedQueryWarning) SetQuery(v string) {
+	x.xxx_hidden_Query = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 4)
+}
+
+func (x *TrackedQueryWarning) SetMatchCount_48H(v int32) {
+	x.xxx_hidden_MatchCount_48H = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 4)
+}
+
+func (x *TrackedQueryWarning) SetDailyAverage(v float64) {
+	x.xxx_hidden_DailyAverage = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 4)
+}
+
+func (x *TrackedQueryWarning) SetMessage(v string) {
+	x.xxx_hidden_Message = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 4)
+}
+
+func (x *TrackedQueryWarning) HasQuery() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+}
+
+func (x *TrackedQueryWarning) HasMatchCount_48H() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 1)
+}
+
+func (x *TrackedQueryWarning) HasDailyAverage() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 2)
+}
+
+func (x *TrackedQueryWarning) HasMessage() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 3)
+}
+
+func (x *TrackedQueryWarning) ClearQuery() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_Query = nil
+}
+
+func (x *TrackedQueryWarning) ClearMatchCount_48H() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 1)
+	x.xxx_hidden_MatchCount_48H = 0
+}
+
+func (x *TrackedQueryWarning) ClearDailyAverage() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 2)
+	x.xxx_hidden_DailyAverage = 0
+}
+
+func (x *TrackedQueryWarning) ClearMessage() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 3)
+	x.xxx_hidden_Message = nil
+}
+
+type TrackedQueryWarning_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Query          *string
+	MatchCount_48H *int32
+	DailyAverage   *float64
+	Message        *string
+}
+
+func (b0 TrackedQueryWarning_builder) Build() *TrackedQueryWarning {
+	m0 := &TrackedQueryWarning{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.Query != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 4)
+		x.xxx_hidden_Query = b.Query
+	}
+	if b.MatchCount_48H != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 4)
+		x.xxx_hidden_MatchCount_48H = *b.MatchCount_48H
+	}
+	if b.DailyAverage != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 4)
+		x.xxx_hidden_DailyAverage = *b.DailyAverage
+	}
+	if b.Message != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 4)
+		x.xxx_hidden_Message = b.Message
+	}
 	return m0
 }
 
 type UpdateConfigResponse struct {
-	state             protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Config *Config                `protobuf:"bytes,1,opt,name=config"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state                    protoimpl.MessageState  `protogen:"opaque.v1"`
+	xxx_hidden_Config        *Config                 `protobuf:"bytes,1,opt,name=config"`
+	xxx_hidden_QueryWarnings *[]*TrackedQueryWarning `protobuf:"bytes,2,rep,name=query_warnings,json=queryWarnings"`
+	xxx_hidden_Saved         bool                    `protobuf:"varint,3,opt,name=saved"`
+	XXX_raceDetectHookData   protoimpl.RaceDetectHookData
+	XXX_presence             [1]uint32
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *UpdateConfigResponse) Reset() {
 	*x = UpdateConfigResponse{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[25]
+	mi := &file_octodeck_v1_service_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2479,7 +2686,7 @@ func (x *UpdateConfigResponse) String() string {
 func (*UpdateConfigResponse) ProtoMessage() {}
 
 func (x *UpdateConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[25]
+	mi := &file_octodeck_v1_service_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2497,8 +2704,33 @@ func (x *UpdateConfigResponse) GetConfig() *Config {
 	return nil
 }
 
+func (x *UpdateConfigResponse) GetQueryWarnings() []*TrackedQueryWarning {
+	if x != nil {
+		if x.xxx_hidden_QueryWarnings != nil {
+			return *x.xxx_hidden_QueryWarnings
+		}
+	}
+	return nil
+}
+
+func (x *UpdateConfigResponse) GetSaved() bool {
+	if x != nil {
+		return x.xxx_hidden_Saved
+	}
+	return false
+}
+
 func (x *UpdateConfigResponse) SetConfig(v *Config) {
 	x.xxx_hidden_Config = v
+}
+
+func (x *UpdateConfigResponse) SetQueryWarnings(v []*TrackedQueryWarning) {
+	x.xxx_hidden_QueryWarnings = &v
+}
+
+func (x *UpdateConfigResponse) SetSaved(v bool) {
+	x.xxx_hidden_Saved = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 3)
 }
 
 func (x *UpdateConfigResponse) HasConfig() bool {
@@ -2508,14 +2740,28 @@ func (x *UpdateConfigResponse) HasConfig() bool {
 	return x.xxx_hidden_Config != nil
 }
 
+func (x *UpdateConfigResponse) HasSaved() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 2)
+}
+
 func (x *UpdateConfigResponse) ClearConfig() {
 	x.xxx_hidden_Config = nil
+}
+
+func (x *UpdateConfigResponse) ClearSaved() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 2)
+	x.xxx_hidden_Saved = false
 }
 
 type UpdateConfigResponse_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Config *Config
+	Config        *Config
+	QueryWarnings []*TrackedQueryWarning
+	Saved         *bool
 }
 
 func (b0 UpdateConfigResponse_builder) Build() *UpdateConfigResponse {
@@ -2523,6 +2769,11 @@ func (b0 UpdateConfigResponse_builder) Build() *UpdateConfigResponse {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_Config = b.Config
+	x.xxx_hidden_QueryWarnings = &b.QueryWarnings
+	if b.Saved != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 3)
+		x.xxx_hidden_Saved = *b.Saved
+	}
 	return m0
 }
 
@@ -2534,7 +2785,7 @@ type GetSyncStatusRequest struct {
 
 func (x *GetSyncStatusRequest) Reset() {
 	*x = GetSyncStatusRequest{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[26]
+	mi := &file_octodeck_v1_service_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2546,7 +2797,7 @@ func (x *GetSyncStatusRequest) String() string {
 func (*GetSyncStatusRequest) ProtoMessage() {}
 
 func (x *GetSyncStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[26]
+	mi := &file_octodeck_v1_service_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2590,7 +2841,7 @@ type SyncStatus struct {
 
 func (x *SyncStatus) Reset() {
 	*x = SyncStatus{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[27]
+	mi := &file_octodeck_v1_service_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2602,7 +2853,7 @@ func (x *SyncStatus) String() string {
 func (*SyncStatus) ProtoMessage() {}
 
 func (x *SyncStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[27]
+	mi := &file_octodeck_v1_service_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2941,7 +3192,7 @@ type GetSyncStatusResponse struct {
 
 func (x *GetSyncStatusResponse) Reset() {
 	*x = GetSyncStatusResponse{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[28]
+	mi := &file_octodeck_v1_service_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2953,7 +3204,7 @@ func (x *GetSyncStatusResponse) String() string {
 func (*GetSyncStatusResponse) ProtoMessage() {}
 
 func (x *GetSyncStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[28]
+	mi := &file_octodeck_v1_service_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3013,7 +3264,7 @@ type GetSyncTracesRequest struct {
 
 func (x *GetSyncTracesRequest) Reset() {
 	*x = GetSyncTracesRequest{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[29]
+	mi := &file_octodeck_v1_service_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3025,7 +3276,7 @@ func (x *GetSyncTracesRequest) String() string {
 func (*GetSyncTracesRequest) ProtoMessage() {}
 
 func (x *GetSyncTracesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[29]
+	mi := &file_octodeck_v1_service_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3147,7 +3398,7 @@ type GetSyncTracesResponse struct {
 
 func (x *GetSyncTracesResponse) Reset() {
 	*x = GetSyncTracesResponse{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[30]
+	mi := &file_octodeck_v1_service_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3159,7 +3410,7 @@ func (x *GetSyncTracesResponse) String() string {
 func (*GetSyncTracesResponse) ProtoMessage() {}
 
 func (x *GetSyncTracesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[30]
+	mi := &file_octodeck_v1_service_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3218,7 +3469,7 @@ type DatabaseStats struct {
 
 func (x *DatabaseStats) Reset() {
 	*x = DatabaseStats{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[31]
+	mi := &file_octodeck_v1_service_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3230,7 +3481,7 @@ func (x *DatabaseStats) String() string {
 func (*DatabaseStats) ProtoMessage() {}
 
 func (x *DatabaseStats) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[31]
+	mi := &file_octodeck_v1_service_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3583,7 +3834,7 @@ type GetDatabaseStatsRequest struct {
 
 func (x *GetDatabaseStatsRequest) Reset() {
 	*x = GetDatabaseStatsRequest{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[32]
+	mi := &file_octodeck_v1_service_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3595,7 +3846,7 @@ func (x *GetDatabaseStatsRequest) String() string {
 func (*GetDatabaseStatsRequest) ProtoMessage() {}
 
 func (x *GetDatabaseStatsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[32]
+	mi := &file_octodeck_v1_service_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3627,7 +3878,7 @@ type GetDatabaseStatsResponse struct {
 
 func (x *GetDatabaseStatsResponse) Reset() {
 	*x = GetDatabaseStatsResponse{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[33]
+	mi := &file_octodeck_v1_service_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3639,7 +3890,7 @@ func (x *GetDatabaseStatsResponse) String() string {
 func (*GetDatabaseStatsResponse) ProtoMessage() {}
 
 func (x *GetDatabaseStatsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[33]
+	mi := &file_octodeck_v1_service_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3773,13 +4024,22 @@ const file_octodeck_v1_service_proto_rawDesc = "" +
 	"\x10GetConfigRequest\"n\n" +
 	"\x11GetConfigResponse\x12+\n" +
 	"\x06config\x18\x01 \x01(\v2\x13.octodeck.v1.ConfigR\x06config\x12,\n" +
-	"\x12current_user_login\x18\x02 \x01(\tR\x10currentUserLogin\"\x7f\n" +
+	"\x12current_user_login\x18\x02 \x01(\tR\x10currentUserLogin\"\x9e\x01\n" +
 	"\x13UpdateConfigRequest\x12+\n" +
 	"\x06config\x18\x01 \x01(\v2\x13.octodeck.v1.ConfigR\x06config\x12;\n" +
 	"\vupdate_mask\x18\x02 \x01(\v2\x1a.google.protobuf.FieldMaskR\n" +
-	"updateMask\"C\n" +
+	"updateMask\x12\x1d\n" +
+	"\n" +
+	"force_save\x18\x03 \x01(\bR\tforceSave\"\x92\x01\n" +
+	"\x13TrackedQueryWarning\x12\x14\n" +
+	"\x05query\x18\x01 \x01(\tR\x05query\x12&\n" +
+	"\x0fmatch_count_48h\x18\x02 \x01(\x05R\rmatchCount48h\x12#\n" +
+	"\rdaily_average\x18\x03 \x01(\x01R\fdailyAverage\x12\x18\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\"\xa2\x01\n" +
 	"\x14UpdateConfigResponse\x12+\n" +
-	"\x06config\x18\x01 \x01(\v2\x13.octodeck.v1.ConfigR\x06config\"\x16\n" +
+	"\x06config\x18\x01 \x01(\v2\x13.octodeck.v1.ConfigR\x06config\x12G\n" +
+	"\x0equery_warnings\x18\x02 \x03(\v2 .octodeck.v1.TrackedQueryWarningR\rqueryWarnings\x12\x14\n" +
+	"\x05saved\x18\x03 \x01(\bR\x05saved\"\x16\n" +
 	"\x14GetSyncStatusRequest\"\xf7\x04\n" +
 	"\n" +
 	"SyncStatus\x12Q\n" +
@@ -3846,7 +4106,7 @@ const file_octodeck_v1_service_proto_rawDesc = "" +
 	"\x0fcom.octodeck.v1B\fServiceProtoP\x01ZIgithub.com/tallclair/octodeck/backend/internal/api/octodeck/v1;octodeckv1\xa2\x02\x03OXX\xaa\x02\vOctodeck.V1\xca\x02\vOctodeck\\V1\xe2\x02\x17Octodeck\\V1\\GPBMetadata\xea\x02\fOctodeck::V1b\beditionsp\xe8\a"
 
 var file_octodeck_v1_service_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_octodeck_v1_service_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
+var file_octodeck_v1_service_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
 var file_octodeck_v1_service_proto_goTypes = []any{
 	(SyncResponse_Stage)(0),            // 0: octodeck.v1.SyncResponse.Stage
 	(*GetItemsRequest)(nil),            // 1: octodeck.v1.GetItemsRequest
@@ -3874,84 +4134,86 @@ var file_octodeck_v1_service_proto_goTypes = []any{
 	(*GetConfigRequest)(nil),           // 23: octodeck.v1.GetConfigRequest
 	(*GetConfigResponse)(nil),          // 24: octodeck.v1.GetConfigResponse
 	(*UpdateConfigRequest)(nil),        // 25: octodeck.v1.UpdateConfigRequest
-	(*UpdateConfigResponse)(nil),       // 26: octodeck.v1.UpdateConfigResponse
-	(*GetSyncStatusRequest)(nil),       // 27: octodeck.v1.GetSyncStatusRequest
-	(*SyncStatus)(nil),                 // 28: octodeck.v1.SyncStatus
-	(*GetSyncStatusResponse)(nil),      // 29: octodeck.v1.GetSyncStatusResponse
-	(*GetSyncTracesRequest)(nil),       // 30: octodeck.v1.GetSyncTracesRequest
-	(*GetSyncTracesResponse)(nil),      // 31: octodeck.v1.GetSyncTracesResponse
-	(*DatabaseStats)(nil),              // 32: octodeck.v1.DatabaseStats
-	(*GetDatabaseStatsRequest)(nil),    // 33: octodeck.v1.GetDatabaseStatsRequest
-	(*GetDatabaseStatsResponse)(nil),   // 34: octodeck.v1.GetDatabaseStatsResponse
-	(*Item)(nil),                       // 35: octodeck.v1.Item
-	(ItemType)(0),                      // 36: octodeck.v1.ItemType
-	(ItemState)(0),                     // 37: octodeck.v1.ItemState
-	(ItemStatus)(0),                    // 38: octodeck.v1.ItemStatus
-	(SubscriptionState)(0),             // 39: octodeck.v1.SubscriptionState
-	(*fieldmaskpb.FieldMask)(nil),      // 40: google.protobuf.FieldMask
-	(*timestamppb.Timestamp)(nil),      // 41: google.protobuf.Timestamp
-	(*SyncTrace)(nil),                  // 42: octodeck.v1.SyncTrace
+	(*TrackedQueryWarning)(nil),        // 26: octodeck.v1.TrackedQueryWarning
+	(*UpdateConfigResponse)(nil),       // 27: octodeck.v1.UpdateConfigResponse
+	(*GetSyncStatusRequest)(nil),       // 28: octodeck.v1.GetSyncStatusRequest
+	(*SyncStatus)(nil),                 // 29: octodeck.v1.SyncStatus
+	(*GetSyncStatusResponse)(nil),      // 30: octodeck.v1.GetSyncStatusResponse
+	(*GetSyncTracesRequest)(nil),       // 31: octodeck.v1.GetSyncTracesRequest
+	(*GetSyncTracesResponse)(nil),      // 32: octodeck.v1.GetSyncTracesResponse
+	(*DatabaseStats)(nil),              // 33: octodeck.v1.DatabaseStats
+	(*GetDatabaseStatsRequest)(nil),    // 34: octodeck.v1.GetDatabaseStatsRequest
+	(*GetDatabaseStatsResponse)(nil),   // 35: octodeck.v1.GetDatabaseStatsResponse
+	(*Item)(nil),                       // 36: octodeck.v1.Item
+	(ItemType)(0),                      // 37: octodeck.v1.ItemType
+	(ItemState)(0),                     // 38: octodeck.v1.ItemState
+	(ItemStatus)(0),                    // 39: octodeck.v1.ItemStatus
+	(SubscriptionState)(0),             // 40: octodeck.v1.SubscriptionState
+	(*fieldmaskpb.FieldMask)(nil),      // 41: google.protobuf.FieldMask
+	(*timestamppb.Timestamp)(nil),      // 42: google.protobuf.Timestamp
+	(*SyncTrace)(nil),                  // 43: octodeck.v1.SyncTrace
 }
 var file_octodeck_v1_service_proto_depIdxs = []int32{
 	5,  // 0: octodeck.v1.GetItemsRequest.filter:type_name -> octodeck.v1.Filter
-	35, // 1: octodeck.v1.GetItemsResponse.items:type_name -> octodeck.v1.Item
-	35, // 2: octodeck.v1.GetItemResponse.item:type_name -> octodeck.v1.Item
-	36, // 3: octodeck.v1.Filter.type:type_name -> octodeck.v1.ItemType
-	37, // 4: octodeck.v1.Filter.state:type_name -> octodeck.v1.ItemState
-	38, // 5: octodeck.v1.Filter.status:type_name -> octodeck.v1.ItemStatus
+	36, // 1: octodeck.v1.GetItemsResponse.items:type_name -> octodeck.v1.Item
+	36, // 2: octodeck.v1.GetItemResponse.item:type_name -> octodeck.v1.Item
+	37, // 3: octodeck.v1.Filter.type:type_name -> octodeck.v1.ItemType
+	38, // 4: octodeck.v1.Filter.state:type_name -> octodeck.v1.ItemState
+	39, // 5: octodeck.v1.Filter.status:type_name -> octodeck.v1.ItemStatus
 	0,  // 6: octodeck.v1.SyncResponse.stage:type_name -> octodeck.v1.SyncResponse.Stage
-	35, // 7: octodeck.v1.ViewItemResponse.item:type_name -> octodeck.v1.Item
-	35, // 8: octodeck.v1.AckItemResponse.item:type_name -> octodeck.v1.Item
-	35, // 9: octodeck.v1.StarItemResponse.item:type_name -> octodeck.v1.Item
-	35, // 10: octodeck.v1.SetNotesResponse.item:type_name -> octodeck.v1.Item
-	35, // 11: octodeck.v1.RefetchItemResponse.item:type_name -> octodeck.v1.Item
-	39, // 12: octodeck.v1.UpdateSubscriptionRequest.state:type_name -> octodeck.v1.SubscriptionState
-	35, // 13: octodeck.v1.UpdateSubscriptionResponse.item:type_name -> octodeck.v1.Item
+	36, // 7: octodeck.v1.ViewItemResponse.item:type_name -> octodeck.v1.Item
+	36, // 8: octodeck.v1.AckItemResponse.item:type_name -> octodeck.v1.Item
+	36, // 9: octodeck.v1.StarItemResponse.item:type_name -> octodeck.v1.Item
+	36, // 10: octodeck.v1.SetNotesResponse.item:type_name -> octodeck.v1.Item
+	36, // 11: octodeck.v1.RefetchItemResponse.item:type_name -> octodeck.v1.Item
+	40, // 12: octodeck.v1.UpdateSubscriptionRequest.state:type_name -> octodeck.v1.SubscriptionState
+	36, // 13: octodeck.v1.UpdateSubscriptionResponse.item:type_name -> octodeck.v1.Item
 	22, // 14: octodeck.v1.GetConfigResponse.config:type_name -> octodeck.v1.Config
 	22, // 15: octodeck.v1.UpdateConfigRequest.config:type_name -> octodeck.v1.Config
-	40, // 16: octodeck.v1.UpdateConfigRequest.update_mask:type_name -> google.protobuf.FieldMask
+	41, // 16: octodeck.v1.UpdateConfigRequest.update_mask:type_name -> google.protobuf.FieldMask
 	22, // 17: octodeck.v1.UpdateConfigResponse.config:type_name -> octodeck.v1.Config
-	41, // 18: octodeck.v1.SyncStatus.last_successful_sync_at:type_name -> google.protobuf.Timestamp
-	41, // 19: octodeck.v1.SyncStatus.last_sync_attempt_at:type_name -> google.protobuf.Timestamp
-	41, // 20: octodeck.v1.SyncStatus.last_update_received_at:type_name -> google.protobuf.Timestamp
-	28, // 21: octodeck.v1.GetSyncStatusResponse.status:type_name -> octodeck.v1.SyncStatus
-	42, // 22: octodeck.v1.GetSyncTracesResponse.traces:type_name -> octodeck.v1.SyncTrace
-	32, // 23: octodeck.v1.GetDatabaseStatsResponse.stats:type_name -> octodeck.v1.DatabaseStats
-	1,  // 24: octodeck.v1.OctoDeckService.GetItems:input_type -> octodeck.v1.GetItemsRequest
-	3,  // 25: octodeck.v1.OctoDeckService.GetItem:input_type -> octodeck.v1.GetItemRequest
-	6,  // 26: octodeck.v1.OctoDeckService.Sync:input_type -> octodeck.v1.SyncRequest
-	8,  // 27: octodeck.v1.OctoDeckService.ViewItem:input_type -> octodeck.v1.ViewItemRequest
-	10, // 28: octodeck.v1.OctoDeckService.AckItem:input_type -> octodeck.v1.AckItemRequest
-	12, // 29: octodeck.v1.OctoDeckService.StarItem:input_type -> octodeck.v1.StarItemRequest
-	14, // 30: octodeck.v1.OctoDeckService.SetNotes:input_type -> octodeck.v1.SetNotesRequest
-	16, // 31: octodeck.v1.OctoDeckService.RefetchItem:input_type -> octodeck.v1.RefetchItemRequest
-	18, // 32: octodeck.v1.OctoDeckService.DeleteItem:input_type -> octodeck.v1.DeleteItemRequest
-	20, // 33: octodeck.v1.OctoDeckService.UpdateSubscription:input_type -> octodeck.v1.UpdateSubscriptionRequest
-	27, // 34: octodeck.v1.OctoDeckService.GetSyncStatus:input_type -> octodeck.v1.GetSyncStatusRequest
-	30, // 35: octodeck.v1.OctoDeckService.GetSyncTraces:input_type -> octodeck.v1.GetSyncTracesRequest
-	33, // 36: octodeck.v1.OctoDeckService.GetDatabaseStats:input_type -> octodeck.v1.GetDatabaseStatsRequest
-	23, // 37: octodeck.v1.OctoDeckService.GetConfig:input_type -> octodeck.v1.GetConfigRequest
-	25, // 38: octodeck.v1.OctoDeckService.UpdateConfig:input_type -> octodeck.v1.UpdateConfigRequest
-	2,  // 39: octodeck.v1.OctoDeckService.GetItems:output_type -> octodeck.v1.GetItemsResponse
-	4,  // 40: octodeck.v1.OctoDeckService.GetItem:output_type -> octodeck.v1.GetItemResponse
-	7,  // 41: octodeck.v1.OctoDeckService.Sync:output_type -> octodeck.v1.SyncResponse
-	9,  // 42: octodeck.v1.OctoDeckService.ViewItem:output_type -> octodeck.v1.ViewItemResponse
-	11, // 43: octodeck.v1.OctoDeckService.AckItem:output_type -> octodeck.v1.AckItemResponse
-	13, // 44: octodeck.v1.OctoDeckService.StarItem:output_type -> octodeck.v1.StarItemResponse
-	15, // 45: octodeck.v1.OctoDeckService.SetNotes:output_type -> octodeck.v1.SetNotesResponse
-	17, // 46: octodeck.v1.OctoDeckService.RefetchItem:output_type -> octodeck.v1.RefetchItemResponse
-	19, // 47: octodeck.v1.OctoDeckService.DeleteItem:output_type -> octodeck.v1.DeleteItemResponse
-	21, // 48: octodeck.v1.OctoDeckService.UpdateSubscription:output_type -> octodeck.v1.UpdateSubscriptionResponse
-	29, // 49: octodeck.v1.OctoDeckService.GetSyncStatus:output_type -> octodeck.v1.GetSyncStatusResponse
-	31, // 50: octodeck.v1.OctoDeckService.GetSyncTraces:output_type -> octodeck.v1.GetSyncTracesResponse
-	34, // 51: octodeck.v1.OctoDeckService.GetDatabaseStats:output_type -> octodeck.v1.GetDatabaseStatsResponse
-	24, // 52: octodeck.v1.OctoDeckService.GetConfig:output_type -> octodeck.v1.GetConfigResponse
-	26, // 53: octodeck.v1.OctoDeckService.UpdateConfig:output_type -> octodeck.v1.UpdateConfigResponse
-	39, // [39:54] is the sub-list for method output_type
-	24, // [24:39] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	26, // 18: octodeck.v1.UpdateConfigResponse.query_warnings:type_name -> octodeck.v1.TrackedQueryWarning
+	42, // 19: octodeck.v1.SyncStatus.last_successful_sync_at:type_name -> google.protobuf.Timestamp
+	42, // 20: octodeck.v1.SyncStatus.last_sync_attempt_at:type_name -> google.protobuf.Timestamp
+	42, // 21: octodeck.v1.SyncStatus.last_update_received_at:type_name -> google.protobuf.Timestamp
+	29, // 22: octodeck.v1.GetSyncStatusResponse.status:type_name -> octodeck.v1.SyncStatus
+	43, // 23: octodeck.v1.GetSyncTracesResponse.traces:type_name -> octodeck.v1.SyncTrace
+	33, // 24: octodeck.v1.GetDatabaseStatsResponse.stats:type_name -> octodeck.v1.DatabaseStats
+	1,  // 25: octodeck.v1.OctoDeckService.GetItems:input_type -> octodeck.v1.GetItemsRequest
+	3,  // 26: octodeck.v1.OctoDeckService.GetItem:input_type -> octodeck.v1.GetItemRequest
+	6,  // 27: octodeck.v1.OctoDeckService.Sync:input_type -> octodeck.v1.SyncRequest
+	8,  // 28: octodeck.v1.OctoDeckService.ViewItem:input_type -> octodeck.v1.ViewItemRequest
+	10, // 29: octodeck.v1.OctoDeckService.AckItem:input_type -> octodeck.v1.AckItemRequest
+	12, // 30: octodeck.v1.OctoDeckService.StarItem:input_type -> octodeck.v1.StarItemRequest
+	14, // 31: octodeck.v1.OctoDeckService.SetNotes:input_type -> octodeck.v1.SetNotesRequest
+	16, // 32: octodeck.v1.OctoDeckService.RefetchItem:input_type -> octodeck.v1.RefetchItemRequest
+	18, // 33: octodeck.v1.OctoDeckService.DeleteItem:input_type -> octodeck.v1.DeleteItemRequest
+	20, // 34: octodeck.v1.OctoDeckService.UpdateSubscription:input_type -> octodeck.v1.UpdateSubscriptionRequest
+	28, // 35: octodeck.v1.OctoDeckService.GetSyncStatus:input_type -> octodeck.v1.GetSyncStatusRequest
+	31, // 36: octodeck.v1.OctoDeckService.GetSyncTraces:input_type -> octodeck.v1.GetSyncTracesRequest
+	34, // 37: octodeck.v1.OctoDeckService.GetDatabaseStats:input_type -> octodeck.v1.GetDatabaseStatsRequest
+	23, // 38: octodeck.v1.OctoDeckService.GetConfig:input_type -> octodeck.v1.GetConfigRequest
+	25, // 39: octodeck.v1.OctoDeckService.UpdateConfig:input_type -> octodeck.v1.UpdateConfigRequest
+	2,  // 40: octodeck.v1.OctoDeckService.GetItems:output_type -> octodeck.v1.GetItemsResponse
+	4,  // 41: octodeck.v1.OctoDeckService.GetItem:output_type -> octodeck.v1.GetItemResponse
+	7,  // 42: octodeck.v1.OctoDeckService.Sync:output_type -> octodeck.v1.SyncResponse
+	9,  // 43: octodeck.v1.OctoDeckService.ViewItem:output_type -> octodeck.v1.ViewItemResponse
+	11, // 44: octodeck.v1.OctoDeckService.AckItem:output_type -> octodeck.v1.AckItemResponse
+	13, // 45: octodeck.v1.OctoDeckService.StarItem:output_type -> octodeck.v1.StarItemResponse
+	15, // 46: octodeck.v1.OctoDeckService.SetNotes:output_type -> octodeck.v1.SetNotesResponse
+	17, // 47: octodeck.v1.OctoDeckService.RefetchItem:output_type -> octodeck.v1.RefetchItemResponse
+	19, // 48: octodeck.v1.OctoDeckService.DeleteItem:output_type -> octodeck.v1.DeleteItemResponse
+	21, // 49: octodeck.v1.OctoDeckService.UpdateSubscription:output_type -> octodeck.v1.UpdateSubscriptionResponse
+	30, // 50: octodeck.v1.OctoDeckService.GetSyncStatus:output_type -> octodeck.v1.GetSyncStatusResponse
+	32, // 51: octodeck.v1.OctoDeckService.GetSyncTraces:output_type -> octodeck.v1.GetSyncTracesResponse
+	35, // 52: octodeck.v1.OctoDeckService.GetDatabaseStats:output_type -> octodeck.v1.GetDatabaseStatsResponse
+	24, // 53: octodeck.v1.OctoDeckService.GetConfig:output_type -> octodeck.v1.GetConfigResponse
+	27, // 54: octodeck.v1.OctoDeckService.UpdateConfig:output_type -> octodeck.v1.UpdateConfigResponse
+	40, // [40:55] is the sub-list for method output_type
+	25, // [25:40] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_octodeck_v1_service_proto_init() }
@@ -3966,7 +4228,7 @@ func file_octodeck_v1_service_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_octodeck_v1_service_proto_rawDesc), len(file_octodeck_v1_service_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   34,
+			NumMessages:   35,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

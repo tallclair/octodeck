@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -74,6 +75,17 @@ func (h *octoDeckHandler) UpdateConfig(ctx context.Context,
 		newCfg.SetTrackedQueries(config.SanitizeTrackedQueries(newCfg.GetTrackedQueries()))
 	}
 
+	if !req.Msg.GetForceSave() {
+		warnings := h.evaluateTrackedQueryWarnings(ctx, newCfg.GetTrackedQueries())
+		if len(warnings) > 0 {
+			return connect.NewResponse(octodeckv1.UpdateConfigResponse_builder{
+				Config:        h.cfg.GetProto(),
+				QueryWarnings: warnings,
+				Saved:         config.Ptr(false),
+			}.Build()), nil
+		}
+	}
+
 	if err := h.cfg.UpdateProto(newCfg, req.Msg.GetUpdateMask()); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to update config: %w", err))
 	}
@@ -97,7 +109,59 @@ func (h *octoDeckHandler) UpdateConfig(ctx context.Context,
 
 	return connect.NewResponse(octodeckv1.UpdateConfigResponse_builder{
 		Config: h.cfg.GetProto(),
+		Saved:  config.Ptr(true),
 	}.Build()), nil
+}
+
+// evaluateTrackedQueryWarnings executes a per-query 48-hour pre-flight check against GitHub
+// for any newly added tracked queries. If a query's daily average of newly created items
+// exceeds DiscoveryPreFlightMaxDailyAvg (50/day), a warning is returned.
+func (h *octoDeckHandler) evaluateTrackedQueryWarnings(
+	ctx context.Context,
+	candidateQueries []string,
+) []*octodeckv1.TrackedQueryWarning {
+	if h.ghClient == nil || len(candidateQueries) == 0 {
+		return nil
+	}
+
+	existingSet := make(map[string]struct{})
+	if h.cfg != nil {
+		for _, q := range h.cfg.GetTrackedQueries() {
+			existingSet[q] = struct{}{}
+		}
+	}
+
+	since := time.Now().UTC().Add(-logic.DiscoveryPreFlightWindow)
+	var warnings []*octodeckv1.TrackedQueryWarning
+
+	for _, q := range candidateQueries {
+		if _, exists := existingSet[q]; exists {
+			continue
+		}
+		preFlightQuery := logic.BuildDiscoveryPreFlightQuery(q, since)
+		count, err := h.ghClient.CountSearchIssues(ctx, preFlightQuery)
+		if err != nil {
+			slog.WarnContext(ctx, "Pre-flight check failed for tracked query", "query", q, "error", err)
+			continue
+		}
+		dailyAvg := float64(count) / logic.DiscoveryPreFlightWindowDays
+		if dailyAvg > logic.DiscoveryPreFlightMaxDailyAvg {
+			msg := fmt.Sprintf(
+				"Query %q matched %d items created in the last 48h (avg %.1f/day, exceeding 50/day threshold).",
+				q,
+				count,
+				dailyAvg,
+			)
+			warnings = append(warnings, octodeckv1.TrackedQueryWarning_builder{
+				Query:          &q,
+				MatchCount_48H: &count,
+				DailyAverage:   &dailyAvg,
+				Message:        &msg,
+			}.Build())
+		}
+	}
+
+	return warnings
 }
 
 func (h *octoDeckHandler) filterItemRepos(items []*octodeckv1.Item) []*octodeckv1.Item {

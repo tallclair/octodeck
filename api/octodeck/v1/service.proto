@@ -171,10 +171,20 @@ message GetConfigResponse {
 message UpdateConfigRequest {
   Config config = 1;
   google.protobuf.FieldMask update_mask = 2;
+  bool force_save = 3;
+}
+
+message TrackedQueryWarning {
+  string query = 1;
+  int32 match_count_48h = 2;
+  double daily_average = 3;
+  string message = 4;
 }
 
 message UpdateConfigResponse {
   Config config = 1;
+  repeated TrackedQueryWarning query_warnings = 2;
+  bool saved = 3;
 }
 
 message GetSyncStatusRequest {}

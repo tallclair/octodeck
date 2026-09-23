@@ -955,7 +955,7 @@ func TestOctoDeckHandler_UpdateConfig_SliceImmutability(t *testing.T) {
 	_, client, addHeaders, _ := setupTestHandler(t)
 
 	t.Run("Mutating request slice after UpdateConfig does not mutate server config", func(t *testing.T) {
-		queries := []string{"query_a", "query_b"}
+		queries := []string{"repo:a/b query_a", "repo:a/b query_b"}
 		req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
 			Config: octodeckv1.Config_builder{
 				TrackedQueries: queries,
@@ -965,7 +965,7 @@ func TestOctoDeckHandler_UpdateConfig_SliceImmutability(t *testing.T) {
 		addHeaders(req)
 		resp, err := client.UpdateConfig(t.Context(), req)
 		require.NoError(t, err)
-		assert.Equal(t, []string{"query_a", "query_b"}, resp.Msg.GetConfig().GetTrackedQueries())
+		assert.Equal(t, []string{"repo:a/b query_a", "repo:a/b query_b"}, resp.Msg.GetConfig().GetTrackedQueries())
 
 		// Mutate caller slice
 		queries[0] = "MALICIOUS_MUTATION"
@@ -975,7 +975,7 @@ func TestOctoDeckHandler_UpdateConfig_SliceImmutability(t *testing.T) {
 		addHeaders(getReq)
 		getResp, err := client.GetConfig(t.Context(), getReq)
 		require.NoError(t, err)
-		assert.Equal(t, "query_a", getResp.Msg.GetConfig().GetTrackedQueries()[0],
+		assert.Equal(t, "repo:a/b query_a", getResp.Msg.GetConfig().GetTrackedQueries()[0],
 			"server config must be immune to client slice mutation")
 	})
 }
@@ -1163,23 +1163,91 @@ func TestOctoDeckHandler_UpdateConfig_ValidationAndErrorPaths(t *testing.T) {
 	t.Run("FieldMask supports both snake_case and camelCase paths", func(t *testing.T) {
 		// snake_case
 		req1 := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
-			Config:     octodeckv1.Config_builder{TrackedQueries: []string{"query_snake"}}.Build(),
+			Config:     octodeckv1.Config_builder{TrackedQueries: []string{"repo:a/b query_snake"}}.Build(),
 			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"tracked_queries"}},
 		}.Build())
 		addHeaders(req1)
 		resp1, err := client.UpdateConfig(t.Context(), req1)
 		require.NoError(t, err)
-		assert.Equal(t, []string{"query_snake"}, resp1.Msg.GetConfig().GetTrackedQueries())
+		assert.Equal(t, []string{"repo:a/b query_snake"}, resp1.Msg.GetConfig().GetTrackedQueries())
 
 		// camelCase
 		req2 := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
-			Config:     octodeckv1.Config_builder{TrackedQueries: []string{"query_camel"}}.Build(),
+			Config:     octodeckv1.Config_builder{TrackedQueries: []string{"repo:a/b query_camel"}}.Build(),
 			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"trackedQueries"}},
 		}.Build())
 		addHeaders(req2)
 		resp2, err := client.UpdateConfig(t.Context(), req2)
 		require.NoError(t, err)
-		assert.Equal(t, []string{"query_camel"}, resp2.Msg.GetConfig().GetTrackedQueries())
+		assert.Equal(t, []string{"repo:a/b query_camel"}, resp2.Msg.GetConfig().GetTrackedQueries())
+	})
+
+	t.Run("TrackedQueries missing scope qualifier returns InvalidArgument", func(t *testing.T) {
+		req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config: octodeckv1.Config_builder{
+				TrackedQueries: []string{"is:open label:bug"},
+			}.Build(),
+		}.Build())
+		addHeaders(req)
+		_, err := client.UpdateConfig(t.Context(), req)
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+		assert.Contains(t, err.Error(), "must include a positive scope qualifier")
+	})
+
+	t.Run("Pre-flight check warns when query exceeds 50/day avg and saves on force_save", func(t *testing.T) {
+		var queriedStrings []string
+		mockGH := &mockGitHubClient{
+			authenticated: true,
+			countSearchIssuesFn: func(_ context.Context, searchQuery string) (int32, error) {
+				queriedStrings = append(queriedStrings, searchQuery)
+				if assert.Contains(t, searchQuery, "created:>") {
+					// If it's the broad query, return 140 items in 48h (70/day > 50/day)
+					if len(queriedStrings) == 1 {
+						return 140, nil
+					}
+					// Second query is low volume: 20 items in 48h (10/day <= 50/day)
+					return 20, nil
+				}
+				return 0, nil
+			},
+		}
+		_, ghClient, ghAddHeaders, _ := setupTestHandlerWithGH(t, mockGH)
+
+		broadQuery := "org:kubernetes is:open"
+		narrowQuery := "repo:kubernetes/kubernetes is:open label:sig/node"
+
+		// 1. UpdateConfig without force_save should not persist and should return warning for broadQuery only
+		req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config: octodeckv1.Config_builder{
+				TrackedQueries: []string{broadQuery, narrowQuery},
+			}.Build(),
+		}.Build())
+		ghAddHeaders(req)
+		resp, err := ghClient.UpdateConfig(t.Context(), req)
+		require.NoError(t, err)
+		assert.False(t, resp.Msg.GetSaved())
+		require.Len(t, resp.Msg.GetQueryWarnings(), 1)
+		w := resp.Msg.GetQueryWarnings()[0]
+		assert.Equal(t, broadQuery, w.GetQuery())
+		assert.Equal(t, int32(140), w.GetMatchCount_48H())
+		assert.InDelta(t, 70.0, w.GetDailyAverage(), 0.01)
+		assert.Contains(t, w.GetMessage(), "140 items created in the last 48h")
+		assert.Empty(t, resp.Msg.GetConfig().GetTrackedQueries(), "config must not be saved when warning blocks")
+
+		// 2. Retry with ForceSave: true should persist both queries
+		reqForce := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+			Config: octodeckv1.Config_builder{
+				TrackedQueries: []string{broadQuery, narrowQuery},
+			}.Build(),
+			ForceSave: config.Ptr(true),
+		}.Build())
+		ghAddHeaders(reqForce)
+		respForce, err := ghClient.UpdateConfig(t.Context(), reqForce)
+		require.NoError(t, err)
+		assert.True(t, respForce.Msg.GetSaved())
+		assert.Empty(t, respForce.Msg.GetQueryWarnings())
+		assert.Equal(t, []string{broadQuery, narrowQuery}, respForce.Msg.GetConfig().GetTrackedQueries())
 	})
 }
 

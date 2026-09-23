@@ -390,6 +390,36 @@ func TestValidateTrackedQueries(t *testing.T) {
 			assert.NoError(t, ValidateTrackedQueries([]string{q}), "expected ValidateTrackedQueries to pass for %q", q)
 		}
 	})
+
+	t.Run("scope qualifier requirement", func(t *testing.T) {
+		unscoped := []string{
+			"is:open label:bug",
+			"is:issue is:open label:security",
+			"-repo:kubernetes/kubernetes is:open",
+			"-org:kubernetes is:open",
+			"-user:tallclair is:open",
+			"repo:kubernetes is:open",
+			"repo: is:open",
+		}
+		for _, q := range unscoped {
+			assert.False(t, HasScopeQualifier(q), "expected HasScopeQualifier to return false for %q", q)
+			err := ValidateTrackedQueries([]string{q})
+			require.Error(t, err, "expected ValidateTrackedQueries to fail for %q", q)
+			assert.Contains(t, err.Error(), "must include a positive scope qualifier")
+		}
+
+		scoped := []string{
+			"repo:kubernetes/kubernetes is:open",
+			"org:kubernetes is:open label:sig/node",
+			"user:tallclair is:pr",
+			"(repo:foo/bar OR repo:baz/qux) is:open",
+			"is:open ORG:Kubernetes",
+		}
+		for _, q := range scoped {
+			assert.True(t, HasScopeQualifier(q), "expected HasScopeQualifier to return true for %q", q)
+			assert.NoError(t, ValidateTrackedQueries([]string{q}), "expected ValidateTrackedQueries to pass for %q", q)
+		}
+	})
 }
 
 func TestConfig_RepeatedFieldsFieldMaskClearing(t *testing.T) {

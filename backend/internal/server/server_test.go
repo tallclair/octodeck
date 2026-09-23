@@ -22,6 +22,7 @@ type mockGitHubClient struct {
 	authenticated        bool
 	err                  error
 	updateSubscriptionFn func(ctx context.Context, id string, state octodeckv1.SubscriptionState) error
+	countSearchIssuesFn  func(ctx context.Context, searchQuery string) (int32, error)
 }
 
 func (m *mockGitHubClient) CheckAuth(_ context.Context) (string, bool, error) {
@@ -37,6 +38,13 @@ func (m *mockGitHubClient) UpdateSubscription(
 		return m.updateSubscriptionFn(ctx, id, state)
 	}
 	return m.err
+}
+
+func (m *mockGitHubClient) CountSearchIssues(ctx context.Context, searchQuery string) (int32, error) {
+	if m.countSearchIssuesFn != nil {
+		return m.countSearchIssuesFn(ctx, searchQuery)
+	}
+	return 0, m.err
 }
 
 type mockSyncEngine struct {

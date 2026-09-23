@@ -1529,3 +1529,42 @@ func TestSearchCandidateIDs_Errors(t *testing.T) {
 		assert.Nil(t, ids)
 	})
 }
+
+func TestCountSearchIssues(t *testing.T) {
+	t.Run("ReturnsIssueCount", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"data": {
+					"search": {
+						"issueCount": 142
+					}
+				}
+			}`))
+		}))
+		defer server.Close()
+
+		gqlClient := graphql.NewClient(server.URL, server.Client())
+		client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
+
+		count, err := client.CountSearchIssues(
+			t.Context(),
+			"repo:kubernetes/kubernetes is:open created:>2026-09-20T00:00:00Z",
+		)
+		require.NoError(t, err)
+		assert.Equal(t, int32(142), count)
+	})
+
+	t.Run("EmptyQueryReturnsZero", func(t *testing.T) {
+		client := &Client{GraphQLClient: &testGQLAdapter{}}
+		count, err := client.CountSearchIssues(t.Context(), "   ")
+		require.NoError(t, err)
+		assert.Equal(t, int32(0), count)
+	})
+
+	t.Run("UninitializedClientError", func(t *testing.T) {
+		var nilClient *Client
+		_, err := nilClient.CountSearchIssues(t.Context(), "repo:a/b is:open")
+		require.Error(t, err)
+	})
+}

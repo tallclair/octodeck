@@ -20,6 +20,15 @@ const (
 	// when injecting the updated:> filter to account for GitHub search indexing latency.
 	DiscoveryIndexingBuffer = 2 * time.Minute
 
+	// DiscoveryPreFlightWindow is the time window evaluated during pre-flight query checks.
+	DiscoveryPreFlightWindow = 48 * time.Hour
+
+	// DiscoveryPreFlightWindowDays is the duration of DiscoveryPreFlightWindow expressed in days.
+	DiscoveryPreFlightWindowDays = 2.0
+
+	// DiscoveryPreFlightMaxDailyAvg is the daily average threshold above which a pre-flight warning is triggered.
+	DiscoveryPreFlightMaxDailyAvg = 50.0
+
 	// Trace type for discovery runs recorded in sync_traces.
 	traceTypeDiscovery = "discovery"
 
@@ -30,6 +39,12 @@ const (
 // BuildDiscoverySearchQuery injects an updated:> timestamp filter into baseQuery.
 func BuildDiscoverySearchQuery(baseQuery string, since time.Time) string {
 	return fmt.Sprintf("%s updated:>%s", strings.TrimSpace(baseQuery), since.UTC().Format("2006-01-02T15:04:05Z"))
+}
+
+// BuildDiscoveryPreFlightQuery injects a created:> timestamp filter into baseQuery
+// for pre-flight volume estimation over the last 48 hours.
+func BuildDiscoveryPreFlightQuery(baseQuery string, since time.Time) string {
+	return fmt.Sprintf("%s created:>%s", strings.TrimSpace(baseQuery), since.UTC().Format("2006-01-02T15:04:05Z"))
 }
 
 // DiscoverySyncPayload represents the structured diagnostic payload stored in sync_traces for discovery runs.

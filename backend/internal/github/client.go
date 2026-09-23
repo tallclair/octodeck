@@ -1506,3 +1506,32 @@ func (c *Client) SearchCandidateIDs(ctx context.Context, searchQuery string, lim
 
 	return ids, nil
 }
+
+// CountSearchIssues executes a lightweight GraphQL search query against GitHub
+// and returns the total number of matching issues and pull requests (issueCount).
+func (c *Client) CountSearchIssues(ctx context.Context, searchQuery string) (int32, error) {
+	if c == nil || c.GraphQLClient == nil {
+		return 0, errors.New("github graphql client is not initialized")
+	}
+
+	trimmedQuery := strings.TrimSpace(searchQuery)
+	if trimmedQuery == "" {
+		return 0, nil
+	}
+
+	var query struct {
+		Search struct {
+			IssueCount int32 `graphql:"issueCount" json:"issueCount"`
+		} `graphql:"search(query: $query, type: ISSUE, first: 1)" json:"search"`
+	}
+
+	vars := map[string]any{
+		"query": graphql.String(trimmedQuery),
+	}
+
+	if err := c.GraphQLClient.QueryWithContext(ctx, "CountSearchIssues", &query, vars); err != nil {
+		return 0, fmt.Errorf("failed to count search issues: %w", err)
+	}
+
+	return query.Search.IssueCount, nil
+}

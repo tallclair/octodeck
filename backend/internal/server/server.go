@@ -31,6 +31,7 @@ var Version = "dev"
 type GitHubClient interface {
 	CheckAuth(ctx context.Context) (string, bool, error)
 	UpdateSubscription(ctx context.Context, id string, state octodeckv1.SubscriptionState) error
+	CountSearchIssues(ctx context.Context, searchQuery string) (int32, error)
 }
 
 // SyncEngine defines the interface for synchronization and item refetching.

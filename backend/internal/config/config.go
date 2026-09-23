@@ -76,10 +76,22 @@ func HasUpdatedFilter(query string) bool {
 	return updatedFilterRegex.MatchString(query)
 }
 
+var scopeQualifierRegex = regexp.MustCompile(`(?i)(?:^|[\s(])(?:(?:org|user):[^\s)]+|repo:[^\s)/]+/[^\s)]+)`)
+
+// HasScopeQualifier checks whether a search query string contains at least one positive
+// scope qualifier ('repo:owner/name', 'org:name', or 'user:name').
+func HasScopeQualifier(query string) bool {
+	return scopeQualifierRegex.MatchString(query)
+}
+
 // ValidateTrackedQueries validates that all queries in the slice contain valid UTF-8,
-// do not contain null bytes, and do not contain an 'updated' filter.
+// do not contain null bytes, do not contain an 'updated' filter, and include at least
+// one positive scope qualifier ('repo:owner/name', 'org:name', or 'user:name').
 func ValidateTrackedQueries(queries []string) error {
 	for _, q := range queries {
+		if strings.TrimSpace(q) == "" {
+			continue
+		}
 		if !utf8.ValidString(q) {
 			return errors.New("query contains invalid UTF-8")
 		}
@@ -89,6 +101,12 @@ func ValidateTrackedQueries(queries []string) error {
 		if HasUpdatedFilter(q) {
 			return fmt.Errorf(
 				"query %q cannot contain an 'updated' filter (updated filter is managed automatically)",
+				q,
+			)
+		}
+		if !HasScopeQualifier(q) {
+			return fmt.Errorf(
+				"query %q must include a positive scope qualifier ('repo:owner/name', 'org:name', or 'user:name')",
 				q,
 			)
 		}
