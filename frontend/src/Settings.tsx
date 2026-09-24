@@ -30,7 +30,7 @@ function validateSingleTrackedQuery(raw: string): string | null {
     return 'Search query cannot contain null characters.';
   }
   if (/(?:^|[\s(])(?:-)?updated:/i.test(q)) {
-    return "Tracked queries cannot contain an 'updated' filter (updated filter is managed automatically).";
+    return "Discovery queries cannot contain an 'updated' filter.";
   }
   if (!SCOPE_QUALIFIER_REGEX.test(q)) {
     return `Query "${q}" must include a positive scope qualifier ('repo:owner/name', 'org:name', or 'user:name') to prevent unbounded searches.`;
@@ -763,12 +763,12 @@ export function Settings({
             </div>
           </div>
 
-          {/* Tracked Queries Section */}
+          {/* Discovery Queries Section */}
           <div className="pt-6 border-t border-slate-200 dark:border-slate-800">
             <div>
               <div className="flex items-center justify-between mb-2">
                 <span className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  Tracked Queries
+                  Discovery Queries
                 </span>
                 <button
                   type="button"
@@ -780,7 +780,7 @@ export function Settings({
                       error: null,
                     })
                   }
-                  aria-label="Add tracked query"
+                  aria-label="Add discovery query"
                   className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800/60 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
                 >
                   <Plus size={14} />
@@ -790,10 +790,10 @@ export function Settings({
 
               {trackedQueriesList.length === 0 ? (
                 <div className="p-3.5 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30 text-center text-xs text-slate-500 dark:text-slate-400">
-                  No tracked queries configured. Click <span className="font-semibold">+ Add Query</span> to periodically discover candidate items.
+                  No discovery queries configured. Click <span className="font-semibold">+ Add Query</span> to periodically discover candidate items.
                 </div>
               ) : (
-                <ul className="space-y-2" aria-label="Tracked Queries List">
+                <ul className="space-y-2" aria-label="Discovery Queries List">
                   {trackedQueriesList.map((q, idx) => {
                     const trimmedQ = q.trim();
                     const stats = queryStatsMap.get(trimmedQ) ?? { avg7d: 0, avg30d: 0 };
@@ -889,7 +889,7 @@ export function Settings({
                 </p>
               ) : (
                 <p className="text-xs text-slate-500 dark:text-slate-500 mt-1.5">
-                  Each query must include a scope qualifier (<code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">repo:</code>, <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">org:</code>, or <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">user:</code>). The <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">updated</code> filter is managed automatically. Discovered candidate items appear on your dashboard with an Untracked badge.
+                  Periodically search GitHub to surface matching issues and pull requests outside your notification stream.
                 </p>
               )}
             </div>
@@ -1058,7 +1058,7 @@ export function Settings({
           );
         })()}
 
-        {/* Add / Edit Tracked Query Modal */}
+        {/* Add / Edit Discovery Query Modal */}
         {queryEditorModal && (
           <div
             data-testid="query-editor-modal"
@@ -1070,7 +1070,7 @@ export function Settings({
             <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-6">
               <div className="flex items-center justify-between mb-3">
                 <h3 id="query-editor-title" className="text-base font-bold text-slate-900 dark:text-white">
-                  {queryEditorModal.mode === 'add' ? 'Add Tracked Query' : 'Edit Tracked Query'}
+                  {queryEditorModal.mode === 'add' ? 'Add Discovery Query' : 'Edit Discovery Query'}
                 </h3>
                 <button
                   type="button"
@@ -1082,11 +1082,11 @@ export function Settings({
                 </button>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-                Enter a GitHub search query including at least one positive scope qualifier (<code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">repo:owner/name</code>, <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">org:name</code>, or <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">user:name</code>).
+                Each query must include a scope qualifier (<code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">repo:owner/name</code>, <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">org:name</code>, or <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">user:name</code>).
               </p>
               <div>
                 <label htmlFor="queryEditorInput" className="sr-only">
-                  Tracked Query
+                  Discovery Query
                 </label>
                 <input
                   id="queryEditorInput"
@@ -1184,7 +1184,7 @@ export function Settings({
           </div>
         )}
 
-        {/* High-Volume Tracked Query Pre-Flight Warning Modal */}
+        {/* High-Volume Discovery Query Pre-Flight Warning Modal */}
         {pendingQueryWarnings.length > 0 && (
           <div
             className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs"
@@ -1197,10 +1197,10 @@ export function Settings({
                 <AlertTriangle size={24} />
               </div>
               <h3 id="query-warning-title" className="text-base font-bold text-slate-900 dark:text-white text-center">
-                High-Volume Tracked Query Detected
+                High-Volume Discovery Query Detected
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 text-center">
-                One or more tracked queries exceeded the recommended safety threshold of 50 newly created items per day (evaluated over the last 48 hours):
+                One or more discovery queries exceeded the recommended safety threshold of 50 newly created items per day (evaluated over the last 48 hours):
               </p>
               <ul className="mt-4 space-y-2 max-h-48 overflow-y-auto text-left">
                 {pendingQueryWarnings.map((w) => (

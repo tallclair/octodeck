@@ -694,8 +694,8 @@ describe('Settings Component', () => {
     });
   });
 
-  describe('Tracked Queries & Discovery Interval Configuration', () => {
-    it('renders read-only tracked query rows with 7-day average badge and 30-day average tooltip', () => {
+  describe('Discovery Queries & Discovery Interval Configuration', () => {
+    it('renders read-only discovery query rows with 7-day average badge and 30-day average tooltip', () => {
       vi.mocked(connectQuery.useQuery).mockReturnValue({
         data: {
           config: mockConfig,
@@ -719,8 +719,15 @@ describe('Settings Component', () => {
 
       render(<Settings />);
 
+      expect(screen.getByText('Discovery Queries')).toBeDefined();
+      expect(
+        screen.getByText(
+          'Periodically search GitHub to surface matching issues and pull requests outside your notification stream.'
+        )
+      ).toBeDefined();
+
       // Read-only query rows
-      const list = screen.getByRole('list', { name: /Tracked Queries List/i });
+      const list = screen.getByRole('list', { name: /Discovery Queries List/i });
       expect(within(list).getByText('repo:kubernetes/kubernetes is:open label:sig/node')).toBeDefined();
       expect(within(list).getByText('org:kubernetes is:issue is:open label:security')).toBeDefined();
 
@@ -740,7 +747,7 @@ describe('Settings Component', () => {
       expect(screen.getByText(/Interval for periodic background discovery/i)).toBeDefined();
     });
 
-    it('marks form dirty and warns on discard when adding, editing, or removing a tracked query', () => {
+    it('marks form dirty and warns on discard when adding, editing, or removing a discovery query', () => {
       vi.mocked(connectQuery.useQuery).mockReturnValue({
         data: { config: mockConfig },
         isLoading: false,
@@ -798,7 +805,8 @@ describe('Settings Component', () => {
 
       render(<Settings />);
 
-      fireEvent.click(screen.getByRole('button', { name: /Add tracked query/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Add discovery query/i }));
+      expect(screen.getByText('Add Discovery Query')).toBeDefined();
       const modalInput = screen.getByPlaceholderText(/repo:kubernetes\/kubernetes is:open label:sig\/node/i);
       const submitBtn = screen.getByRole('button', { name: /^Add Query$/i });
 
@@ -810,7 +818,7 @@ describe('Settings Component', () => {
       // 2. Disallowed updated: filter
       fireEvent.change(modalInput, { target: { value: 'repo:kubernetes/kubernetes is:open updated:>2026-01-01' } });
       fireEvent.click(submitBtn);
-      expect(screen.getByText(/Tracked queries cannot contain an 'updated' filter/i)).toBeDefined();
+      expect(screen.getByText(/Discovery queries cannot contain an 'updated' filter/i)).toBeDefined();
 
       // 3. Missing positive scope qualifier
       fireEvent.change(modalInput, { target: { value: 'is:issue is:open label:security' } });
@@ -818,7 +826,7 @@ describe('Settings Component', () => {
       expect(screen.getByText(/must include a positive scope qualifier/i)).toBeDefined();
     });
 
-    it('adds, edits, and removes tracked queries via modal and saves configuration', async () => {
+    it('adds, edits, and removes discovery queries via modal and saves configuration', async () => {
       const updateConfigMock = vi.fn().mockResolvedValue({});
       vi.mocked(connectQuery.useMutation).mockReturnValue({
         mutateAsync: updateConfigMock,
@@ -846,12 +854,13 @@ describe('Settings Component', () => {
           name: /Edit query repo:kubernetes\/kubernetes is:open label:sig\/node/i,
         })
       );
+      expect(screen.getByText('Edit Discovery Query')).toBeDefined();
       const editInput = screen.getByDisplayValue('repo:kubernetes/kubernetes is:open label:sig/node');
       fireEvent.change(editInput, { target: { value: '  repo:octodeck/octodeck is:pr  ' } });
       fireEvent.click(screen.getByRole('button', { name: /^Save Query$/i }));
 
       // 3. Add a new query via Add modal
-      fireEvent.click(screen.getByRole('button', { name: /Add tracked query/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Add discovery query/i }));
       const addInput = screen.getByPlaceholderText(/repo:kubernetes\/kubernetes is:open label:sig\/node/i);
       fireEvent.change(addInput, { target: { value: '  org:octodeck is:issue is:open label:bug  ' } });
       fireEvent.click(screen.getByRole('button', { name: /^Add Query$/i }));
@@ -874,7 +883,7 @@ describe('Settings Component', () => {
       );
     });
 
-    it('resets tracked queries to empty and discovery interval to 10 upon Restore defaults', () => {
+    it('resets discovery queries to empty and discovery interval to 10 upon Restore defaults', () => {
       vi.mocked(connectQuery.useQuery).mockReturnValue({
         data: { config: mockConfig },
         isLoading: false,
@@ -889,7 +898,7 @@ describe('Settings Component', () => {
       const confirmBtn = within(dialog).getByRole('button', { name: /^Restore Defaults$/i });
       fireEvent.click(confirmBtn);
 
-      expect(screen.getByText(/No tracked queries configured/i)).toBeDefined();
+      expect(screen.getByText(/No discovery queries configured/i)).toBeDefined();
 
       fireEvent.click(screen.getByRole('button', { name: /Advanced/i }));
       const intervalInput = screen.getByLabelText(/Discovery Interval/i) as HTMLInputElement;
@@ -906,7 +915,7 @@ describe('Settings Component', () => {
 
       render(<Settings />);
 
-      expect(screen.getByText(/No tracked queries configured/i)).toBeDefined();
+      expect(screen.getByText(/No discovery queries configured/i)).toBeDefined();
 
       fireEvent.click(screen.getByRole('button', { name: /Advanced/i }));
       const intervalInput = screen.getByLabelText(/Discovery Interval/i) as HTMLInputElement;
@@ -947,7 +956,7 @@ describe('Settings Component', () => {
       render(<Settings onClose={onCloseMock} />);
 
       // Add a broad query via the Add Query modal
-      fireEvent.click(screen.getByRole('button', { name: /Add tracked query/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Add discovery query/i }));
       const addInput = screen.getByPlaceholderText(/repo:kubernetes\/kubernetes is:open label:sig\/node/i);
       fireEvent.change(addInput, { target: { value: 'org:kubernetes is:open' } });
       fireEvent.click(screen.getByRole('button', { name: /^Add Query$/i }));
@@ -968,7 +977,7 @@ describe('Settings Component', () => {
 
       // Warning confirmation modal is displayed
       const warningDialog = screen.getByRole('alertdialog');
-      expect(within(warningDialog).getByText(/High-Volume Tracked Query Detected/i)).toBeDefined();
+      expect(within(warningDialog).getByText(/High-Volume Discovery Query Detected/i)).toBeDefined();
       expect(within(warningDialog).getByText(/160 items created in last 48h/i)).toBeDefined();
       expect(within(warningDialog).getByText(/~80\.0\/day avg/i)).toBeDefined();
 
@@ -1094,7 +1103,7 @@ describe('Settings Component', () => {
       );
 
       // Open Add Query modal and verify checkbox is disabled with remediation tooltip
-      fireEvent.click(screen.getByRole('button', { name: /Add tracked query/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Add discovery query/i }));
       const modal = screen.getByTestId('query-editor-modal');
       const checkbox = within(modal).getByTestId(
         'query-editor-autosubscribe-checkbox'
