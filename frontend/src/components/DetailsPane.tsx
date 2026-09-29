@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, Fragment } from 'react';
+import { useRef, useEffect, useState, useMemo, useId, Fragment } from 'react';
 import { useToast } from '../context/ToastContext';
 import {
     GitPullRequest, GitPullRequestDraft, GitPullRequestClosed, AlertCircle,
@@ -18,7 +18,29 @@ import { Markdown } from './Markdown';
 import { formatFuzzyTime, formatExactDateTime } from '../utils/time';
 import { getLabelStyle } from '../utils/labels';
 import { stripHtmlComments } from '../utils/text';
-import { buildTimeline, getProtoTimestampMs, getLatestNonNoiseActivityMs, getCiFailureSummary, formatReviewCommentSummary, getFilesViewUrl } from '../logic/timeline';
+import { buildTimeline, getProtoTimestampMs, getLatestNonNoiseActivityMs, getCiFailureSummary, formatReviewCommentSummary, getFilesViewUrl, getThreadContext, GHOST_AVATAR_URL, UNKNOWN_LOGIN } from '../logic/timeline';
+
+// CommentTimestamp renders a fuzzy timestamp that links to the comment on GitHub when a URL is known.
+function CommentTimestamp({ timestamp, url }: { timestamp?: string; url?: string }) {
+    if (!timestamp) return null;
+    const label = formatFuzzyTime(new Date(timestamp).getTime());
+    const title = formatExactDateTime(timestamp);
+    return url ? (
+        <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:underline cursor-pointer shrink-0"
+            title={title}
+        >
+            {label}
+        </a>
+    ) : (
+        <span className="text-[10px] text-slate-400 shrink-0" title={title}>
+            {label}
+        </span>
+    );
+}
 
 export interface DetailsPaneProps {
     item: Item;
@@ -55,6 +77,8 @@ export function DetailsPane({
     const title = item.title;
     const body = item.body || '';
     const url = item.url;
+    // Linked when a review thread's root comment is not loaded locally.
+    const fullThreadUrl = getFilesViewUrl(url);
     const isPr = item.type === ProtoItemType.PR || item.url.includes('/pull/');
     const isDraft = Boolean(item.isDraft);
     const isDraftPr = isPr && isDraft;
@@ -64,8 +88,8 @@ export function DetailsPane({
     const isStarred = Boolean(item.local?.starred);
     const isUntracked = item.viewerSubscription === SubscriptionState.UNSUBSCRIBED || (item.viewerSubscription as number) === 2;
     const initialNotes = item.local?.privateNotes || '';
-    const authorLogin = item.author?.login || 'unknown';
-    const authorAvatar = item.author?.avatarUrl || 'https://github.com/ghost.png';
+    const authorLogin = item.author?.login || UNKNOWN_LOGIN;
+    const authorAvatar = item.author?.avatarUrl || GHOST_AVATAR_URL;
     const updatedAtMs = getLatestNonNoiseActivityMs(item);
 
     const lastViewedAtMs = getProtoTimestampMs(item.local?.lastViewedAt) || null;
@@ -74,15 +98,21 @@ export function DetailsPane({
     const [prevItemKey, setPrevItemKey] = useState({ id: item.id, initialNotes });
     const [notes, setNotes] = useState(initialNotes);
     const [isNotesExpanded, setIsNotesExpanded] = useState<boolean>(() => Boolean(initialNotes && initialNotes.trim().length > 0));
+    const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
+    const threadDomIdPrefix = useId();
 
     if (item.id !== prevItemKey.id || initialNotes !== prevItemKey.initialNotes) {
+        const itemChanged = item.id !== prevItemKey.id;
         setPrevItemKey({ id: item.id, initialNotes });
         setNotes(initialNotes);
         setIsNotesExpanded(Boolean(initialNotes && initialNotes.trim().length > 0));
+        if (itemChanged) {
+            setExpandedThreads({});
+        }
     }
 
     const scrollRef = useRef<HTMLDivElement>(null);
-    const timeline = buildTimeline(item);
+    const timeline = useMemo(() => buildTimeline(item), [item]);
     const ciSummary = getCiFailureSummary(timeline);
 
     useEffect(() => {
@@ -411,7 +441,7 @@ export function DetailsPane({
                                         <div className="absolute left-[15px] top-6 -ml-px w-px h-full" />
                                         <div className="relative z-10">
                                             <img
-                                                src={entry.author.avatarUrl || 'https://github.com/ghost.png'}
+                                                src={entry.author.avatarUrl || GHOST_AVATAR_URL}
                                                 alt={entry.author.login}
                                                 className="w-8 h-8 rounded-full border-2 border-white dark:border-slate-900 bg-slate-100 dark:bg-slate-800"
                                             />
@@ -458,28 +488,49 @@ export function DetailsPane({
                                                     <div className={`space-y-2 ${hasTopBody ? 'mt-2 pt-2 border-t border-slate-200 dark:border-slate-700/40' : 'mt-1'}`}>
                                                         {reviewCommentsPreview.map((rc, rcIdx) => {
                                                             const isReply = Boolean(rc.replyToId);
+                                                            // Keyed by comment identity (not timeline position) so expansion
+                                                            // survives new timeline entries being inserted above the review.
+                                                            const threadKey = rc.id || rc.url || `${entry.url}#${rcIdx}`;
+                                                            const threadDomId = `${threadDomIdPrefix}-thread-${threadKey}`;
+                                                            const isThreadExpanded = Boolean(expandedThreads[threadKey]);
+                                                            const threadContext = isReply && isThreadExpanded
+                                                                ? getThreadContext(item, rc)
+                                                                : { comments: [], rootMissing: false };
+                                                            const ancestorComments = threadContext.comments;
+                                                            const rcPath = rc.path || ancestorComments[0]?.path;
+                                                            const rcTimestamp = rc.createdAt;
+                                                            const rcAuthorLogin = rc.author?.login || entry.author.login;
+                                                            const rcAuthorAvatar = rc.author?.avatarUrl || entry.author.avatarUrl || GHOST_AVATAR_URL;
+
                                                             return (
                                                                 <div
                                                                     key={rc.id || `rc-${rcIdx}`}
                                                                     className="bg-white dark:bg-slate-900/60 p-2.5 rounded border border-slate-200 dark:border-slate-700/50 text-xs leading-relaxed"
                                                                 >
-                                                                    {rc.path && (
-                                                                        <div className="flex items-center gap-1.5 mb-1.5">
-                                                                            <FileCode className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
-                                                                            {rc.url ? (
-                                                                                <a
-                                                                                    href={getFilesViewUrl(rc.url)}
-                                                                                    target="_blank"
-                                                                                    rel="noopener noreferrer"
-                                                                                    className="font-mono text-[10px] text-blue-600 dark:text-blue-300 font-medium hover:underline hover:text-blue-700 dark:hover:text-blue-200 truncate max-w-full"
-                                                                                >
-                                                                                    {rc.path}
-                                                                                </a>
+                                                                    {(rcPath || (!isThreadExpanded && rcTimestamp)) && (
+                                                                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                                                                            {rcPath ? (
+                                                                                <div className="flex items-center gap-1.5 min-w-0">
+                                                                                    <FileCode className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                                                                                    {rc.url || ancestorComments[0]?.url ? (
+                                                                                        <a
+                                                                                            href={getFilesViewUrl(rc.url || ancestorComments[0]?.url)}
+                                                                                            target="_blank"
+                                                                                            rel="noopener noreferrer"
+                                                                                            className="font-mono text-[10px] text-blue-600 dark:text-blue-300 font-medium hover:underline hover:text-blue-700 dark:hover:text-blue-200 truncate max-w-full"
+                                                                                        >
+                                                                                            {rcPath}
+                                                                                        </a>
+                                                                                    ) : (
+                                                                                        <span className="font-mono text-[10px] text-blue-600 dark:text-blue-300 font-medium truncate max-w-full">
+                                                                                            {rcPath}
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
                                                                             ) : (
-                                                                                <span className="font-mono text-[10px] text-blue-600 dark:text-blue-300 font-medium truncate max-w-full">
-                                                                                    {rc.path}
-                                                                                </span>
+                                                                                <div />
                                                                             )}
+                                                                            {!isThreadExpanded && <CommentTimestamp timestamp={rcTimestamp} url={rc.url} />}
                                                                         </div>
                                                                     )}
 
@@ -487,20 +538,86 @@ export function DetailsPane({
                                                                         <div className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400 mb-1.5 font-medium">
                                                                             <CornerDownRight className="w-3 h-3 text-blue-600 dark:text-blue-400 shrink-0" />
                                                                             <span>Reply to comment</span>
-                                                                            {rc.url && (
-                                                                                <a
-                                                                                    href={getFilesViewUrl(rc.url)}
-                                                                                    target="_blank"
-                                                                                    rel="noopener noreferrer"
-                                                                                    className="text-blue-600 dark:text-blue-400 hover:underline ml-1"
-                                                                                >
-                                                                                    (view thread)
-                                                                                </a>
-                                                                            )}
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() =>
+                                                                                    setExpandedThreads(prev => ({
+                                                                                        ...prev,
+                                                                                        [threadKey]: !prev[threadKey],
+                                                                                    }))
+                                                                                }
+                                                                                aria-expanded={isThreadExpanded}
+                                                                                aria-controls={isThreadExpanded ? threadDomId : undefined}
+                                                                                className="ml-1 text-blue-600 dark:text-blue-400 hover:underline cursor-pointer font-medium"
+                                                                            >
+                                                                                {isThreadExpanded ? '(hide thread)' : '(view thread)'}
+                                                                            </button>
                                                                         </div>
                                                                     )}
 
-                                                                    <Markdown content={rc.body} size="compact" />
+                                                                    {isReply && isThreadExpanded ? (
+                                                                        <div id={threadDomId} className="space-y-2 mt-2" data-testid="expanded-review-thread">
+                                                                            {threadContext.rootMissing && fullThreadUrl && (
+                                                                                <div>
+                                                                                    <a
+                                                                                        href={fullThreadUrl}
+                                                                                        target="_blank"
+                                                                                        rel="noopener noreferrer"
+                                                                                        className="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                                                                                    >
+                                                                                        view full thread on GitHub
+                                                                                    </a>
+                                                                                </div>
+                                                                            )}
+                                                                            {ancestorComments.map((ancestor, aIdx) => {
+                                                                                const ancestorLogin = ancestor.author?.login || UNKNOWN_LOGIN;
+                                                                                const ancestorAvatar = ancestor.author?.avatarUrl || GHOST_AVATAR_URL;
+                                                                                return (
+                                                                                    <div
+                                                                                        key={ancestor.id || `ancestor-${aIdx}`}
+                                                                                        data-testid="review-thread-comment"
+                                                                                        className="pl-2.5 border-l-2 border-slate-200 dark:border-slate-700 py-1 space-y-1"
+                                                                                    >
+                                                                                        <div className="flex items-center justify-between gap-2">
+                                                                                            <div className="flex items-center gap-1.5 min-w-0">
+                                                                                                <img
+                                                                                                    src={ancestorAvatar}
+                                                                                                    alt={ancestorLogin}
+                                                                                                    className="w-4 h-4 rounded-full bg-slate-100 dark:bg-slate-800 shrink-0"
+                                                                                                />
+                                                                                                <span className="font-semibold text-[11px] text-slate-700 dark:text-slate-300 truncate">
+                                                                                                    {ancestorLogin}
+                                                                                                </span>
+                                                                                            </div>
+                                                                                            <CommentTimestamp timestamp={ancestor.createdAt} url={ancestor.url} />
+                                                                                        </div>
+                                                                                        <Markdown content={ancestor.body} size="compact" />
+                                                                                    </div>
+                                                                                );
+                                                                            })}
+                                                                            <div
+                                                                                data-testid="review-thread-comment"
+                                                                                className="pl-2.5 border-l-2 border-blue-500 dark:border-blue-400 py-1 space-y-1 bg-slate-50/60 dark:bg-slate-800/40 rounded-r"
+                                                                            >
+                                                                                <div className="flex items-center justify-between gap-2">
+                                                                                    <div className="flex items-center gap-1.5 min-w-0">
+                                                                                        <img
+                                                                                            src={rcAuthorAvatar}
+                                                                                            alt={rcAuthorLogin}
+                                                                                            className="w-4 h-4 rounded-full bg-slate-100 dark:bg-slate-800 shrink-0"
+                                                                                        />
+                                                                                        <span className="font-semibold text-[11px] text-slate-800 dark:text-slate-200 truncate">
+                                                                                            {rcAuthorLogin}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                    <CommentTimestamp timestamp={rcTimestamp} url={rc.url} />
+                                                                                </div>
+                                                                                <Markdown content={rc.body} size="compact" />
+                                                                            </div>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <Markdown content={rc.body} size="compact" />
+                                                                    )}
                                                                 </div>
                                                             );
                                                         })}
@@ -526,7 +643,7 @@ export function DetailsPane({
                                 let dotColor;
                                 let text;
 
-                                const hasActor = Boolean(entry.actor.login && entry.actor.login !== 'unknown');
+                                const hasActor = Boolean(entry.actor.login && entry.actor.login !== UNKNOWN_LOGIN);
                                 const actorDisplay = hasActor ? (
                                     <span className="font-medium text-slate-800 dark:text-slate-200">{entry.actor.login}</span>
                                 ) : null;
@@ -609,7 +726,7 @@ export function DetailsPane({
                                         <div className="absolute left-[15px] top-6 -ml-px w-px h-full" />
                                         <div className="relative z-10">
                                             <img
-                                                src={entry.data.author.avatarUrl || 'https://github.com/ghost.png'}
+                                                src={entry.data.author.avatarUrl || GHOST_AVATAR_URL}
                                                 alt={entry.data.author.login}
                                                 className="w-8 h-8 rounded-full border-2 border-white dark:border-slate-900 bg-slate-100 dark:bg-slate-800"
                                             />

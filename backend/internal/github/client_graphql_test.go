@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -119,6 +120,8 @@ func transformNode(node map[string]any) map[string]any {
 		newNode["pullRequest"] = node
 	case "Issue":
 		newNode["issue"] = node
+	case "PullRequestReview":
+		newNode["pullRequestReview"] = node
 	}
 
 	return newNode
@@ -211,7 +214,7 @@ func TestFetchInventory_RealData(t *testing.T) {
 	}
 
 	client := &Client{GraphQLClient: mock}
-	items, err := client.FetchInventory(t.Context())
+	items, _, err := client.FetchInventory(t.Context())
 	require.NoError(t, err, "FetchInventory failed")
 
 	// Validate against known data from the file (PR #5761)
@@ -279,7 +282,7 @@ func TestFetchUserUpdates_RealData(t *testing.T) {
 
 	since := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
 	client := &Client{GraphQLClient: mock}
-	items, err := client.FetchUserUpdates(t.Context(), since)
+	items, _, err := client.FetchUserUpdates(t.Context(), since)
 	require.NoError(t, err)
 	assert.NotEmpty(t, items)
 	assert.Equal(t, "(assignee:@me OR author:@me) updated:>2026-08-13T10:00:00Z sort:updated-desc", capturedQuery)
@@ -328,7 +331,7 @@ func TestFetchItems_RealData(t *testing.T) {
 	}
 
 	// 4. Call FetchItems
-	items, missing, err := client.FetchItems(t.Context(), itemsToFetch)
+	items, _, missing, err := client.FetchItems(t.Context(), itemsToFetch)
 	require.NoError(t, err, "FetchItems failed")
 
 	// 5. Verify Results
@@ -422,7 +425,7 @@ func TestFetchInventory_Pagination(t *testing.T) {
 	}
 
 	client := &Client{GraphQLClient: mockGQL}
-	items, err := client.FetchInventory(t.Context())
+	items, _, err := client.FetchInventory(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, 2, pageCalls, "Expected 2 page queries")
 	require.Len(t, items, 2, "Expected 2 items accumulated across pages")
@@ -614,6 +617,7 @@ func TestToProto_Reviews(t *testing.T) {
 	}
 	pr.Reviews.Nodes = []gqlReview{
 		{
+			ID:          "PRR_1",
 			State:       "APPROVED",
 			SubmittedAt: "2026-08-01T12:00:00Z",
 			Body:        "LGTM! Looks good.",
@@ -622,28 +626,32 @@ func TestToProto_Reviews(t *testing.T) {
 			Comments: struct {
 				TotalCount int32              `json:"totalCount"`
 				Nodes      []gqlReviewComment `json:"nodes"`
+				PageInfo   pageInfo           `json:"pageInfo"`
 			}{
 				TotalCount: 3,
 				Nodes: []gqlReviewComment{
-					{ID: "c1", ReplyTo: nil},
-					{ID: "c2", ReplyTo: nil},
-					{ID: "c3", ReplyTo: &struct {
+					{ID: "c1", CreatedAt: "2026-08-01T12:00:00Z", ReplyTo: nil},
+					{ID: "c2", CreatedAt: "", ReplyTo: nil},
+					{ID: "c3", CreatedAt: "not-a-timestamp", ReplyTo: &struct {
 						ID string `json:"id"`
 					}{ID: "c1"}},
 				},
 			},
 		},
 		{
+			ID:          "PRR_2",
 			State:       "PENDING",
 			SubmittedAt: "", // Draft review should be skipped without error
 			Author:      gqlUser{Login: "reviewer2", AvatarURL: "https://avatar2.url"},
 		},
 		{
+			ID:          "PRR_3",
 			State:       "COMMENTED",
 			SubmittedAt: "invalid-timestamp", // Unparseable review should be skipped with warning
 			Author:      gqlUser{Login: "reviewer3", AvatarURL: "https://avatar3.url"},
 		},
 		{
+			ID:          "PRR_4",
 			State:       "CHANGES_REQUESTED",
 			SubmittedAt: "2026-08-02T15:30:00Z",
 			Body:        "",
@@ -652,14 +660,15 @@ func TestToProto_Reviews(t *testing.T) {
 			Comments: struct {
 				TotalCount int32              `json:"totalCount"`
 				Nodes      []gqlReviewComment `json:"nodes"`
+				PageInfo   pageInfo           `json:"pageInfo"`
 			}{
 				TotalCount: 5,
 				Nodes: []gqlReviewComment{
-					{ID: "c4", ReplyTo: nil},
-					{ID: "c5", ReplyTo: nil},
-					{ID: "c6", ReplyTo: nil},
-					{ID: "c7", ReplyTo: nil},
-					{ID: "c8", ReplyTo: &struct {
+					{ID: "c4", CreatedAt: "2026-08-02T15:30:00Z", ReplyTo: nil},
+					{ID: "c5", CreatedAt: "2026-08-02T15:30:00Z", ReplyTo: nil},
+					{ID: "c6", CreatedAt: "2026-08-02T15:30:00Z", ReplyTo: nil},
+					{ID: "c7", CreatedAt: "2026-08-02T15:30:00Z", ReplyTo: nil},
+					{ID: "c8", CreatedAt: "2026-08-02T15:30:00Z", ReplyTo: &struct {
 						ID string `json:"id"`
 					}{ID: "c4"}},
 				},
@@ -670,6 +679,7 @@ func TestToProto_Reviews(t *testing.T) {
 	proto, err := pr.toProto()
 	require.NoError(t, err)
 	require.Len(t, proto.GetReviews(), 2)
+	assert.Equal(t, "PRR_1", proto.GetReviews()[0].GetId())
 	assert.Equal(t, "APPROVED", proto.GetReviews()[0].GetState())
 	assert.Equal(t, "reviewer1", proto.GetReviews()[0].GetAuthor().GetLogin())
 	assert.Equal(t, "LGTM! Looks good.", proto.GetReviews()[0].GetBody())
@@ -677,7 +687,13 @@ func TestToProto_Reviews(t *testing.T) {
 	assert.Equal(t, int32(2), proto.GetReviews()[0].GetNewThreadsCount())
 	assert.Equal(t, int32(1), proto.GetReviews()[0].GetReplyCount())
 	assert.Equal(t, "https://github.com/org/repo/pull/43#pullrequestreview-1", proto.GetReviews()[0].GetUrl())
+	require.Len(t, proto.GetReviews()[0].GetComments(), 3)
+	assert.NotNil(t, proto.GetReviews()[0].GetComments()[0].GetCreatedAt())
+	assert.Nil(t, proto.GetReviews()[0].GetComments()[1].GetCreatedAt(), "missing createdAt should remain unset")
+	assert.Nil(t, proto.GetReviews()[0].GetComments()[2].GetCreatedAt(), "unparseable createdAt should remain unset")
+	assert.Equal(t, "c1", proto.GetReviews()[0].GetComments()[2].GetReplyToId())
 
+	assert.Equal(t, "PRR_4", proto.GetReviews()[1].GetId())
 	assert.Equal(t, "CHANGES_REQUESTED", proto.GetReviews()[1].GetState())
 	assert.Equal(t, "reviewer4", proto.GetReviews()[1].GetAuthor().GetLogin())
 	assert.Empty(t, proto.GetReviews()[1].GetBody())
@@ -685,6 +701,420 @@ func TestToProto_Reviews(t *testing.T) {
 	assert.Equal(t, int32(4), proto.GetReviews()[1].GetNewThreadsCount())
 	assert.Equal(t, int32(1), proto.GetReviews()[1].GetReplyCount())
 	assert.Equal(t, "https://github.com/org/repo/pull/43#pullrequestreview-4", proto.GetReviews()[1].GetUrl())
+}
+
+func TestHydrateQuery_ExcludesReviewThreadsAndPopulatesReviewID(t *testing.T) {
+	var capturedQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		assert.NoError(t, err)
+		var req struct {
+			Query string `json:"query"`
+		}
+		assert.NoError(t, json.Unmarshal(body, &req))
+		capturedQuery = req.Query
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": {
+				"nodes": [
+					{
+						"__typename": "PullRequest",
+						"id": "PR_hydrate_1",
+						"number": 10,
+						"title": "PR Hydrate",
+						"updatedAt": "2026-08-01T12:00:00Z",
+						"state": "OPEN",
+						"repository": {"nameWithOwner": "org/repo"},
+						"reviews": {
+							"nodes": [
+								{
+									"id": "PRR_hydrate_1",
+									"state": "COMMENTED",
+									"submittedAt": "2026-08-01T11:00:00Z",
+									"url": "https://github.com/org/repo/pull/10#pullrequestreview-1",
+									"author": {"login": "alice"},
+									"comments": {
+										"totalCount": 1,
+										"pageInfo": {"hasNextPage": false, "endCursor": ""},
+										"nodes": [
+											{
+												"id": "PRRC_1",
+												"body": "Root comment",
+												"createdAt": "2026-08-01T11:00:00Z",
+												"author": {"login": "alice"}
+											}
+										]
+									}
+								}
+							]
+						}
+					}
+				]
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	gqlClient := graphql.NewClient(server.URL, server.Client())
+	client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
+	items, _, missing, err := client.FetchItemsByIDs(t.Context(), []string{"PR_hydrate_1"})
+	require.NoError(t, err)
+	assert.Empty(t, missing)
+	assert.NotContains(t, capturedQuery, "reviewThreads", "hydrate query must not request reviewThreads")
+	assert.Contains(t, capturedQuery, "reviews(last: 10)", "hydrate query must request reviews(last: 10)")
+
+	require.Len(t, items, 1)
+	require.Len(t, items[0].GetReviews(), 1)
+	assert.Equal(t, "PRR_hydrate_1", items[0].GetReviews()[0].GetId())
+}
+
+func TestHydrateQuery_CapturesHydrationPaging(t *testing.T) {
+	var capturedQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		assert.NoError(t, err)
+		var req struct {
+			Query string `json:"query"`
+		}
+		assert.NoError(t, json.Unmarshal(body, &req))
+		capturedQuery = req.Query
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": {
+				"nodes": [
+					{
+						"__typename": "PullRequest",
+						"id": "PR_page_info",
+						"number": 11,
+						"title": "PR Page Info",
+						"updatedAt": "2026-08-01T12:00:00Z",
+						"state": "OPEN",
+						"repository": {"nameWithOwner": "org/repo"},
+						"reviews": {
+							"pageInfo": {"hasPreviousPage": true},
+							"nodes": [
+								{
+									"id": "PRR_more",
+									"state": "COMMENTED",
+									"submittedAt": "2026-08-01T10:00:00Z",
+									"author": {"login": "alice"},
+									"comments": {
+										"totalCount": 12,
+										"pageInfo": {"hasNextPage": true, "endCursor": "c_more"},
+										"nodes": [{"id": "PRRC_1", "body": "1st", "createdAt": "2026-08-01T10:00:00Z"}]
+									}
+								},
+								{
+									"id": "PRR_done",
+									"state": "COMMENTED",
+									"submittedAt": "2026-08-01T11:00:00Z",
+									"author": {"login": "bob"},
+									"comments": {
+										"totalCount": 2,
+										"pageInfo": {"hasNextPage": false, "endCursor": "c_done"},
+										"nodes": [{"id": "PRRC_2", "body": "Only", "createdAt": "2026-08-01T11:00:00Z"}]
+									}
+								}
+							]
+						}
+					}
+				]
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	gqlClient := graphql.NewClient(server.URL, server.Client())
+	client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
+	items, paging, _, err := client.FetchItemsByIDs(t.Context(), []string{"PR_page_info"})
+	require.NoError(t, err)
+	assert.Contains(t, capturedQuery, "hasPreviousPage", "hydrate query must request reviews pageInfo.hasPreviousPage")
+
+	require.Len(t, items, 1)
+	assert.Equal(t, HydrationPagingByID{
+		"PR_page_info": {
+			ReviewsHasPreviousPage: true,
+			// Only reviews with more comments pages carry an end cursor.
+			ReviewCommentsEndCursors: map[string]string{"PRR_more": "c_more"},
+		},
+	}, paging)
+
+	reviews := items[0].GetReviews()
+	require.Len(t, reviews, 2)
+	assert.Zero(t, reviews[0].GetCommentsPagedTotal(), "a partially loaded review is not fully paged")
+	// PRR_done was paged to exhaustion (one comment returned for a totalCount of 2).
+	assert.Equal(t, int32(2), reviews[1].GetCommentsPagedTotal())
+	assert.True(t, ReviewCommentsComplete(reviews[1]))
+}
+
+func TestFetchReviewComments_Pagination(t *testing.T) {
+	var cursorsSeen []any
+	callCount := 0
+	mockGQL := &mockGraphQLClient{
+		queryFunc: func(_ context.Context, _ string, q any, variables map[string]any) error {
+			callCount++
+			cursorsSeen = append(cursorsSeen, variables["cursor"])
+
+			var pageSize int
+			var hasNext bool
+			var endCursor string
+			var offset int
+			switch callCount {
+			case 1:
+				pageSize = 100
+				hasNext = true
+				endCursor = "cursor_100"
+				offset = 0
+			case 2:
+				pageSize = 100
+				hasNext = true
+				endCursor = "cursor_200"
+				offset = 100
+			case 3:
+				pageSize = 50
+				hasNext = false
+				endCursor = "cursor_250"
+				offset = 200
+			default:
+				t.Fatalf("unexpected extra page call %d", callCount)
+			}
+
+			nodes := make([]map[string]any, 0, pageSize)
+			for i := range pageSize {
+				idx := offset + i + 1
+				rc := map[string]any{
+					"id":        fmt.Sprintf("PRRC_%d", idx),
+					"body":      fmt.Sprintf("Comment %d", idx),
+					"path":      "pkg/file.go",
+					"url":       fmt.Sprintf("https://github.com/org/repo/pull/1#discussion_r%d", idx),
+					"createdAt": time.Date(2026, 8, 1, 10, 0, idx, 0, time.UTC).Format(time.RFC3339),
+					"author":    map[string]any{"login": "reviewer"},
+				}
+				if idx > 1 {
+					rc["replyTo"] = map[string]any{"id": "PRRC_1"}
+				}
+				nodes = append(nodes, rc)
+			}
+
+			resp := map[string]any{
+				"node": transformNode(map[string]any{
+					"__typename": "PullRequestReview",
+					"author":     map[string]any{"login": "reviewer"},
+					"comments": map[string]any{
+						"nodes": nodes,
+						"pageInfo": map[string]any{
+							"hasNextPage": hasNext,
+							"endCursor":   endCursor,
+						},
+					},
+				}),
+			}
+			raw, err := json.Marshal(resp)
+			require.NoError(t, err)
+			return json.Unmarshal(raw, q)
+		},
+	}
+
+	client := &Client{GraphQLClient: mockGQL}
+	comments, err := client.FetchReviewComments(t.Context(), "PRR_250", "initial_cursor")
+	require.NoError(t, err)
+	assert.Equal(t, 3, callCount)
+	require.Len(t, comments, 250)
+	assert.Equal(t, "PRRC_1", comments[0].GetId())
+	assert.Empty(t, comments[0].GetReplyToId())
+	assert.Equal(t, "PRRC_250", comments[249].GetId())
+	assert.Equal(t, "PRRC_1", comments[249].GetReplyToId())
+
+	require.Len(t, cursorsSeen, 3)
+	assert.Equal(t, graphql.String("initial_cursor"), *cursorsSeen[0].(*graphql.String))
+	assert.Equal(t, graphql.String("cursor_100"), *cursorsSeen[1].(*graphql.String))
+	assert.Equal(t, graphql.String("cursor_200"), *cursorsSeen[2].(*graphql.String))
+}
+
+func TestFetchReviews(t *testing.T) {
+	t.Run("stops at known review and returns chronological order", func(t *testing.T) {
+		var cursors []*graphql.String
+		page := 0
+		mockGQL := &mockGraphQLClient{
+			queryFunc: func(_ context.Context, _ string, q any, variables map[string]any) error {
+				page++
+				c, _ := variables["cursor"].(*graphql.String)
+				cursors = append(cursors, c)
+
+				var resp map[string]any
+				if page == 1 {
+					// Newest page: PRR_3 (older) and PRR_4 (newest)
+					resp = map[string]any{
+						"node": transformNode(map[string]any{
+							"__typename": "PullRequest",
+							"reviews": map[string]any{
+								"pageInfo": map[string]any{
+									"hasPreviousPage": true,
+									"startCursor":     "before_PRR_3",
+								},
+								"nodes": []map[string]any{
+									{
+										"id":          "PRR_3",
+										"state":       "COMMENTED",
+										"submittedAt": "2026-08-01T13:00:00Z",
+										"author":      map[string]any{"login": "u3"},
+										"comments": map[string]any{
+											"totalCount": 0,
+											"pageInfo":   map[string]any{"hasNextPage": false},
+										},
+									},
+									{
+										"id":          "PRR_4",
+										"state":       "APPROVED",
+										"submittedAt": "2026-08-01T14:00:00Z",
+										"author":      map[string]any{"login": "u4"},
+										"comments": map[string]any{
+											"totalCount": 0,
+											"pageInfo":   map[string]any{"hasNextPage": false},
+										},
+									},
+								},
+							},
+						}),
+					}
+				} else {
+					// Previous page: PRR_1 (known) and PRR_2 (unknown)
+					resp = map[string]any{
+						"node": transformNode(map[string]any{
+							"__typename": "PullRequest",
+							"reviews": map[string]any{
+								"pageInfo": map[string]any{
+									"hasPreviousPage": true,
+									"startCursor":     "before_PRR_1",
+								},
+								"nodes": []map[string]any{
+									{
+										"id":          "PRR_1",
+										"state":       "COMMENTED",
+										"submittedAt": "2026-08-01T11:00:00Z",
+										"author":      map[string]any{"login": "u1"},
+									},
+									{
+										"id":          "PRR_2",
+										"state":       "COMMENTED",
+										"submittedAt": "2026-08-01T12:00:00Z",
+										"author":      map[string]any{"login": "u2"},
+									},
+								},
+							},
+						}),
+					}
+				}
+				raw, err := json.Marshal(resp)
+				require.NoError(t, err)
+				return json.Unmarshal(raw, q)
+			},
+		}
+
+		client := &Client{GraphQLClient: mockGQL}
+		reviews, err := client.FetchReviews(t.Context(), "PR_1", func(id string) bool {
+			return id == "PRR_1"
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 2, page, "should stop paging as soon as PRR_1 is encountered")
+		require.Len(t, cursors, 2)
+		assert.Nil(t, cursors[0], "first page should pass nil cursor")
+		require.NotNil(t, cursors[1])
+		assert.Equal(t, graphql.String("before_PRR_3"), *cursors[1])
+
+		require.Len(t, reviews, 3)
+		assert.Equal(t, "PRR_2", reviews[0].GetId())
+		assert.Equal(t, "PRR_3", reviews[1].GetId())
+		assert.Equal(t, "PRR_4", reviews[2].GetId())
+	})
+
+	t.Run("stops at first review of PR when no review is known", func(t *testing.T) {
+		page := 0
+		mockGQL := &mockGraphQLClient{
+			queryFunc: func(_ context.Context, _ string, q any, _ map[string]any) error {
+				page++
+				resp := map[string]any{
+					"node": transformNode(map[string]any{
+						"__typename": "PullRequest",
+						"reviews": map[string]any{
+							"pageInfo": map[string]any{
+								"hasPreviousPage": false,
+								"startCursor":     "cursor_start",
+							},
+							"nodes": []map[string]any{
+								{
+									"id":          "PRR_first",
+									"state":       "COMMENTED",
+									"submittedAt": "2026-08-01T10:00:00Z",
+									"author":      map[string]any{"login": "u1"},
+								},
+							},
+						},
+					}),
+				}
+				raw, err := json.Marshal(resp)
+				require.NoError(t, err)
+				return json.Unmarshal(raw, q)
+			},
+		}
+
+		client := &Client{GraphQLClient: mockGQL}
+		reviews, err := client.FetchReviews(t.Context(), "PR_1", func(string) bool { return false })
+		require.NoError(t, err)
+		assert.Equal(t, 1, page)
+		require.Len(t, reviews, 1)
+		assert.Equal(t, "PRR_first", reviews[0].GetId())
+	})
+
+	t.Run("respects 500-review backfill cap and logs warning without error", func(t *testing.T) {
+		page := 0
+		mockGQL := &mockGraphQLClient{
+			queryFunc: func(_ context.Context, _ string, q any, _ map[string]any) error {
+				page++
+				nodes := make([]map[string]any, 0, 50)
+				// Create 50 reviews per page
+				baseIdx := (12 - page) * 50
+				for i := range 50 {
+					idx := baseIdx + i + 1
+					nodes = append(nodes, map[string]any{
+						"id":          fmt.Sprintf("PRR_%d", idx),
+						"state":       "COMMENTED",
+						"submittedAt": time.Date(2026, 8, 1, 0, 0, idx, 0, time.UTC).Format(time.RFC3339),
+						"author":      map[string]any{"login": "reviewer"},
+					})
+				}
+				resp := map[string]any{
+					"node": transformNode(map[string]any{
+						"__typename": "PullRequest",
+						"reviews": map[string]any{
+							"pageInfo": map[string]any{
+								"hasPreviousPage": true,
+								"startCursor":     fmt.Sprintf("cursor_page_%d", page),
+							},
+							"nodes": nodes,
+						},
+					}),
+				}
+				raw, err := json.Marshal(resp)
+				require.NoError(t, err)
+				return json.Unmarshal(raw, q)
+			},
+		}
+
+		var logBuf strings.Builder
+		origLogger := slog.Default()
+		slog.SetDefault(slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+		defer slog.SetDefault(origLogger)
+
+		client := &Client{GraphQLClient: mockGQL}
+		reviews, err := client.FetchReviews(t.Context(), "PR_cap", func(string) bool { return false })
+		require.NoError(t, err)
+		assert.Equal(t, 10, page, "500 reviews at 50 per page should stop after 10 pages")
+		require.Len(t, reviews, MaxReviewBackfill)
+		assert.Equal(t, "PRR_101", reviews[0].GetId())
+		assert.Equal(t, "PRR_600", reviews[len(reviews)-1].GetId())
+		assert.Contains(t, logBuf.String(), "Reached review backfill cap")
+	})
 }
 
 func TestToProto_StateEvents(t *testing.T) {
@@ -1062,7 +1492,7 @@ func TestFetchItemsByIDs(t *testing.T) {
 	}
 
 	client := &Client{GraphQLClient: mockGQL}
-	items, missing, err := client.FetchItemsByIDs(t.Context(), []string{
+	items, _, missing, err := client.FetchItemsByIDs(t.Context(), []string{
 		"PR_kwDOAToIks6zimkN",
 		"I_kwDOAToIks7gNKvx",
 	})
@@ -1567,4 +1997,31 @@ func TestCountSearchIssues(t *testing.T) {
 		_, err := nilClient.CountSearchIssues(t.Context(), "repo:a/b is:open")
 		require.Error(t, err)
 	})
+}
+
+func TestReviewToProto_CommentCompleteness(t *testing.T) {
+	rev := gqlReview{
+		ID:          "PRR_partial",
+		State:       "COMMENTED",
+		SubmittedAt: "2026-08-01T10:00:00Z",
+		Author:      gqlUser{Login: "reviewer"},
+	}
+	rev.Comments.TotalCount = 3
+	rev.Comments.PageInfo = pageInfo{HasNextPage: true, EndCursor: "c_1"}
+	rev.Comments.Nodes = []gqlReviewComment{{ID: "c1", CreatedAt: "2026-08-01T10:00:00Z"}}
+
+	proto := rev.toProto()
+	require.NotNil(t, proto)
+	assert.Equal(t, int32(3), proto.GetCommentCount(), "CommentCount should be the API totalCount")
+	assert.False(t, ReviewCommentsComplete(proto))
+
+	proto.SetComments(append(proto.GetComments(),
+		octodeckv1.ReviewComment_builder{Id: config.Ptr("c2"), ReplyToId: config.Ptr("c1")}.Build(),
+		octodeckv1.ReviewComment_builder{Id: config.Ptr("c3"), ReplyToId: config.Ptr("c1")}.Build(),
+	))
+	RecountReviewThreads(proto)
+	assert.True(t, ReviewCommentsComplete(proto))
+	assert.Equal(t, int32(3), proto.GetCommentCount())
+	assert.Equal(t, int32(1), proto.GetNewThreadsCount())
+	assert.Equal(t, int32(2), proto.GetReplyCount())
 }

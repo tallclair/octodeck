@@ -310,7 +310,7 @@ func TestChallenger_GapResolution_FetchErrorFallback(t *testing.T) {
 	engine := NewSyncEngine(db, ghClient, config.NewForTest(octodeckv1.Config_builder{}.Build()))
 
 	// Should not fail; should fall back to best-effort merge
-	err := engine.processItems(t.Context(), []*octodeckv1.Item{fetchedItem})
+	err := engine.processItems(t.Context(), []*octodeckv1.Item{fetchedItem}, nil)
 	require.NoError(t, err)
 
 	saved, err := db.GetItem(t.Context(), "item_gap_err")

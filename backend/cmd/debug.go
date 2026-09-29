@@ -13,7 +13,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	octodeckv1 "github.com/tallclair/octodeck/backend/internal/api/octodeck/v1"
 	"github.com/tallclair/octodeck/backend/internal/config"
@@ -41,7 +40,15 @@ const (
 )
 
 type itemsFetcher interface {
-	FetchItems(ctx context.Context, items []*octodeckv1.Item) ([]*octodeckv1.Item, []string, error)
+	FetchItems(
+		ctx context.Context,
+		items []*octodeckv1.Item,
+	) ([]*octodeckv1.Item, github.HydrationPagingByID, []string, error)
+}
+
+// itemsBackfiller re-fetches every stored item and merges it through the sync engine.
+type itemsBackfiller interface {
+	BackfillItems(ctx context.Context) (int, error)
 }
 
 func backfillDescriptions(
@@ -70,7 +77,7 @@ func backfillDescriptions(
 
 	fmt.Printf("Found %d items needing description backfill. Fetching from GitHub...\n", len(itemsToFetch))
 
-	fetched, missing, err := ghClient.FetchItems(ctx, itemsToFetch)
+	fetched, _, missing, err := ghClient.FetchItems(ctx, itemsToFetch)
 	if err != nil {
 		return 0, fmt.Errorf("failed to fetch items from GitHub: %w", err)
 	}
@@ -109,12 +116,27 @@ func backfillDescriptions(
 	return len(itemsToSave), nil
 }
 
+// backfillItems refreshes every stored item from GitHub. Items are merged through the sync
+// engine (backfiller) so that stored history, such as backfilled PR reviews, and local state are
+// preserved. A dry run only fetches the items (via fetcher) and reports how many would be updated,
+// applying the same watched/excluded repo filter from cfg as the sync engine.
 func backfillItems(
 	ctx context.Context,
 	db *database.DB,
-	ghClient itemsFetcher,
+	cfg *config.Config,
+	fetcher itemsFetcher,
+	backfiller itemsBackfiller,
 	dryRun bool,
 ) (int, error) {
+	if !dryRun {
+		count, err := backfiller.BackfillItems(ctx)
+		if err != nil {
+			return 0, err
+		}
+		fmt.Printf("Successfully backfilled %d items in database.\n", count)
+		return count, nil
+	}
+
 	items, err := db.GetItems(ctx, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to fetch items from database: %w", err)
@@ -127,7 +149,7 @@ func backfillItems(
 
 	fmt.Printf("Found %d items in database. Fetching latest details from GitHub...\n", len(items))
 
-	fetched, missing, err := ghClient.FetchItems(ctx, items)
+	fetched, _, missing, err := fetcher.FetchItems(ctx, items)
 	if err != nil {
 		return 0, fmt.Errorf("failed to fetch items from GitHub: %w", err)
 	}
@@ -136,34 +158,9 @@ func backfillItems(
 		fmt.Printf("Warning: %d items were not found on GitHub (404/deleted)\n", len(missing))
 	}
 
-	existingMap := make(map[string]*octodeckv1.Item, len(items))
-	for _, item := range items {
-		existingMap[item.GetId()] = item
-	}
-
-	var itemsToSave []*octodeckv1.Item
-	now := time.Now()
-	for _, f := range fetched {
-		f.SetLastSyncedAt(timestamppb.New(now))
-		if existing, ok := existingMap[f.GetId()]; ok {
-			f.SetLocal(existing.GetLocal())
-		}
-		itemsToSave = append(itemsToSave, f)
-	}
-
-	if dryRun {
-		fmt.Printf("[Dry Run] Would update %d items in database.\n", len(itemsToSave))
-		return len(itemsToSave), nil
-	}
-
-	if len(itemsToSave) > 0 {
-		if err := db.SaveItems(ctx, itemsToSave); err != nil {
-			return 0, fmt.Errorf("failed to save backfilled items: %w", err)
-		}
-	}
-
-	fmt.Printf("Successfully backfilled %d items in database.\n", len(itemsToSave))
-	return len(itemsToSave), nil
+	toUpdate := logic.FilterItemsByRepo(fetched, cfg.GetWatchedRepos(), cfg.GetExcludedRepos())
+	fmt.Printf("[Dry Run] Would update %d items in database.\n", len(toUpdate))
+	return len(toUpdate), nil
 }
 
 func findItem(items []*octodeckv1.Item, id string) *octodeckv1.Item {
@@ -386,7 +383,7 @@ var debugBackfillItemsCmd = &cobra.Command{
 		}
 
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
-		_, err = backfillItems(ctx, db, ghClient, dryRun)
+		_, err = backfillItems(ctx, db, cfg, ghClient, logic.NewSyncEngine(db, ghClient, cfg), dryRun)
 		return err
 	},
 }
@@ -735,7 +732,10 @@ type nodeIDResolver interface {
 }
 
 type itemHydrator interface {
-	FetchItemsByIDs(ctx context.Context, ids []string) ([]*octodeckv1.Item, []string, error)
+	FetchItemsByIDs(
+		ctx context.Context,
+		ids []string,
+	) ([]*octodeckv1.Item, github.HydrationPagingByID, []string, error)
 }
 
 func runDebugResolveIDs(
@@ -817,7 +817,7 @@ func runDebugHydrateItems(
 		return errors.New("at least one node ID is required")
 	}
 
-	items, missing, err := hydrator.FetchItemsByIDs(ctx, ids)
+	items, _, missing, err := hydrator.FetchItemsByIDs(ctx, ids)
 	if err != nil {
 		return fmt.Errorf("failed to hydrate items: %w", err)
 	}

@@ -14,7 +14,7 @@ import {
 import { formatFuzzyTime, formatExactDateTime } from '../utils/time';
 import { getCommentPreview } from '../utils/text';
 import { getLabelStyle } from '../utils/labels';
-import { buildTimeline, getLatestRelevantActivity, getLatestNonNoiseActivityMs, formatReviewCommentSummary } from '../logic/timeline';
+import { buildTimeline, getLatestRelevantActivity, getLatestNonNoiseActivityMs, formatReviewCommentSummary, UNKNOWN_LOGIN } from '../logic/timeline';
 
 function getReviewPreviewText(review: { state: string; body?: string; commentCount?: number; newThreadsCount?: number; replyCount?: number }): string {
   let action = 'Submitted a review';
@@ -87,7 +87,7 @@ export function PullRequestCard({
   const isUntracked = item.viewerSubscription === SubscriptionState.UNSUBSCRIBED || (item.viewerSubscription as number) === 2;
   const syncError = item.local?.syncError;
   const activityTimeMs = getLatestNonNoiseActivityMs(item);
-  const authorLogin = item.author?.login || 'unknown';
+  const authorLogin = item.author?.login || UNKNOWN_LOGIN;
 
   // Determine triage status text and color
   const computedStatus = item.local?.computedStatus ?? ProtoItemStatus.UNSPECIFIED;

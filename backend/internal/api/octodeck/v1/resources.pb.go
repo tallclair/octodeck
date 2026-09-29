@@ -948,20 +948,22 @@ func (b0 ReviewComment_builder) Build() *ReviewComment {
 }
 
 type Review struct {
-	state                      protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_SubmittedAt     *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=submitted_at,json=submittedAt"`
-	xxx_hidden_State           *string                `protobuf:"bytes,2,opt,name=state"`
-	xxx_hidden_Author          *User                  `protobuf:"bytes,3,opt,name=author"`
-	xxx_hidden_Body            *string                `protobuf:"bytes,4,opt,name=body"`
-	xxx_hidden_CommentCount    int32                  `protobuf:"varint,5,opt,name=comment_count,json=commentCount"`
-	xxx_hidden_Url             *string                `protobuf:"bytes,6,opt,name=url"`
-	xxx_hidden_NewThreadsCount int32                  `protobuf:"varint,7,opt,name=new_threads_count,json=newThreadsCount"`
-	xxx_hidden_ReplyCount      int32                  `protobuf:"varint,8,opt,name=reply_count,json=replyCount"`
-	xxx_hidden_Comments        *[]*ReviewComment      `protobuf:"bytes,9,rep,name=comments"`
-	XXX_raceDetectHookData     protoimpl.RaceDetectHookData
-	XXX_presence               [1]uint32
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
+	state                         protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_SubmittedAt        *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=submitted_at,json=submittedAt"`
+	xxx_hidden_State              *string                `protobuf:"bytes,2,opt,name=state"`
+	xxx_hidden_Author             *User                  `protobuf:"bytes,3,opt,name=author"`
+	xxx_hidden_Body               *string                `protobuf:"bytes,4,opt,name=body"`
+	xxx_hidden_CommentCount       int32                  `protobuf:"varint,5,opt,name=comment_count,json=commentCount"`
+	xxx_hidden_Url                *string                `protobuf:"bytes,6,opt,name=url"`
+	xxx_hidden_NewThreadsCount    int32                  `protobuf:"varint,7,opt,name=new_threads_count,json=newThreadsCount"`
+	xxx_hidden_ReplyCount         int32                  `protobuf:"varint,8,opt,name=reply_count,json=replyCount"`
+	xxx_hidden_Comments           *[]*ReviewComment      `protobuf:"bytes,9,rep,name=comments"`
+	xxx_hidden_Id                 *string                `protobuf:"bytes,10,opt,name=id"`
+	xxx_hidden_CommentsPagedTotal int32                  `protobuf:"varint,11,opt,name=comments_paged_total,json=commentsPagedTotal"`
+	XXX_raceDetectHookData        protoimpl.RaceDetectHookData
+	XXX_presence                  [1]uint32
+	unknownFields                 protoimpl.UnknownFields
+	sizeCache                     protoimpl.SizeCache
 }
 
 func (x *Review) Reset() {
@@ -1063,13 +1065,30 @@ func (x *Review) GetComments() []*ReviewComment {
 	return nil
 }
 
+func (x *Review) GetId() string {
+	if x != nil {
+		if x.xxx_hidden_Id != nil {
+			return *x.xxx_hidden_Id
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *Review) GetCommentsPagedTotal() int32 {
+	if x != nil {
+		return x.xxx_hidden_CommentsPagedTotal
+	}
+	return 0
+}
+
 func (x *Review) SetSubmittedAt(v *timestamppb.Timestamp) {
 	x.xxx_hidden_SubmittedAt = v
 }
 
 func (x *Review) SetState(v string) {
 	x.xxx_hidden_State = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 9)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 11)
 }
 
 func (x *Review) SetAuthor(v *User) {
@@ -1078,31 +1097,41 @@ func (x *Review) SetAuthor(v *User) {
 
 func (x *Review) SetBody(v string) {
 	x.xxx_hidden_Body = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 9)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 11)
 }
 
 func (x *Review) SetCommentCount(v int32) {
 	x.xxx_hidden_CommentCount = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 4, 9)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 4, 11)
 }
 
 func (x *Review) SetUrl(v string) {
 	x.xxx_hidden_Url = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 9)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 11)
 }
 
 func (x *Review) SetNewThreadsCount(v int32) {
 	x.xxx_hidden_NewThreadsCount = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 9)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 11)
 }
 
 func (x *Review) SetReplyCount(v int32) {
 	x.xxx_hidden_ReplyCount = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 9)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 11)
 }
 
 func (x *Review) SetComments(v []*ReviewComment) {
 	x.xxx_hidden_Comments = &v
+}
+
+func (x *Review) SetId(v string) {
+	x.xxx_hidden_Id = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 9, 11)
+}
+
+func (x *Review) SetCommentsPagedTotal(v int32) {
+	x.xxx_hidden_CommentsPagedTotal = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 10, 11)
 }
 
 func (x *Review) HasSubmittedAt() bool {
@@ -1161,6 +1190,20 @@ func (x *Review) HasReplyCount() bool {
 	return protoimpl.X.Present(&(x.XXX_presence[0]), 7)
 }
 
+func (x *Review) HasId() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 9)
+}
+
+func (x *Review) HasCommentsPagedTotal() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 10)
+}
+
 func (x *Review) ClearSubmittedAt() {
 	x.xxx_hidden_SubmittedAt = nil
 }
@@ -1199,6 +1242,16 @@ func (x *Review) ClearReplyCount() {
 	x.xxx_hidden_ReplyCount = 0
 }
 
+func (x *Review) ClearId() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 9)
+	x.xxx_hidden_Id = nil
+}
+
+func (x *Review) ClearCommentsPagedTotal() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 10)
+	x.xxx_hidden_CommentsPagedTotal = 0
+}
+
 type Review_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -1211,6 +1264,11 @@ type Review_builder struct {
 	NewThreadsCount *int32
 	ReplyCount      *int32
 	Comments        []*ReviewComment
+	Id              *string
+	// The comment_count observed when this review's comments were last paged to exhaustion
+	// (0 if never). Lets the sync engine treat the stored comments as complete while GitHub's
+	// count is unchanged, even if the count exceeds the comments paging actually returns.
+	CommentsPagedTotal *int32
 }
 
 func (b0 Review_builder) Build() *Review {
@@ -1219,31 +1277,39 @@ func (b0 Review_builder) Build() *Review {
 	_, _ = b, x
 	x.xxx_hidden_SubmittedAt = b.SubmittedAt
 	if b.State != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 9)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 11)
 		x.xxx_hidden_State = b.State
 	}
 	x.xxx_hidden_Author = b.Author
 	if b.Body != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 9)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 11)
 		x.xxx_hidden_Body = b.Body
 	}
 	if b.CommentCount != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 4, 9)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 4, 11)
 		x.xxx_hidden_CommentCount = *b.CommentCount
 	}
 	if b.Url != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 9)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 11)
 		x.xxx_hidden_Url = b.Url
 	}
 	if b.NewThreadsCount != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 9)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 11)
 		x.xxx_hidden_NewThreadsCount = *b.NewThreadsCount
 	}
 	if b.ReplyCount != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 9)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 11)
 		x.xxx_hidden_ReplyCount = *b.ReplyCount
 	}
 	x.xxx_hidden_Comments = &b.Comments
+	if b.Id != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 9, 11)
+		x.xxx_hidden_Id = b.Id
+	}
+	if b.CommentsPagedTotal != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 10, 11)
+		x.xxx_hidden_CommentsPagedTotal = *b.CommentsPagedTotal
+	}
 	return m0
 }
 
@@ -1733,17 +1799,18 @@ func (b0 Label_builder) Build() *Label {
 }
 
 type ItemLocalState struct {
-	state                     protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_ComputedStatus ItemStatus             `protobuf:"varint,1,opt,name=computed_status,json=computedStatus,enum=octodeck.v1.ItemStatus"`
-	xxx_hidden_LastViewedAt   *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=last_viewed_at,json=lastViewedAt"`
-	xxx_hidden_AckedAt        *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=acked_at,json=ackedAt"`
-	xxx_hidden_PrivateNotes   *string                `protobuf:"bytes,5,opt,name=private_notes,json=privateNotes"`
-	xxx_hidden_Starred        bool                   `protobuf:"varint,6,opt,name=starred"`
-	xxx_hidden_SyncError      *string                `protobuf:"bytes,7,opt,name=sync_error,json=syncError"`
-	XXX_raceDetectHookData    protoimpl.RaceDetectHookData
-	XXX_presence              [1]uint32
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	state                           protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ComputedStatus       ItemStatus             `protobuf:"varint,1,opt,name=computed_status,json=computedStatus,enum=octodeck.v1.ItemStatus"`
+	xxx_hidden_LastViewedAt         *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=last_viewed_at,json=lastViewedAt"`
+	xxx_hidden_AckedAt              *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=acked_at,json=ackedAt"`
+	xxx_hidden_PrivateNotes         *string                `protobuf:"bytes,5,opt,name=private_notes,json=privateNotes"`
+	xxx_hidden_Starred              bool                   `protobuf:"varint,6,opt,name=starred"`
+	xxx_hidden_SyncError            *string                `protobuf:"bytes,7,opt,name=sync_error,json=syncError"`
+	xxx_hidden_ReviewBackfillBefore *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=review_backfill_before,json=reviewBackfillBefore"`
+	XXX_raceDetectHookData          protoimpl.RaceDetectHookData
+	XXX_presence                    [1]uint32
+	unknownFields                   protoimpl.UnknownFields
+	sizeCache                       protoimpl.SizeCache
 }
 
 func (x *ItemLocalState) Reset() {
@@ -1821,9 +1888,16 @@ func (x *ItemLocalState) GetSyncError() string {
 	return ""
 }
 
+func (x *ItemLocalState) GetReviewBackfillBefore() *timestamppb.Timestamp {
+	if x != nil {
+		return x.xxx_hidden_ReviewBackfillBefore
+	}
+	return nil
+}
+
 func (x *ItemLocalState) SetComputedStatus(v ItemStatus) {
 	x.xxx_hidden_ComputedStatus = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 6)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 7)
 }
 
 func (x *ItemLocalState) SetLastViewedAt(v *timestamppb.Timestamp) {
@@ -1836,17 +1910,21 @@ func (x *ItemLocalState) SetAckedAt(v *timestamppb.Timestamp) {
 
 func (x *ItemLocalState) SetPrivateNotes(v string) {
 	x.xxx_hidden_PrivateNotes = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 6)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 7)
 }
 
 func (x *ItemLocalState) SetStarred(v bool) {
 	x.xxx_hidden_Starred = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 4, 6)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 4, 7)
 }
 
 func (x *ItemLocalState) SetSyncError(v string) {
 	x.xxx_hidden_SyncError = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 6)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 7)
+}
+
+func (x *ItemLocalState) SetReviewBackfillBefore(v *timestamppb.Timestamp) {
+	x.xxx_hidden_ReviewBackfillBefore = v
 }
 
 func (x *ItemLocalState) HasComputedStatus() bool {
@@ -1891,6 +1969,13 @@ func (x *ItemLocalState) HasSyncError() bool {
 	return protoimpl.X.Present(&(x.XXX_presence[0]), 5)
 }
 
+func (x *ItemLocalState) HasReviewBackfillBefore() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_ReviewBackfillBefore != nil
+}
+
 func (x *ItemLocalState) ClearComputedStatus() {
 	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
 	x.xxx_hidden_ComputedStatus = ItemStatus_ITEM_STATUS_UNSPECIFIED
@@ -1919,6 +2004,10 @@ func (x *ItemLocalState) ClearSyncError() {
 	x.xxx_hidden_SyncError = nil
 }
 
+func (x *ItemLocalState) ClearReviewBackfillBefore() {
+	x.xxx_hidden_ReviewBackfillBefore = nil
+}
+
 type ItemLocalState_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -1928,6 +2017,10 @@ type ItemLocalState_builder struct {
 	PrivateNotes   *string
 	Starred        *bool
 	SyncError      *string
+	// When set, a PR review backfill is pending (it failed or was deferred). Stored
+	// reviews submitted before this time are contiguous history; newer stored reviews
+	// may be preceded by a gap. The next sync retries the backfill and clears it on success.
+	ReviewBackfillBefore *timestamppb.Timestamp
 }
 
 func (b0 ItemLocalState_builder) Build() *ItemLocalState {
@@ -1935,23 +2028,24 @@ func (b0 ItemLocalState_builder) Build() *ItemLocalState {
 	b, x := &b0, m0
 	_, _ = b, x
 	if b.ComputedStatus != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 6)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 7)
 		x.xxx_hidden_ComputedStatus = *b.ComputedStatus
 	}
 	x.xxx_hidden_LastViewedAt = b.LastViewedAt
 	x.xxx_hidden_AckedAt = b.AckedAt
 	if b.PrivateNotes != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 6)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 7)
 		x.xxx_hidden_PrivateNotes = b.PrivateNotes
 	}
 	if b.Starred != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 4, 6)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 4, 7)
 		x.xxx_hidden_Starred = *b.Starred
 	}
 	if b.SyncError != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 6)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 7)
 		x.xxx_hidden_SyncError = b.SyncError
 	}
+	x.xxx_hidden_ReviewBackfillBefore = b.ReviewBackfillBefore
 	return m0
 }
 
@@ -3059,7 +3153,7 @@ const file_octodeck_v1_resources_proto_rawDesc = "" +
 	"\x06author\x18\x05 \x01(\v2\x11.octodeck.v1.UserR\x06author\x129\n" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1e\n" +
-	"\vreply_to_id\x18\a \x01(\tR\treplyToId\"\xd8\x02\n" +
+	"\vreply_to_id\x18\a \x01(\tR\treplyToId\"\x9a\x03\n" +
 	"\x06Review\x12=\n" +
 	"\fsubmitted_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\vsubmittedAt\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12)\n" +
@@ -3070,7 +3164,10 @@ const file_octodeck_v1_resources_proto_rawDesc = "" +
 	"\x11new_threads_count\x18\a \x01(\x05R\x0fnewThreadsCount\x12\x1f\n" +
 	"\vreply_count\x18\b \x01(\x05R\n" +
 	"replyCount\x126\n" +
-	"\bcomments\x18\t \x03(\v2\x1a.octodeck.v1.ReviewCommentR\bcomments\"n\n" +
+	"\bcomments\x18\t \x03(\v2\x1a.octodeck.v1.ReviewCommentR\bcomments\x12\x0e\n" +
+	"\x02id\x18\n" +
+	" \x01(\tR\x02id\x120\n" +
+	"\x14comments_paged_total\x18\v \x01(\x05R\x12commentsPagedTotal\"n\n" +
 	"\x06Commit\x12A\n" +
 	"\x0ecommitted_date\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\rcommittedDate\x12!\n" +
 	"\fauthor_login\x18\x02 \x01(\tR\vauthorLogin\"!\n" +
@@ -3086,7 +3183,7 @@ const file_octodeck_v1_resources_proto_rawDesc = "" +
 	"\x05Label\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05color\x18\x02 \x01(\tR\x05color\x12 \n" +
-	"\vdescription\x18\x03 \x01(\tR\vdescription\"\xaf\x02\n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\"\x81\x03\n" +
 	"\x0eItemLocalState\x12@\n" +
 	"\x0fcomputed_status\x18\x01 \x01(\x0e2\x17.octodeck.v1.ItemStatusR\x0ecomputedStatus\x12@\n" +
 	"\x0elast_viewed_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\flastViewedAt\x125\n" +
@@ -3094,7 +3191,8 @@ const file_octodeck_v1_resources_proto_rawDesc = "" +
 	"\rprivate_notes\x18\x05 \x01(\tR\fprivateNotes\x12\x18\n" +
 	"\astarred\x18\x06 \x01(\bR\astarred\x12\x1d\n" +
 	"\n" +
-	"sync_error\x18\a \x01(\tR\tsyncErrorJ\x04\b\x04\x10\x05\"\xb8\a\n" +
+	"sync_error\x18\a \x01(\tR\tsyncError\x12P\n" +
+	"\x16review_backfill_before\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\x14reviewBackfillBeforeJ\x04\b\x04\x10\x05\"\xb8\a\n" +
 	"\x04Item\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04repo\x18\x02 \x01(\tR\x04repo\x12\x16\n" +
@@ -3221,27 +3319,28 @@ var file_octodeck_v1_resources_proto_depIdxs = []int32{
 	3,  // 13: octodeck.v1.ItemLocalState.computed_status:type_name -> octodeck.v1.ItemStatus
 	18, // 14: octodeck.v1.ItemLocalState.last_viewed_at:type_name -> google.protobuf.Timestamp
 	18, // 15: octodeck.v1.ItemLocalState.acked_at:type_name -> google.protobuf.Timestamp
-	0,  // 16: octodeck.v1.Item.type:type_name -> octodeck.v1.ItemType
-	1,  // 17: octodeck.v1.Item.state:type_name -> octodeck.v1.ItemState
-	18, // 18: octodeck.v1.Item.updated_at:type_name -> google.protobuf.Timestamp
-	18, // 19: octodeck.v1.Item.last_synced_at:type_name -> google.protobuf.Timestamp
-	7,  // 20: octodeck.v1.Item.author:type_name -> octodeck.v1.User
-	11, // 21: octodeck.v1.Item.commits:type_name -> octodeck.v1.Commit
-	8,  // 22: octodeck.v1.Item.comments:type_name -> octodeck.v1.Comment
-	10, // 23: octodeck.v1.Item.reviews:type_name -> octodeck.v1.Review
-	7,  // 24: octodeck.v1.Item.assignees:type_name -> octodeck.v1.User
-	15, // 25: octodeck.v1.Item.local:type_name -> octodeck.v1.ItemLocalState
-	18, // 26: octodeck.v1.Item.created_at:type_name -> google.protobuf.Timestamp
-	12, // 27: octodeck.v1.Item.milestone:type_name -> octodeck.v1.Milestone
-	14, // 28: octodeck.v1.Item.labels:type_name -> octodeck.v1.Label
-	13, // 29: octodeck.v1.Item.state_events:type_name -> octodeck.v1.StateEvent
-	6,  // 30: octodeck.v1.Item.viewer_subscription:type_name -> octodeck.v1.SubscriptionState
-	18, // 31: octodeck.v1.SyncTrace.created_at:type_name -> google.protobuf.Timestamp
-	32, // [32:32] is the sub-list for method output_type
-	32, // [32:32] is the sub-list for method input_type
-	32, // [32:32] is the sub-list for extension type_name
-	32, // [32:32] is the sub-list for extension extendee
-	0,  // [0:32] is the sub-list for field type_name
+	18, // 16: octodeck.v1.ItemLocalState.review_backfill_before:type_name -> google.protobuf.Timestamp
+	0,  // 17: octodeck.v1.Item.type:type_name -> octodeck.v1.ItemType
+	1,  // 18: octodeck.v1.Item.state:type_name -> octodeck.v1.ItemState
+	18, // 19: octodeck.v1.Item.updated_at:type_name -> google.protobuf.Timestamp
+	18, // 20: octodeck.v1.Item.last_synced_at:type_name -> google.protobuf.Timestamp
+	7,  // 21: octodeck.v1.Item.author:type_name -> octodeck.v1.User
+	11, // 22: octodeck.v1.Item.commits:type_name -> octodeck.v1.Commit
+	8,  // 23: octodeck.v1.Item.comments:type_name -> octodeck.v1.Comment
+	10, // 24: octodeck.v1.Item.reviews:type_name -> octodeck.v1.Review
+	7,  // 25: octodeck.v1.Item.assignees:type_name -> octodeck.v1.User
+	15, // 26: octodeck.v1.Item.local:type_name -> octodeck.v1.ItemLocalState
+	18, // 27: octodeck.v1.Item.created_at:type_name -> google.protobuf.Timestamp
+	12, // 28: octodeck.v1.Item.milestone:type_name -> octodeck.v1.Milestone
+	14, // 29: octodeck.v1.Item.labels:type_name -> octodeck.v1.Label
+	13, // 30: octodeck.v1.Item.state_events:type_name -> octodeck.v1.StateEvent
+	6,  // 31: octodeck.v1.Item.viewer_subscription:type_name -> octodeck.v1.SubscriptionState
+	18, // 32: octodeck.v1.SyncTrace.created_at:type_name -> google.protobuf.Timestamp
+	33, // [33:33] is the sub-list for method output_type
+	33, // [33:33] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_octodeck_v1_resources_proto_init() }

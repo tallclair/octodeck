@@ -77,6 +77,11 @@ message Review {
   int32 new_threads_count = 7;
   int32 reply_count = 8;
   repeated ReviewComment comments = 9;
+  string id = 10;
+  // The comment_count observed when this review's comments were last paged to exhaustion
+  // (0 if never). Lets the sync engine treat the stored comments as complete while GitHub's
+  // count is unchanged, even if the count exceeds the comments paging actually returns.
+  int32 comments_paged_total = 11;
 }
 
 message Commit {
@@ -126,6 +131,10 @@ message ItemLocalState {
   string private_notes = 5;
   bool starred = 6;
   string sync_error = 7;
+  // When set, a PR review backfill is pending (it failed or was deferred). Stored
+  // reviews submitted before this time are contiguous history; newer stored reviews
+  // may be preceded by a gap. The next sync retries the backfill and clears it on success.
+  google.protobuf.Timestamp review_backfill_before = 8;
 }
 
 message Item {

@@ -301,7 +301,7 @@ func (s *SyncEngine) hydrateAndPersistDiscoveredItems(
 	payload *DiscoverySyncPayload,
 ) (int, error) {
 	slog.InfoContext(ctx, "Hydrating newly discovered items", "new_count", len(candidateIDs))
-	foundItems, missingIDs, fetchErr := s.gh.FetchItemsByIDs(ctx, candidateIDs)
+	foundItems, paging, missingIDs, fetchErr := s.gh.FetchItemsByIDs(ctx, candidateIDs)
 	if fetchErr != nil {
 		return 0, fmt.Errorf("failed to hydrate candidate items: %w", fetchErr)
 	}
@@ -325,7 +325,7 @@ func (s *SyncEngine) hydrateAndPersistDiscoveredItems(
 
 	s.autoSubscribeDiscoveredItems(ctx, itemsToProcess, autoSubscribeIDs, payload)
 
-	if err := s.processItemsDirect(ctx, itemsToProcess, false); err != nil {
+	if err := s.processItemsDirect(ctx, itemsToProcess, paging, false); err != nil {
 		return 0, fmt.Errorf("failed to process discovered items: %w", err)
 	}
 

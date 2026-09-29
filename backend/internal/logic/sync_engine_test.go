@@ -1078,6 +1078,121 @@ func TestMergeReviews(t *testing.T) {
 	assert.Equal(t, "Edited code comment", merged[1].GetComments()[0].GetBody())
 	assert.Equal(t, "APPROVED", merged[2].GetState())
 	assert.Equal(t, "reviewer2", merged[2].GetAuthor().GetLogin())
+
+	t.Run("matches by id and falls back to url for legacy stored reviews", func(t *testing.T) {
+		stored := []*octodeckv1.Review{
+			// Legacy stored review with empty Id, matched via URL fallback
+			octodeckv1.Review_builder{
+				Url:         config.Ptr("https://github.com/owner/repo/pull/1#pullrequestreview-10"),
+				SubmittedAt: timestamppb.New(t1),
+				State:       config.Ptr("COMMENTED"),
+				Body:        config.Ptr("Old legacy body"),
+				Author:      octodeckv1.User_builder{Login: config.Ptr("alice")}.Build(),
+			}.Build(),
+			// Stored review with Id, matched by Id even if URL changed
+			octodeckv1.Review_builder{
+				Id:          config.Ptr("PRR_20"),
+				Url:         config.Ptr("https://github.com/owner/repo/pull/1#pullrequestreview-20-old"),
+				SubmittedAt: timestamppb.New(t2),
+				State:       config.Ptr("COMMENTED"),
+				Body:        config.Ptr("Old id body"),
+				Author:      octodeckv1.User_builder{Login: config.Ptr("bob")}.Build(),
+			}.Build(),
+		}
+		incoming := []*octodeckv1.Review{
+			octodeckv1.Review_builder{
+				Id:          config.Ptr("PRR_10"),
+				Url:         config.Ptr("https://github.com/owner/repo/pull/1#pullrequestreview-10"),
+				SubmittedAt: timestamppb.New(t1),
+				State:       config.Ptr("APPROVED"),
+				Body:        config.Ptr("Fresh body for legacy review"),
+				Author:      octodeckv1.User_builder{Login: config.Ptr("alice")}.Build(),
+			}.Build(),
+			octodeckv1.Review_builder{
+				Id:          config.Ptr("PRR_20"),
+				Url:         config.Ptr("https://github.com/owner/repo/pull/1#pullrequestreview-20"),
+				SubmittedAt: timestamppb.New(t2),
+				State:       config.Ptr("CHANGES_REQUESTED"),
+				Body:        config.Ptr("Fresh body by id"),
+				Author:      octodeckv1.User_builder{Login: config.Ptr("bob")}.Build(),
+			}.Build(),
+		}
+
+		res := mergeReviews(stored, incoming)
+		require.Len(t, res, 2)
+		assert.Equal(t, "PRR_10", res[0].GetId())
+		assert.Equal(t, "APPROVED", res[0].GetState())
+		assert.Equal(t, "Fresh body for legacy review", res[0].GetBody())
+		assert.Equal(t, "PRR_20", res[1].GetId())
+		assert.Equal(t, "CHANGES_REQUESTED", res[1].GetState())
+		assert.Equal(t, "Fresh body by id", res[1].GetBody())
+	})
+
+	t.Run("replaces comments when fully paged and merges by id when partially paged", func(t *testing.T) {
+		stored := []*octodeckv1.Review{
+			octodeckv1.Review_builder{
+				Id:           config.Ptr("PRR_full"),
+				SubmittedAt:  timestamppb.New(t1),
+				State:        config.Ptr("COMMENTED"),
+				CommentCount: config.Ptr(int32(2)),
+				Comments: []*octodeckv1.ReviewComment{
+					octodeckv1.ReviewComment_builder{
+						Id:   config.Ptr("c_deleted"),
+						Body: config.Ptr("Should be removed"),
+					}.Build(),
+					octodeckv1.ReviewComment_builder{Id: config.Ptr("c_kept"), Body: config.Ptr("Old text")}.Build(),
+				},
+			}.Build(),
+			octodeckv1.Review_builder{
+				Id:           config.Ptr("PRR_partial"),
+				SubmittedAt:  timestamppb.New(t2),
+				State:        config.Ptr("COMMENTED"),
+				CommentCount: config.Ptr(int32(3)),
+				Comments: []*octodeckv1.ReviewComment{
+					octodeckv1.ReviewComment_builder{Id: config.Ptr("c1"), Body: config.Ptr("Original c1")}.Build(),
+					octodeckv1.ReviewComment_builder{Id: config.Ptr("c2"), Body: config.Ptr("Original c2")}.Build(),
+				},
+			}.Build(),
+		}
+
+		incoming := []*octodeckv1.Review{
+			// Fully paged (CommentCount == 1 == len(Comments)): replaces stored list
+			octodeckv1.Review_builder{
+				Id:           config.Ptr("PRR_full"),
+				SubmittedAt:  timestamppb.New(t1),
+				State:        config.Ptr("COMMENTED"),
+				CommentCount: config.Ptr(int32(1)),
+				Comments: []*octodeckv1.ReviewComment{
+					octodeckv1.ReviewComment_builder{
+						Id:   config.Ptr("c_kept"),
+						Body: config.Ptr("Updated text"),
+					}.Build(),
+				},
+			}.Build(),
+			// Partially paged (CommentCount == 3 > len(Comments) == 1): merges by comment ID
+			octodeckv1.Review_builder{
+				Id:           config.Ptr("PRR_partial"),
+				SubmittedAt:  timestamppb.New(t2),
+				State:        config.Ptr("COMMENTED"),
+				CommentCount: config.Ptr(int32(3)),
+				Comments: []*octodeckv1.ReviewComment{
+					octodeckv1.ReviewComment_builder{Id: config.Ptr("c2"), Body: config.Ptr("Updated c2")}.Build(),
+				},
+			}.Build(),
+		}
+
+		res := mergeReviews(stored, incoming)
+		require.Len(t, res, 2)
+		require.Len(t, res[0].GetComments(), 1, "fully paged review comments should replace stored comments")
+		assert.Equal(t, "c_kept", res[0].GetComments()[0].GetId())
+		assert.Equal(t, "Updated text", res[0].GetComments()[0].GetBody())
+
+		require.Len(t, res[1].GetComments(), 2, "partially paged review comments should merge with stored comments")
+		assert.Equal(t, "c1", res[1].GetComments()[0].GetId())
+		assert.Equal(t, "Original c1", res[1].GetComments()[0].GetBody())
+		assert.Equal(t, "c2", res[1].GetComments()[1].GetId())
+		assert.Equal(t, "Updated c2", res[1].GetComments()[1].GetBody())
+	})
 }
 
 func TestProcessItems_PreservesAndMergesReviews(t *testing.T) {
@@ -1132,7 +1247,7 @@ func TestProcessItems_PreservesAndMergesReviews(t *testing.T) {
 	}.Build()
 
 	engine := NewSyncEngine(db, nil, config.NewForTest(octodeckv1.Config_builder{}.Build()))
-	err = engine.processItems(t.Context(), []*octodeckv1.Item{fetchedItem})
+	err = engine.processItems(t.Context(), []*octodeckv1.Item{fetchedItem}, nil)
 	require.NoError(t, err)
 
 	// Verify item in DB has both reviews and preserved local state
@@ -1551,7 +1666,7 @@ func TestProcessItems_CommentGapDetectionAndBackfill(t *testing.T) {
 	ghClient := &github.Client{GraphQLClient: mockGQL}
 	engine := NewSyncEngine(db, ghClient, config.NewForTest(octodeckv1.Config_builder{}.Build()))
 
-	err := engine.processItems(t.Context(), []*octodeckv1.Item{fetchedItem})
+	err := engine.processItems(t.Context(), []*octodeckv1.Item{fetchedItem}, nil)
 	require.NoError(t, err)
 
 	// Verify all comments from 101..139 are present and in order

@@ -65,6 +65,8 @@ const (
 
 	// typePullRequest is the GraphQL typename for a Pull Request.
 	typePullRequest = "PullRequest"
+	// typePullRequestReview is the GraphQL typename for a PullRequestReview.
+	typePullRequestReview = "PullRequestReview"
 	// typeIssue is the GraphQL typename for an Issue.
 	typeIssue = "Issue"
 
@@ -89,6 +91,9 @@ const (
 	// stateMerged is the GitHub pull request state for merged items.
 	stateMerged = "MERGED"
 )
+
+// MaxReviewBackfill is the safety cap on the number of reviews FetchReviews collects for a PR.
+const MaxReviewBackfill = 500
 
 // HTTPClient defines the interface for executing HTTP requests.
 type HTTPClient interface {
@@ -1011,73 +1016,141 @@ func convertCommits(nodes []gqlCommit) ([]*octodeckv1.Commit, error) {
 	return commits, nil
 }
 
+func convertReviewCommentNode(c gqlReviewComment, fallbackAuthor gqlUser) *octodeckv1.ReviewComment {
+	var replyToID string
+	if c.ReplyTo != nil && c.ReplyTo.ID != "" {
+		replyToID = c.ReplyTo.ID
+	}
+
+	var catTime *timestamppb.Timestamp
+	if c.CreatedAt == "" {
+		slog.Warn("Review comment missing createdAt timestamp", "id", c.ID, "url", c.URL)
+	} else if ct, err := time.Parse(time.RFC3339, c.CreatedAt); err == nil {
+		catTime = timestamppb.New(ct)
+	} else {
+		slog.Warn("Failed to parse review comment createdAt timestamp",
+			"id", c.ID, "createdAt", c.CreatedAt, "error", err)
+	}
+
+	commentAuthor := c.Author
+	if commentAuthor.Login == "" {
+		commentAuthor = fallbackAuthor
+	}
+
+	return octodeckv1.ReviewComment_builder{
+		Id:        config.Ptr(c.ID),
+		Body:      config.Ptr(c.Body),
+		Path:      config.Ptr(c.Path),
+		Url:       config.Ptr(c.URL),
+		CreatedAt: catTime,
+		ReplyToId: config.Ptr(replyToID),
+		Author: octodeckv1.User_builder{
+			Login:     config.Ptr(commentAuthor.Login),
+			AvatarUrl: config.Ptr(commentAuthor.AvatarURL),
+		}.Build(),
+	}.Build()
+}
+
 func convertReviewComments(nodes []gqlReviewComment, author gqlUser) ([]*octodeckv1.ReviewComment, int32, int32) {
 	var reviewComments []*octodeckv1.ReviewComment
 	var newThreadsCount int32
 	var replyCount int32
 	for _, c := range nodes {
-		var replyToID string
 		if c.ReplyTo != nil && c.ReplyTo.ID != "" {
 			replyCount++
-			replyToID = c.ReplyTo.ID
 		} else {
 			newThreadsCount++
 		}
-
-		var catTime *timestamppb.Timestamp
-		if c.CreatedAt != "" {
-			if ct, err := time.Parse(time.RFC3339, c.CreatedAt); err == nil {
-				catTime = timestamppb.New(ct)
-			}
-		}
-
-		reviewComments = append(reviewComments, octodeckv1.ReviewComment_builder{
-			Id:        config.Ptr(c.ID),
-			Body:      config.Ptr(c.Body),
-			Path:      config.Ptr(c.Path),
-			Url:       config.Ptr(c.URL),
-			CreatedAt: catTime,
-			ReplyToId: config.Ptr(replyToID),
-			Author: octodeckv1.User_builder{
-				Login:     config.Ptr(author.Login),
-				AvatarUrl: config.Ptr(author.AvatarURL),
-			}.Build(),
-		}.Build())
+		reviewComments = append(reviewComments, convertReviewCommentNode(c, author))
 	}
 	return reviewComments, newThreadsCount, replyCount
+}
+
+// RecountReviewThreads recomputes a review's NewThreadsCount and ReplyCount from its loaded
+// comments. Reviews without loaded comments are left untouched because their counts are
+// derived from the API's totalCount. CommentCount is raised if more comments are loaded than
+// it reports (e.g. a stale count), but is never lowered, since it may exceed the loaded set.
+func RecountReviewThreads(r *octodeckv1.Review) {
+	if len(r.GetComments()) == 0 {
+		return
+	}
+	var newThreads, replies int32
+	for _, rc := range r.GetComments() {
+		if rc.GetReplyToId() != "" {
+			replies++
+		} else {
+			newThreads++
+		}
+	}
+	r.SetNewThreadsCount(newThreads)
+	r.SetReplyCount(replies)
+	r.SetCommentCount(max(r.GetCommentCount(), newThreads+replies))
+}
+
+// ReviewCommentsComplete reports whether a review's loaded comments are complete for its own
+// CommentCount (see ReviewCommentsCompleteFor).
+func ReviewCommentsComplete(r *octodeckv1.Review) bool {
+	return ReviewCommentsCompleteFor(r, r.GetCommentCount())
+}
+
+// ReviewCommentsCompleteFor reports whether a review's loaded comments are complete for the
+// given comment count: either at least that many comments are loaded, or the comments were
+// paged to exhaustion when GitHub reported that same count. The latter matters because
+// GitHub's totalCount can exceed the number of comments paging actually returns.
+func ReviewCommentsCompleteFor(r *octodeckv1.Review, commentCount int32) bool {
+	if len(r.GetComments()) >= int(commentCount) {
+		return true
+	}
+	return r.GetCommentsPagedTotal() > 0 && r.GetCommentsPagedTotal() == commentCount
+}
+
+func (r gqlReview) toProto() *octodeckv1.Review {
+	if r.SubmittedAt == "" {
+		return nil
+	}
+	t, err := time.Parse(time.RFC3339, r.SubmittedAt)
+	if err != nil {
+		slog.Warn("Failed to parse review timestamp", "submittedAt", r.SubmittedAt, "error", err)
+		return nil
+	}
+
+	reviewComments, newThreadsCount, replyCount := convertReviewComments(r.Comments.Nodes, r.Author)
+	// CommentCount is the API's totalCount; when it exceeds the number of loaded comments the
+	// review is incomplete (see ReviewCommentsComplete) and the sync engine pages the rest.
+	commentCount := r.Comments.TotalCount
+	if len(r.Comments.Nodes) == 0 && commentCount > 0 {
+		newThreadsCount = commentCount
+	}
+	// When the first page is also the last, the loaded comments are authoritative for this count.
+	var pagedTotal int32
+	if !r.Comments.PageInfo.HasNextPage {
+		pagedTotal = commentCount
+	}
+
+	return octodeckv1.Review_builder{
+		Id:                 config.Ptr(r.ID),
+		SubmittedAt:        timestamppb.New(t),
+		State:              config.Ptr(r.State),
+		Body:               config.Ptr(r.Body),
+		CommentCount:       config.Ptr(commentCount),
+		Url:                config.Ptr(r.URL),
+		NewThreadsCount:    config.Ptr(newThreadsCount),
+		ReplyCount:         config.Ptr(replyCount),
+		Comments:           reviewComments,
+		CommentsPagedTotal: config.Ptr(pagedTotal),
+		Author: octodeckv1.User_builder{
+			Login:     config.Ptr(r.Author.Login),
+			AvatarUrl: config.Ptr(r.Author.AvatarURL),
+		}.Build(),
+	}.Build()
 }
 
 func convertReviews(nodes []gqlReview) []*octodeckv1.Review {
 	var reviews []*octodeckv1.Review
 	for _, r := range nodes {
-		if r.SubmittedAt == "" {
-			continue
+		if protoReview := r.toProto(); protoReview != nil {
+			reviews = append(reviews, protoReview)
 		}
-		t, err := time.Parse(time.RFC3339, r.SubmittedAt)
-		if err != nil {
-			slog.Warn("Failed to parse review timestamp", "submittedAt", r.SubmittedAt, "error", err)
-			continue
-		}
-
-		reviewComments, newThreadsCount, replyCount := convertReviewComments(r.Comments.Nodes, r.Author)
-		if len(r.Comments.Nodes) == 0 && r.Comments.TotalCount > 0 {
-			newThreadsCount = r.Comments.TotalCount
-		}
-
-		reviews = append(reviews, octodeckv1.Review_builder{
-			SubmittedAt:     timestamppb.New(t),
-			State:           config.Ptr(r.State),
-			Body:            config.Ptr(r.Body),
-			CommentCount:    config.Ptr(r.Comments.TotalCount),
-			Url:             config.Ptr(r.URL),
-			NewThreadsCount: config.Ptr(newThreadsCount),
-			ReplyCount:      config.Ptr(replyCount),
-			Comments:        reviewComments,
-			Author: octodeckv1.User_builder{
-				Login:     config.Ptr(r.Author.Login),
-				AvatarUrl: config.Ptr(r.Author.AvatarURL),
-			}.Build(),
-		}.Build())
 	}
 	return reviews
 }
@@ -1149,6 +1222,7 @@ type gqlReviewComment struct {
 }
 
 type gqlReview struct {
+	ID          string  `json:"id"`
 	URL         string  `json:"url"`
 	Body        string  `json:"body"`
 	State       string  `json:"state"`
@@ -1157,7 +1231,13 @@ type gqlReview struct {
 	Comments    struct {
 		TotalCount int32              `json:"totalCount"`
 		Nodes      []gqlReviewComment `json:"nodes"`
+		PageInfo   pageInfo           `json:"pageInfo"`
 	} `graphql:"comments(first: 10)" json:"comments"`
+}
+
+type gqlReviewsPageInfo struct {
+	StartCursor     string `json:"startCursor"`
+	HasPreviousPage bool   `json:"hasPreviousPage"`
 }
 
 type gqlPullRequest struct {
@@ -1189,11 +1269,45 @@ type gqlPullRequest struct {
 		Nodes []gqlCommit `json:"nodes"`
 	} `graphql:"commits(last: 10)" json:"commits"`
 	Reviews struct {
-		Nodes []gqlReview `json:"nodes"`
+		Nodes    []gqlReview `json:"nodes"`
+		PageInfo struct {
+			HasPreviousPage bool `json:"hasPreviousPage"`
+		} `json:"pageInfo"`
 	} `graphql:"reviews(last: 10)" json:"reviews"`
 	TimelineItems struct {
 		Nodes []gqlTimelineItemNode `json:"nodes"`
 	} `graphql:"timelineItems(last: 10, itemTypes: [CLOSED_EVENT, MERGED_EVENT, REOPENED_EVENT, ASSIGNED_EVENT])" json:"timelineItems"` //nolint:lll // GraphQL query struct tag requires long inline argument list
+}
+
+// HydrationPaging describes, for one hydrated item, what the reviews embedded in the hydration
+// query did not cover, so the sync engine can fetch the rest. It is per-response data and is
+// never persisted. The zero value (no older reviews, no comment cursors) is the safe default.
+type HydrationPaging struct {
+	// ReviewsHasPreviousPage reports that the PR has reviews older than the hydrated page.
+	ReviewsHasPreviousPage bool
+	// ReviewCommentsEndCursors maps review ID to the end cursor of its hydrated first comments
+	// page, for reviews that have more comments than that page contained.
+	ReviewCommentsEndCursors map[string]string
+}
+
+// HydrationPagingByID maps hydrated item IDs to their HydrationPaging. Looking up an absent ID,
+// or any ID in a nil map, yields the zero value.
+type HydrationPagingByID map[string]HydrationPaging
+
+func (p gqlPullRequest) hydrationPaging() HydrationPaging {
+	var cursors map[string]string
+	for _, r := range p.Reviews.Nodes {
+		if r.ID != "" && r.Comments.PageInfo.HasNextPage && r.Comments.PageInfo.EndCursor != "" {
+			if cursors == nil {
+				cursors = make(map[string]string)
+			}
+			cursors[r.ID] = r.Comments.PageInfo.EndCursor
+		}
+	}
+	return HydrationPaging{
+		ReviewsHasPreviousPage:   p.Reviews.PageInfo.HasPreviousPage,
+		ReviewCommentsEndCursors: cursors,
+	}
 }
 
 func (p gqlPullRequest) toProto(currentUser ...string) (*octodeckv1.Item, error) {
@@ -1261,6 +1375,26 @@ func (p gqlPullRequest) toProto(currentUser ...string) (*octodeckv1.Item, error)
 	}.Build(), nil
 }
 
+// appendRemainingReviewComments pages the comments that follow the first page embedded in
+// rawRev (using that page's endCursor) and appends them to protoRev.
+func (c *Client) appendRemainingReviewComments(
+	ctx context.Context,
+	rawRev gqlReview,
+	protoRev *octodeckv1.Review,
+) error {
+	if !rawRev.Comments.PageInfo.HasNextPage || rawRev.ID == "" {
+		return nil
+	}
+	extraComments, err := c.FetchReviewComments(ctx, rawRev.ID, rawRev.Comments.PageInfo.EndCursor)
+	if err != nil {
+		return err
+	}
+	protoRev.SetComments(append(protoRev.GetComments(), extraComments...))
+	protoRev.SetCommentsPagedTotal(protoRev.GetCommentCount())
+	RecountReviewThreads(protoRev)
+	return nil
+}
+
 type gqlSearchResultNode struct {
 	Typename    string         `graphql:"__typename" json:"__typename"`
 	Issue       gqlIssue       `graphql:"... on Issue" json:"issue"`
@@ -1278,6 +1412,14 @@ func (n gqlSearchResultNode) toProto(currentUser ...string) (*octodeckv1.Item, e
 	return nil, fmt.Errorf("unknown type: %s", n.Typename)
 }
 
+// recordHydrationPaging stores the paging state of a hydrated PR node in paging under itemID.
+// Issues embed no reviews, so they have nothing to record.
+func (n gqlSearchResultNode) recordHydrationPaging(paging HydrationPagingByID, itemID string) {
+	if n.Typename == typePullRequest {
+		paging[itemID] = n.PullRequest.hydrationPaging()
+	}
+}
+
 type pageInfo struct {
 	EndCursor   string `json:"endCursor"`
 	HasNextPage bool   `json:"hasNextPage"`
@@ -1287,14 +1429,18 @@ type pageInfo struct {
 // It iterates through all pages of results.
 // NOTE: If you change the query used by FetchInventory, you MUST update
 // testdata/inventory_query.graphql to match.
-func (c *Client) FetchInventory(ctx context.Context) ([]*octodeckv1.Item, error) {
+func (c *Client) FetchInventory(ctx context.Context) ([]*octodeckv1.Item, HydrationPagingByID, error) {
 	// Combined query to fetch both assigned and authored items
 	// "is:open (assignee:@me OR author:@me) sort:updated-desc"
 	return c.fetchAllItems(ctx, "is:open (assignee:@me OR author:@me) sort:updated-desc")
 }
 
-func (c *Client) fetchAllItems(ctx context.Context, searchQuery string) ([]*octodeckv1.Item, error) {
+func (c *Client) fetchAllItems(
+	ctx context.Context,
+	searchQuery string,
+) ([]*octodeckv1.Item, HydrationPagingByID, error) {
 	var allItems []*octodeckv1.Item
+	paging := make(HydrationPagingByID)
 	var cursor *string // Pointer to string to handle null/nil
 	page := 1
 
@@ -1324,7 +1470,7 @@ func (c *Client) fetchAllItems(ctx context.Context, searchQuery string) ([]*octo
 		}
 
 		if err := c.getGraphQLClient().QueryWithContext(ctx, "InventorySearch", &query, vars); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		currentUser := c.getCurrentUser()
@@ -1332,6 +1478,7 @@ func (c *Client) fetchAllItems(ctx context.Context, searchQuery string) ([]*octo
 			item, err := node.toProto(currentUser)
 			if err == nil {
 				allItems = append(allItems, item)
+				node.recordHydrationPaging(paging, item.GetId())
 			} else {
 				slog.WarnContext(ctx, "Failed to parse item", "error", err, "typename", node.Typename)
 			}
@@ -1346,65 +1493,82 @@ func (c *Client) fetchAllItems(ctx context.Context, searchQuery string) ([]*octo
 		page++
 	}
 
-	return allItems, nil
+	return allItems, paging, nil
 }
 
 // FetchUserUpdates fetches items updated since a given timestamp where the current user is assigned or author.
 // It iterates through all pages of results.
-func (c *Client) FetchUserUpdates(ctx context.Context, since time.Time) ([]*octodeckv1.Item, error) {
+func (c *Client) FetchUserUpdates(
+	ctx context.Context,
+	since time.Time,
+) ([]*octodeckv1.Item, HydrationPagingByID, error) {
 	ts := since.Format(time.RFC3339)
 	searchQuery := fmt.Sprintf("(assignee:@me OR author:@me) updated:>%s sort:updated-desc", ts)
 	return c.fetchAllItems(ctx, searchQuery)
 }
 
-// FetchItemByRepoAndNumber searches GitHub for an item matching the repository and issue/PR number.
-func (c *Client) FetchItemByRepoAndNumber(ctx context.Context, repo string, number int32) (*octodeckv1.Item, error) {
+// FetchItemByRepoAndNumber searches GitHub for an item matching the repository and issue/PR number,
+// returning it along with its hydration paging state.
+func (c *Client) FetchItemByRepoAndNumber(
+	ctx context.Context,
+	repo string,
+	number int32,
+) (*octodeckv1.Item, HydrationPaging, error) {
 	searchQuery := fmt.Sprintf("repo:%s %d", repo, number)
-	items, err := c.fetchAllItems(ctx, searchQuery)
+	items, paging, err := c.fetchAllItems(ctx, searchQuery)
 	if err != nil {
-		return nil, fmt.Errorf("failed to search for %s#%d: %w", repo, number, err)
+		return nil, HydrationPaging{}, fmt.Errorf("failed to search for %s#%d: %w", repo, number, err)
 	}
 	for _, item := range items {
 		if item.GetNumber() == number {
-			return item, nil
+			return item, paging[item.GetId()], nil
 		}
 	}
-	return nil, fmt.Errorf("item %s#%d not found on GitHub", repo, number)
+	return nil, HydrationPaging{}, fmt.Errorf("item %s#%d not found on GitHub", repo, number)
 }
 
 // FetchItemsByIDs fetches details for a specific list of Node IDs.
-// It returns the found items and a list of IDs that were not found (deleted/404/error).
-func (c *Client) FetchItemsByIDs(ctx context.Context, ids []string) ([]*octodeckv1.Item, []string, error) {
+// It returns the found items, their hydration paging state, and a list of IDs that were not
+// found (deleted/404/error).
+func (c *Client) FetchItemsByIDs(
+	ctx context.Context,
+	ids []string,
+) ([]*octodeckv1.Item, HydrationPagingByID, []string, error) {
 	if len(ids) == 0 {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 
 	var foundItems []*octodeckv1.Item
 	var missingIDs []string
+	paging := make(HydrationPagingByID)
 
 	// Process in batches of 50 to avoid query complexity limits
 	for i := 0; i < len(ids); i += nodeBatchSize {
 		end := min(i+nodeBatchSize, len(ids))
 		batchIDs := ids[i:end]
 
-		batchFound, batchMissing, err := c.fetchNodesBatch(ctx, batchIDs)
+		batchFound, batchMissing, err := c.fetchNodesBatch(ctx, batchIDs, paging)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		foundItems = append(foundItems, batchFound...)
 		missingIDs = append(missingIDs, batchMissing...)
 	}
 
-	return foundItems, missingIDs, nil
+	return foundItems, paging, missingIDs, nil
 }
 
 // FetchItems fetches details for a specific list of items.
-// It returns the found (updated) items and a list of IDs that were not found (deleted/404).
+// It returns the found (updated) items, their hydration paging state, and a list of IDs that
+// were not found (deleted/404).
 // NOTE: If you change the query used by FetchItems, you MUST update
 // testdata/items_query.graphql to match.
-func (c *Client) FetchItems(ctx context.Context, items []*octodeckv1.Item) ([]*octodeckv1.Item, []string, error) {
+func (c *Client) FetchItems(
+	ctx context.Context,
+	items []*octodeckv1.Item,
+) ([]*octodeckv1.Item, HydrationPagingByID, []string, error) {
 	if len(items) == 0 {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 
 	ids := make([]string, 0, len(items))
@@ -1417,7 +1581,13 @@ func (c *Client) FetchItems(ctx context.Context, items []*octodeckv1.Item) ([]*o
 	return c.FetchItemsByIDs(ctx, ids)
 }
 
-func (c *Client) fetchNodesBatch(ctx context.Context, ids []string) ([]*octodeckv1.Item, []string, error) {
+// fetchNodesBatch hydrates one batch of node IDs, recording each hydrated PR's paging state in
+// paging.
+func (c *Client) fetchNodesBatch(
+	ctx context.Context,
+	ids []string,
+	paging HydrationPagingByID,
+) ([]*octodeckv1.Item, []string, error) {
 	var query struct {
 		Nodes []*gqlSearchResultNode `graphql:"nodes(ids: $ids)"`
 	}
@@ -1448,9 +1618,176 @@ func (c *Client) fetchNodesBatch(ctx context.Context, ids []string) ([]*octodeck
 			continue
 		}
 		foundItems = append(foundItems, item)
+		node.recordHydrationPaging(paging, item.GetId())
 	}
 
 	return foundItems, missingIDs, nil
+}
+
+type gqlFetchReviewCommentsNode struct {
+	Typename          string `graphql:"__typename" json:"__typename"`
+	PullRequestReview struct {
+		Author   gqlUser `json:"author"`
+		Comments struct {
+			Nodes    []gqlReviewComment `json:"nodes"`
+			PageInfo pageInfo           `json:"pageInfo"`
+		} `graphql:"comments(first: 100, after: $cursor)" json:"comments"`
+	} `graphql:"... on PullRequestReview" json:"pullRequestReview"`
+}
+
+// FetchReviewComments pages through the comments on a PullRequestReview node (100 per page),
+// starting after the provided cursor, or from the first comment when after is empty.
+func (c *Client) FetchReviewComments(ctx context.Context, reviewID, after string) ([]*octodeckv1.ReviewComment, error) {
+	var allComments []*octodeckv1.ReviewComment
+	cursor := after
+
+	for {
+		var query struct {
+			Node gqlFetchReviewCommentsNode `graphql:"node(id: $reviewId)" json:"node"`
+		}
+
+		var gqlCursor *graphql.String
+		if cursor != "" {
+			cs := graphql.String(cursor)
+			gqlCursor = &cs
+		}
+
+		vars := map[string]any{
+			"reviewId": graphql.ID(reviewID),
+			"cursor":   gqlCursor,
+		}
+
+		if err := c.getGraphQLClient().QueryWithContext(ctx, "FetchReviewComments", &query, vars); err != nil {
+			return nil, fmt.Errorf("failed to fetch review comments for %s: %w", reviewID, err)
+		}
+
+		if query.Node.Typename != "" && query.Node.Typename != typePullRequestReview {
+			return nil, fmt.Errorf("unexpected node type %s for review %s", query.Node.Typename, reviewID)
+		}
+
+		nodes := query.Node.PullRequestReview.Comments.Nodes
+		fallbackAuthor := query.Node.PullRequestReview.Author
+		for _, node := range nodes {
+			allComments = append(allComments, convertReviewCommentNode(node, fallbackAuthor))
+		}
+
+		pi := query.Node.PullRequestReview.Comments.PageInfo
+		if !pi.HasNextPage || len(nodes) == 0 {
+			break
+		}
+		cursor = pi.EndCursor
+	}
+
+	return allComments, nil
+}
+
+type gqlFetchReviewsNode struct {
+	Typename    string `graphql:"__typename" json:"__typename"`
+	PullRequest struct {
+		Reviews struct {
+			Nodes    []gqlReview        `json:"nodes"`
+			PageInfo gqlReviewsPageInfo `json:"pageInfo"`
+		} `graphql:"reviews(last: 50, before: $cursor)" json:"reviews"`
+	} `graphql:"... on PullRequest" json:"pullRequest"`
+}
+
+// FetchReviews pages backwards through reviews on a PullRequest (50 per page), starting at the
+// newest review, until a review where known(reviewID) is true is encountered, the first review of
+// the PR is reached, or MaxReviewBackfill reviews have been collected (at which point a warning is
+// logged). Starting at the newest review keeps this call stateless; the overlap with reviews
+// already obtained during hydration is deduplicated by ID when the caller merges the results.
+// Returned reviews are in chronological (oldest-first) order with their comments fully paged.
+func (c *Client) FetchReviews(
+	ctx context.Context,
+	prID string,
+	known func(reviewID string) bool,
+) ([]*octodeckv1.Review, error) {
+	var collected []gqlReview
+	var cursor *string
+
+	for {
+		nodes, pi, err := c.queryReviewsPage(ctx, prID, cursor)
+		if err != nil {
+			return nil, err
+		}
+
+		var stop bool
+		collected, stop = collectBackfillReviews(ctx, prID, nodes, known, collected)
+		if stop || !pi.HasPreviousPage || len(nodes) == 0 || pi.StartCursor == "" {
+			break
+		}
+		startCursor := pi.StartCursor
+		cursor = &startCursor
+	}
+
+	reviews := make([]*octodeckv1.Review, 0, len(collected))
+	for _, rawRev := range slices.Backward(collected) {
+		protoRev := rawRev.toProto()
+		if protoRev == nil {
+			continue
+		}
+		if err := c.appendRemainingReviewComments(ctx, rawRev, protoRev); err != nil {
+			return nil, err
+		}
+		reviews = append(reviews, protoRev)
+	}
+
+	return reviews, nil
+}
+
+func (c *Client) queryReviewsPage(
+	ctx context.Context,
+	prID string,
+	cursor *string,
+) ([]gqlReview, gqlReviewsPageInfo, error) {
+	var query struct {
+		Node gqlFetchReviewsNode `graphql:"node(id: $prId)" json:"node"`
+	}
+
+	var gqlCursor *graphql.String
+	if cursor != nil && *cursor != "" {
+		cs := graphql.String(*cursor)
+		gqlCursor = &cs
+	}
+
+	vars := map[string]any{
+		"prId":   graphql.ID(prID),
+		"cursor": gqlCursor,
+	}
+
+	if err := c.getGraphQLClient().QueryWithContext(ctx, "FetchReviews", &query, vars); err != nil {
+		return nil, gqlReviewsPageInfo{}, fmt.Errorf("failed to fetch reviews for %s: %w", prID, err)
+	}
+
+	if query.Node.Typename != "" && query.Node.Typename != typePullRequest {
+		return nil, gqlReviewsPageInfo{}, fmt.Errorf("unexpected node type %s for PR %s", query.Node.Typename, prID)
+	}
+
+	return query.Node.PullRequest.Reviews.Nodes, query.Node.PullRequest.Reviews.PageInfo, nil
+}
+
+func collectBackfillReviews(
+	ctx context.Context,
+	prID string,
+	nodes []gqlReview,
+	known func(reviewID string) bool,
+	collected []gqlReview,
+) ([]gqlReview, bool) {
+	for _, r := range slices.Backward(nodes) {
+		if known != nil && r.ID != "" && known(r.ID) {
+			return collected, true
+		}
+		if r.SubmittedAt == "" {
+			continue
+		}
+		collected = append(collected, r)
+		if len(collected) >= MaxReviewBackfill {
+			slog.WarnContext(ctx, "Reached review backfill cap; stopping pagination",
+				"pr_id", prID, "cap", MaxReviewBackfill)
+			return collected, true
+		}
+	}
+	return collected, false
 }
 
 // FetchItemComments fetches comments for a specific item (Issue or PR)

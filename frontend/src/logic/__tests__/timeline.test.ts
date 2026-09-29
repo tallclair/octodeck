@@ -9,6 +9,7 @@ import {
     getProtoTimestampMs,
     formatReviewCommentSummary,
     getFilesViewUrl,
+    getThreadContext,
     type TimelineEntry
 } from '../timeline';
 import type { Item } from '../../api/octodeck/v1/resources_pb';
@@ -670,6 +671,367 @@ describe('timeline logic', () => {
             expect(getFilesViewUrl('https://github.com/owner/repo/pull/123/files#r456'))
                 .toBe('https://github.com/owner/repo/pull/123/files#r456');
             expect(getFilesViewUrl(undefined)).toBeUndefined();
+        });
+    });
+
+    describe('getThreadContext', () => {
+        it('returns root and prior replies in chronological order and excludes later replies', () => {
+            const item: Partial<Item> = {
+                id: 'owner/repo#90',
+                reviews: [
+                    {
+                        author: { login: 'alice', avatarUrl: 'https://alice.png' } as any,
+                        submittedAt: { seconds: BigInt(1700000100), nanos: 0 },
+                        comments: [
+                            {
+                                id: 'c_root',
+                                body: 'Root comment on line 10',
+                                path: 'pkg/foo.go',
+                                url: 'https://github.com/owner/repo/pull/90#discussion_r1',
+                                createdAt: { seconds: BigInt(1700000100), nanos: 0 },
+                            },
+                            {
+                                id: 'c_unrelated',
+                                body: 'Other thread root',
+                                path: 'pkg/bar.go',
+                                createdAt: { seconds: BigInt(1700000150), nanos: 0 },
+                            },
+                        ],
+                    } as any,
+                    {
+                        author: { login: 'bob', avatarUrl: 'https://bob.png' } as any,
+                        submittedAt: { seconds: BigInt(1700000200), nanos: 0 },
+                        comments: [
+                            {
+                                id: 'c_reply1',
+                                body: 'First reply',
+                                path: 'pkg/foo.go',
+                                url: 'https://github.com/owner/repo/pull/90#discussion_r2',
+                                replyToId: 'c_root',
+                                createdAt: { seconds: BigInt(1700000200), nanos: 0 },
+                            },
+                        ],
+                    } as any,
+                    {
+                        author: { login: 'alice', avatarUrl: 'https://alice.png' } as any,
+                        submittedAt: { seconds: BigInt(1700000300), nanos: 0 },
+                        comments: [
+                            {
+                                id: 'c_reply2',
+                                body: 'Second reply (target)',
+                                path: 'pkg/foo.go',
+                                url: 'https://github.com/owner/repo/pull/90#discussion_r3',
+                                replyToId: 'c_root',
+                                createdAt: { seconds: BigInt(1700000300), nanos: 0 },
+                            },
+                            {
+                                id: 'c_reply3_later',
+                                body: 'Later reply after target',
+                                path: 'pkg/foo.go',
+                                url: 'https://github.com/owner/repo/pull/90#discussion_r4',
+                                replyToId: 'c_root',
+                                createdAt: { seconds: BigInt(1700000400), nanos: 0 },
+                            },
+                        ],
+                    } as any,
+                ],
+            };
+
+            const timeline = buildTimeline(item as Item);
+            const reviewEntries = timeline.filter(e => e.type === 'REVIEW') as any[];
+            const targetComment = reviewEntries[2].comments[0];
+
+            const ctx = getThreadContext(item as Item, targetComment);
+            expect(ctx.rootMissing).toBe(false);
+            expect(ctx.comments.map(c => c.id)).toEqual(['c_root', 'c_reply1']);
+            expect(ctx.comments[0].author?.login).toBe('alice');
+            expect(ctx.comments[1].author?.login).toBe('bob');
+        });
+
+        it('sets rootMissing to true when no comment in item.reviews has id === threadId', () => {
+            const item: Partial<Item> = {
+                id: 'owner/repo#91',
+                reviews: [
+                    {
+                        author: { login: 'bob', avatarUrl: '' } as any,
+                        submittedAt: { seconds: BigInt(1700000200), nanos: 0 },
+                        comments: [
+                            {
+                                id: 'c_reply1',
+                                body: 'Prior reply with missing root',
+                                replyToId: 'c_missing_root',
+                                createdAt: { seconds: BigInt(1700000200), nanos: 0 },
+                            },
+                            {
+                                id: 'c_reply2',
+                                body: 'Target reply with missing root',
+                                replyToId: 'c_missing_root',
+                                createdAt: { seconds: BigInt(1700000300), nanos: 0 },
+                            },
+                        ],
+                    } as any,
+                ],
+            };
+
+            const timeline = buildTimeline(item as Item);
+            const reviewEntry = timeline.find(e => e.type === 'REVIEW') as any;
+            const targetComment = reviewEntry.comments[1];
+
+            const ctx = getThreadContext(item as Item, targetComment);
+            expect(ctx.rootMissing).toBe(true);
+            expect(ctx.comments.map(c => c.id)).toEqual(['c_reply1']);
+        });
+
+        it('breaks timestamp ties by fetch order', () => {
+            const sameTs = { seconds: BigInt(1700000500), nanos: 0 };
+            const item: Partial<Item> = {
+                id: 'owner/repo#92',
+                reviews: [
+                    {
+                        author: { login: 'alice', avatarUrl: '' } as any,
+                        submittedAt: sameTs,
+                        comments: [
+                            { id: 'c1', body: 'Root', createdAt: sameTs },
+                            { id: 'c2', body: 'Reply 1 same ts', replyToId: 'c1', createdAt: sameTs },
+                            { id: 'c3', body: 'Reply 2 same ts', replyToId: 'c1', createdAt: sameTs },
+                            { id: 'c4', body: 'Reply 3 same ts (after c3)', replyToId: 'c1', createdAt: sameTs },
+                        ],
+                    } as any,
+                ],
+            };
+
+            const timeline = buildTimeline(item as Item);
+            const reviewEntry = timeline.find(e => e.type === 'REVIEW') as any;
+            const c3 = reviewEntry.comments[2];
+
+            const ctx = getThreadContext(item as Item, c3);
+            expect(ctx.rootMissing).toBe(false);
+            expect(ctx.comments.map(c => c.id)).toEqual(['c1', 'c2']);
+        });
+
+        it('returns partial prior replies and rootMissing: true when root and earlier intermediate replies were pruned by backfill cap', () => {
+            const item: Partial<Item> = {
+                id: 'owner/repo#93',
+                reviews: [
+                    {
+                        author: { login: 'charlie', avatarUrl: '' } as any,
+                        submittedAt: { seconds: BigInt(1700000300), nanos: 0 },
+                        comments: [
+                            {
+                                id: 'c_reply_kept_1',
+                                body: 'Intermediate reply 2 after cap',
+                                replyToId: 'c_pruned_root',
+                                createdAt: { seconds: BigInt(1700000300), nanos: 0 },
+                            },
+                        ],
+                    } as any,
+                    {
+                        author: { login: 'dave', avatarUrl: '' } as any,
+                        submittedAt: { seconds: BigInt(1700000400), nanos: 0 },
+                        comments: [
+                            {
+                                id: 'c_reply_kept_2',
+                                body: 'Intermediate reply 3 after cap',
+                                replyToId: 'c_pruned_root',
+                                createdAt: { seconds: BigInt(1700000400), nanos: 0 },
+                            },
+                        ],
+                    } as any,
+                    {
+                        author: { login: 'eve', avatarUrl: '' } as any,
+                        submittedAt: { seconds: BigInt(1700000500), nanos: 0 },
+                        comments: [
+                            {
+                                id: 'c_reply_target',
+                                body: 'Target reply in pruned thread',
+                                replyToId: 'c_pruned_root',
+                                createdAt: { seconds: BigInt(1700000500), nanos: 0 },
+                            },
+                            {
+                                id: 'c_reply_after_target',
+                                body: 'Reply after target',
+                                replyToId: 'c_pruned_root',
+                                createdAt: { seconds: BigInt(1700000600), nanos: 0 },
+                            },
+                        ],
+                    } as any,
+                ],
+            };
+
+            const timeline = buildTimeline(item as Item);
+            const reviewEntries = timeline.filter(e => e.type === 'REVIEW') as any[];
+            const target = reviewEntries[2].comments[0];
+
+            const ctx = getThreadContext(item as Item, target);
+            expect(ctx.rootMissing).toBe(true);
+            expect(ctx.comments.map(c => c.id)).toEqual(['c_reply_kept_1', 'c_reply_kept_2']);
+        });
+
+        it('orders comments by fetch order without fabricating timestamps when createdAt is missing on multiple comments', () => {
+            const item: Partial<Item> = {
+                id: 'owner/repo#94',
+                reviews: [
+                    {
+                        author: { login: 'alice', avatarUrl: '' } as any,
+                        submittedAt: { seconds: BigInt(1700000100), nanos: 0 },
+                        comments: [
+                            { id: 'c_root_no_ts', body: 'Root without createdAt' },
+                            { id: 'c_reply1_no_ts', body: 'Reply 1 without createdAt', replyToId: 'c_root_no_ts' },
+                        ],
+                    } as any,
+                    {
+                        author: { login: 'bob', avatarUrl: '' } as any,
+                        submittedAt: { seconds: BigInt(1700000200), nanos: 0 },
+                        comments: [
+                            { id: 'c_reply2_no_ts', body: 'Reply 2 without createdAt', replyToId: 'c_root_no_ts' },
+                            { id: 'c_reply3_no_ts', body: 'Reply 3 after target', replyToId: 'c_root_no_ts' },
+                        ],
+                    } as any,
+                ],
+            };
+
+            const timeline = buildTimeline(item as Item);
+            const reviewEntries = timeline.filter(e => e.type === 'REVIEW') as any[];
+            const target = reviewEntries[1].comments[0];
+
+            const ctx = getThreadContext(item as Item, target);
+            expect(ctx.rootMissing).toBe(false);
+            expect(ctx.comments.map(c => c.id)).toEqual(['c_root_no_ts', 'c_reply1_no_ts']);
+            expect(ctx.comments[0].createdAt).toBeUndefined();
+            expect(ctx.comments[1].createdAt).toBeUndefined();
+        });
+
+        it('keeps thread root and sets rootMissing: false even when root appears in a later review with tied or missing createdAt', () => {
+            const sameTs = { seconds: BigInt(1700000500), nanos: 0 };
+            const item: Partial<Item> = {
+                id: 'owner/repo#95',
+                reviews: [
+                    {
+                        author: { login: 'bob', avatarUrl: '' } as any,
+                        submittedAt: sameTs,
+                        comments: [
+                            { id: 'c_reply_target', body: 'Target reply', replyToId: 'c_root', createdAt: sameTs },
+                        ],
+                    } as any,
+                    {
+                        author: { login: 'alice', avatarUrl: '' } as any,
+                        submittedAt: sameTs,
+                        comments: [
+                            { id: 'c_root', body: 'Root in later review', createdAt: sameTs },
+                        ],
+                    } as any,
+                ],
+            };
+
+            const timeline = buildTimeline(item as Item);
+            const reviewEntries = timeline.filter(e => e.type === 'REVIEW') as any[];
+            const target = reviewEntries[0].comments[0];
+
+            const ctx = getThreadContext(item as Item, target);
+            expect(ctx.rootMissing).toBe(false);
+            expect(ctx.comments.map(c => c.id)).toEqual(['c_root']);
+        });
+
+        it('sorts a target with missing createdAt after timestamped replies instead of inheriting an earlier timestamp', () => {
+            const item: Partial<Item> = {
+                id: 'owner/repo#96',
+                reviews: [
+                    {
+                        author: { login: 'alice', avatarUrl: '' } as any,
+                        submittedAt: { seconds: BigInt(1700000100), nanos: 0 },
+                        comments: [
+                            {
+                                id: 'c_root',
+                                body: 'Root at t=100',
+                                createdAt: { seconds: BigInt(1700000100), nanos: 0 },
+                            },
+                            {
+                                id: 'c_target',
+                                body: 'Target reply',
+                                replyToId: 'c_root',
+                            },
+                            {
+                                id: 'c_post_target',
+                                body: 'Post-target reply with earlier timestamp than c_root if c_target inherited t=100',
+                                replyToId: 'c_root',
+                                createdAt: { seconds: BigInt(1700000050), nanos: 0 },
+                            },
+                        ],
+                    } as any,
+                ],
+            };
+
+            const timeline = buildTimeline(item as Item);
+            const reviewEntries = timeline.filter(e => e.type === 'REVIEW') as any[];
+            const target = reviewEntries[0].comments[1];
+
+            const ctx = getThreadContext(item as Item, target);
+            expect(ctx.rootMissing).toBe(false);
+            // Missing timestamps sort as +Infinity, so the timestamped reply precedes the target.
+            expect(ctx.comments.map(c => c.id)).toEqual(['c_root', 'c_post_target']);
+            expect(ctx.comments[1].createdAt).toBe(new Date(1700000050 * 1000).toISOString());
+        });
+
+        it('uses a total order: root first, then timestamp with missing timestamps last, then fetch order', () => {
+            const item: Partial<Item> = {
+                id: 'owner/repo#97',
+                reviews: [
+                    {
+                        author: { login: 'alice', avatarUrl: '' } as any,
+                        submittedAt: { seconds: BigInt(1700000100), nanos: 0 },
+                        comments: [
+                            { id: 'c_no_ts_1', body: 'Reply without createdAt', replyToId: 'c_root' },
+                            {
+                                id: 'c_ts_200',
+                                body: 'Reply at t=200',
+                                replyToId: 'c_root',
+                                createdAt: { seconds: BigInt(1700000200), nanos: 0 },
+                            },
+                            { id: 'c_no_ts_2', body: 'Another reply without createdAt', replyToId: 'c_root' },
+                            {
+                                id: 'c_root',
+                                body: 'Root fetched last at t=300',
+                                createdAt: { seconds: BigInt(1700000300), nanos: 0 },
+                            },
+                            { id: 'c_target', body: 'Target without createdAt', replyToId: 'c_root' },
+                        ],
+                    } as any,
+                ],
+            };
+
+            const timeline = buildTimeline(item as Item);
+            const reviewEntry = timeline.find(e => e.type === 'REVIEW') as any;
+            const target = reviewEntry.comments[4];
+
+            const ctx = getThreadContext(item as Item, target);
+            expect(ctx.rootMissing).toBe(false);
+            expect(ctx.comments.map(c => c.id)).toEqual(['c_root', 'c_ts_200', 'c_no_ts_1', 'c_no_ts_2']);
+        });
+
+        it('identifies the target comment by id only, never by matching body text', () => {
+            const ts = { seconds: BigInt(1700000300), nanos: 0 };
+            const item: Partial<Item> = {
+                id: 'owner/repo#98',
+                reviews: [
+                    {
+                        author: { login: 'alice', avatarUrl: '' } as any,
+                        submittedAt: ts,
+                        comments: [
+                            { id: 'c_root', body: 'Root', createdAt: { seconds: BigInt(1700000100), nanos: 0 } },
+                            { id: 'c_same_body', body: '+1', replyToId: 'c_root', createdAt: ts },
+                        ],
+                    } as any,
+                ],
+            };
+
+            // A comment without an id whose body matches c_same_body must not be conflated with it.
+            const ctx = getThreadContext(item as Item, {
+                id: '',
+                body: '+1',
+                replyToId: 'c_root',
+                createdAt: new Date(1700000300 * 1000).toISOString(),
+            });
+            expect(ctx.comments.map(c => c.id)).toEqual(['c_root', 'c_same_body']);
         });
     });
 });

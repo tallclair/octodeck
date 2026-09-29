@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"sort"
 	"strconv"
@@ -58,6 +59,9 @@ type NotificationSyncPayload struct {
 }
 
 // SyncEngine manages the synchronization of data from GitHub to the local database.
+// errItemNotFoundOnGitHub is the sync error recorded on items GitHub no longer returns.
+const errItemNotFoundOnGitHub = "Item not found on GitHub (404/deleted)"
+
 type SyncEngine struct {
 	db          *database.DB
 	gh          *github.Client
@@ -84,6 +88,9 @@ type SyncEngine struct {
 	failedAttemptsCount  int32
 	isSyncing            bool
 	statusLoaded         bool
+
+	// lastPendingReviewSweepAt is when the pending review backfill sweep last ran. Guarded by mu.
+	lastPendingReviewSweepAt time.Time
 }
 
 // NewSyncEngine creates a new SyncEngine instance.
@@ -408,37 +415,37 @@ func (s *SyncEngine) fetchItemFromGitHub(
 	ctx context.Context,
 	id string,
 	existing *octodeckv1.Item,
-) ([]*octodeckv1.Item, error) {
+) ([]*octodeckv1.Item, github.HydrationPagingByID, error) {
 	if existing != nil {
-		fetched, missing, err := s.gh.FetchItems(ctx, []*octodeckv1.Item{existing})
+		fetched, paging, missing, err := s.gh.FetchItems(ctx, []*octodeckv1.Item{existing})
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch item from GitHub: %w", err)
+			return nil, nil, fmt.Errorf("failed to fetch item from GitHub: %w", err)
 		}
 		if len(missing) > 0 {
-			return nil, errors.New("item was not found on GitHub")
+			return nil, nil, errors.New("item was not found on GitHub")
 		}
-		return fetched, nil
+		return fetched, paging, nil
 	}
 
 	if repo, number, ok := database.ParseRepoAndNumber(id); ok {
-		item, err := s.gh.FetchItemByRepoAndNumber(ctx, repo, number)
+		item, paging, err := s.gh.FetchItemByRepoAndNumber(ctx, repo, number)
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch item %s from GitHub: %w", id, err)
+			return nil, nil, fmt.Errorf("failed to fetch item %s from GitHub: %w", id, err)
 		}
 		if item != nil {
-			return []*octodeckv1.Item{item}, nil
+			return []*octodeckv1.Item{item}, github.HydrationPagingByID{item.GetId(): paging}, nil
 		}
-		return nil, errors.New("no item returned from GitHub")
+		return nil, nil, errors.New("no item returned from GitHub")
 	}
 
-	fetched, missing, err := s.gh.FetchItemsByIDs(ctx, []string{id})
+	fetched, paging, missing, err := s.gh.FetchItemsByIDs(ctx, []string{id})
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch item %s from GitHub: %w", id, err)
+		return nil, nil, fmt.Errorf("failed to fetch item %s from GitHub: %w", id, err)
 	}
 	if len(missing) > 0 || len(fetched) == 0 {
-		return nil, errors.New("item was not found on GitHub")
+		return nil, nil, errors.New("item was not found on GitHub")
 	}
-	return fetched, nil
+	return fetched, paging, nil
 }
 
 // RefetchItem fetches a single item directly from GitHub, recalculates state, and updates the database.
@@ -471,7 +478,8 @@ func (s *SyncEngine) RefetchItem(ctx context.Context, id string) (*octodeckv1.It
 
 	existingItem, _ := s.db.GetItem(ctx, id)
 	var fetched []*octodeckv1.Item
-	fetched, refetchErr = s.fetchItemFromGitHub(ctx, id, existingItem)
+	var paging github.HydrationPagingByID
+	fetched, paging, refetchErr = s.fetchItemFromGitHub(ctx, id, existingItem)
 	if refetchErr != nil {
 		return nil, refetchErr
 	}
@@ -481,7 +489,7 @@ func (s *SyncEngine) RefetchItem(ctx context.Context, id string) (*octodeckv1.It
 	}
 	fetchedCount = len(fetched)
 
-	if refetchErr = s.processItemsDirect(ctx, fetched, false); refetchErr != nil {
+	if refetchErr = s.processItemsDirect(ctx, fetched, paging, false); refetchErr != nil {
 		return nil, fmt.Errorf("failed to process refetched item: %w", refetchErr)
 	}
 
@@ -527,14 +535,15 @@ func (s *SyncEngine) BackfillItems(ctx context.Context) (int, error) {
 	slog.InfoContext(ctx, "Backfilling items from GitHub", "count", len(items))
 
 	var fetched []*octodeckv1.Item
+	var paging github.HydrationPagingByID
 	var missing []string
-	fetched, missing, backfillErr = s.gh.FetchItems(ctx, items)
+	fetched, paging, missing, backfillErr = s.gh.FetchItems(ctx, items)
 	if backfillErr != nil {
 		return 0, fmt.Errorf("failed to fetch items from GitHub: %w", backfillErr)
 	}
 	fetchedCount = len(fetched)
 
-	if backfillErr = s.processItems(ctx, fetched); backfillErr != nil {
+	if backfillErr = s.processItems(ctx, fetched, paging); backfillErr != nil {
 		return 0, fmt.Errorf("failed to process backfilled items: %w", backfillErr)
 	}
 
@@ -545,7 +554,7 @@ func (s *SyncEngine) BackfillItems(ctx context.Context) (int, error) {
 				if existing.GetLocal() == nil {
 					existing.SetLocal(octodeckv1.ItemLocalState_builder{}.Build())
 				}
-				existing.GetLocal().SetSyncError("Item not found on GitHub (404/deleted)")
+				existing.GetLocal().SetSyncError(errItemNotFoundOnGitHub)
 				_ = s.db.SaveItems(ctx, []*octodeckv1.Item{existing})
 			}
 		}
@@ -557,31 +566,33 @@ func (s *SyncEngine) BackfillItems(ctx context.Context) (int, error) {
 func (s *SyncEngine) fetchInventoryNotifications(
 	ctx context.Context,
 	startTime time.Time,
-) ([]*octodeckv1.Item, string) {
+) ([]*octodeckv1.Item, github.HydrationPagingByID, string) {
 	threads, nLastMod, _, notifErr := s.gh.FetchNotifications(ctx, time.Time{}, "")
 	if notifErr != nil {
 		slog.WarnContext(ctx, "Failed to fetch notifications during inventory sync", "error", notifErr)
-		return nil, ""
+		return nil, nil, ""
 	}
 	if len(threads) == 0 {
-		return nil, nLastMod
+		return nil, nil, nLastMod
 	}
 	if s.db != nil {
 		_ = s.db.RecordNotificationCount(ctx, startTime, len(threads))
 	}
-	notifItems, _, notifProcErr := s.processNotificationThreads(ctx, threads)
+	notifItems, paging, _, notifProcErr := s.processNotificationThreads(ctx, threads)
 	if notifProcErr != nil {
 		slog.WarnContext(ctx, "Failed to process notification threads during inventory sync", "error", notifProcErr)
 	}
-	return notifItems, nLastMod
+	return notifItems, paging, nLastMod
 }
 
 func (s *SyncEngine) combineAndSaveInventoryItems(
 	ctx context.Context,
 	inventoryItems []*octodeckv1.Item,
 	notifItems []*octodeckv1.Item,
+	paging github.HydrationPagingByID,
 	startTime time.Time,
 	notifLastModified string,
+	budget *reviewBackfillBudget,
 ) (int, error) {
 	combinedMap := make(map[string]*octodeckv1.Item)
 	for _, item := range inventoryItems {
@@ -600,7 +611,7 @@ func (s *SyncEngine) combineAndSaveInventoryItems(
 		allItems = append(allItems, item)
 	}
 
-	if err := s.processItems(ctx, allItems); err != nil {
+	if err := s.processItemsWithBudget(ctx, allItems, paging, true, budget); err != nil {
 		return 0, err
 	}
 
@@ -646,17 +657,27 @@ func (s *SyncEngine) RunInventorySync(ctx context.Context) error {
 
 	slog.InfoContext(ctx, "Starting Hybrid Inventory Sync (Backfill)")
 
-	inventoryItems, invErr := s.gh.FetchInventory(ctx)
+	inventoryItems, paging, invErr := s.gh.FetchInventory(ctx)
 	if invErr != nil {
 		err = fmt.Errorf("failed to fetch inventory items: %w", invErr)
 		return err
 	}
 
-	notifItems, notifLastModified := s.fetchInventoryNotifications(ctx, startTime)
-	itemsProcessed, err = s.combineAndSaveInventoryItems(ctx, inventoryItems, notifItems, startTime, notifLastModified)
+	notifItems, notifPaging, notifLastModified := s.fetchInventoryNotifications(ctx, startTime)
+	// Notification items win over inventory items with the same ID, and so does their paging.
+	if paging == nil {
+		paging = make(github.HydrationPagingByID, len(notifPaging))
+	}
+	maps.Copy(paging, notifPaging)
+	budget := newReviewBackfillBudget(maxReviewBackfillsPerSync)
+	defer budget.logSummary(ctx)
+	itemsProcessed, err = s.combineAndSaveInventoryItems(
+		ctx, inventoryItems, notifItems, paging, startTime, notifLastModified, budget,
+	)
 	if err != nil {
 		return err
 	}
+	itemsProcessed += s.resumePendingReviewBackfills(ctx, budget)
 
 	slog.InfoContext(ctx, "Finished Hybrid Inventory Sync (Backfill)", "count", itemsProcessed)
 	return nil
@@ -700,6 +721,7 @@ func (s *SyncEngine) handleIncrementalSyncResult(
 	newLastModified string,
 	oldLastModified string,
 	startTime time.Time,
+	budget *reviewBackfillBudget,
 ) (int, *NotificationSyncPayload, []byte, error) {
 	nowStr := startTime.UTC().Format(time.RFC3339)
 	if statusCode == http.StatusNotModified {
@@ -726,7 +748,7 @@ func (s *SyncEngine) handleIncrementalSyncResult(
 		_ = s.db.RecordNotificationCount(ctx, startTime, len(threads))
 	}
 
-	fetchedItems, payload, err := s.processNotificationThreads(ctx, threads)
+	fetchedItems, paging, payload, err := s.processNotificationThreads(ctx, threads)
 	if err != nil {
 		return 0, nil, nil, err
 	}
@@ -740,7 +762,7 @@ func (s *SyncEngine) handleIncrementalSyncResult(
 
 	var itemsProcessed int
 	if len(fetchedItems) > 0 {
-		if err := s.processItems(ctx, fetchedItems); err != nil {
+		if err := s.processItemsWithBudget(ctx, fetchedItems, paging, true, budget); err != nil {
 			return 0, nil, nil, err
 		}
 		itemsProcessed = len(fetchedItems)
@@ -800,10 +822,16 @@ func (s *SyncEngine) runIncrementalSync(ctx context.Context, triggerSource strin
 		return err
 	}
 
+	budget := newReviewBackfillBudget(maxReviewBackfillsPerSync)
+	defer budget.logSummary(ctx)
 	itemsProcessed, _, payloadBytes, err = s.handleIncrementalSyncResult(
-		ctx, threads, statusCode, newLastModified, lastModified, startTime,
+		ctx, threads, statusCode, newLastModified, lastModified, startTime, budget,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	itemsProcessed += s.resumePendingReviewBackfills(ctx, budget)
+	return nil
 }
 
 func (s *SyncEngine) extractNotificationTargets(
@@ -901,7 +929,7 @@ func (s *SyncEngine) handleMissingHydratedItems(
 	for _, missingID := range missingIDs {
 		errStr := payload.HydrationErrors[missingID]
 		if errStr == "" {
-			errStr = "Item not found on GitHub (404/deleted)"
+			errStr = errItemNotFoundOnGitHub
 			payload.HydrationErrors[missingID] = errStr
 		}
 		existing, getErr := s.db.GetItem(ctx, missingID)
@@ -940,7 +968,7 @@ func (s *SyncEngine) handleMissingHydratedItems(
 func (s *SyncEngine) processNotificationThreads(
 	ctx context.Context,
 	threads []github.NotificationThread,
-) ([]*octodeckv1.Item, *NotificationSyncPayload, error) {
+) ([]*octodeckv1.Item, github.HydrationPagingByID, *NotificationSyncPayload, error) {
 	payload := &NotificationSyncPayload{
 		NotificationsCount: len(threads),
 		ReasonsBreakdown:   make(map[string]int),
@@ -950,27 +978,28 @@ func (s *SyncEngine) processNotificationThreads(
 	}
 
 	if len(threads) == 0 {
-		return nil, payload, nil
+		return nil, nil, payload, nil
 	}
 
 	targets := s.extractNotificationTargets(threads, payload)
 	if len(targets) == 0 {
-		return nil, payload, nil
+		return nil, nil, payload, nil
 	}
 
 	nodeIDs, unresolvable, err := s.collectNodeIDs(ctx, targets, payload)
 	if err != nil {
-		return nil, payload, err
+		return nil, nil, payload, err
 	}
 
 	var fetchedItems []*octodeckv1.Item
+	var paging github.HydrationPagingByID
 	var missingIDs []string
 	if len(nodeIDs) > 0 {
 		payload.HydratedItems = nodeIDs
 		var fetchErr error
-		fetchedItems, missingIDs, fetchErr = s.gh.FetchItemsByIDs(ctx, nodeIDs)
+		fetchedItems, paging, missingIDs, fetchErr = s.gh.FetchItemsByIDs(ctx, nodeIDs)
 		if fetchErr != nil {
-			return nil, payload, fmt.Errorf("failed to hydrate items: %w", fetchErr)
+			return nil, nil, payload, fmt.Errorf("failed to hydrate items: %w", fetchErr)
 		}
 	}
 
@@ -980,7 +1009,7 @@ func (s *SyncEngine) processNotificationThreads(
 	if len(missingIDs) > 0 {
 		s.handleMissingHydratedItems(ctx, missingIDs, payload)
 	}
-	return fetchedItems, payload, nil
+	return fetchedItems, paging, payload, nil
 }
 
 // RunGarbageCollection removes old or stale items from the database.
@@ -1053,7 +1082,7 @@ func (s *SyncEngine) RunGarbageCollection(ctx context.Context) error {
 
 	slog.InfoContext(ctx, "Found stale items", "count", len(staleItems))
 
-	foundItems, missingIDs, err := s.gh.FetchItems(ctx, staleItems)
+	foundItems, paging, missingIDs, err := s.gh.FetchItems(ctx, staleItems)
 	if err != nil {
 		gcErr = fmt.Errorf("failed to fetch items for GC: %w", err)
 		return gcErr
@@ -1066,7 +1095,7 @@ func (s *SyncEngine) RunGarbageCollection(ctx context.Context) error {
 	if excluded := s.cfg.GetExcludedRepos(); len(excluded) > 0 {
 		itemsToProcess = FilterItemsByRepo(itemsToProcess, nil, excluded)
 	}
-	if err := s.processItemsDirect(ctx, itemsToProcess, false); err != nil {
+	if err := s.processItemsDirect(ctx, itemsToProcess, paging, false); err != nil {
 		slog.ErrorContext(ctx, "Failed to save found items during GC", "error", err)
 	}
 
@@ -1088,7 +1117,7 @@ func (s *SyncEngine) handleMissingStaleItems(ctx context.Context, missingIDs []s
 		if err == nil && existing != nil {
 			loc := existing.GetLocal()
 			if loc != nil && (loc.GetStarred() || loc.GetPrivateNotes() != "") {
-				loc.SetSyncError("Item not found on GitHub (404/deleted)")
+				loc.SetSyncError(errItemNotFoundOnGitHub)
 				existing.SetLastSyncedAt(now)
 				toSave = append(toSave, existing)
 				continue
@@ -1170,11 +1199,37 @@ func (s *SyncEngine) saveTrace(ctx context.Context, p traceParams) {
 	}
 }
 
-func (s *SyncEngine) processItems(ctx context.Context, fetchedItems []*octodeckv1.Item) error {
-	return s.processItemsDirect(ctx, fetchedItems, true)
+func (s *SyncEngine) processItems(
+	ctx context.Context,
+	fetchedItems []*octodeckv1.Item,
+	paging github.HydrationPagingByID,
+) error {
+	return s.processItemsDirect(ctx, fetchedItems, paging, true)
 }
 
-func (s *SyncEngine) processItemsDirect(ctx context.Context, fetchedItems []*octodeckv1.Item, filterRepos bool) error {
+// processItemsDirect processes a standalone batch of items with its own review backfill budget.
+func (s *SyncEngine) processItemsDirect(
+	ctx context.Context,
+	fetchedItems []*octodeckv1.Item,
+	paging github.HydrationPagingByID,
+	filterRepos bool,
+) error {
+	budget := newReviewBackfillBudget(maxReviewBackfillsPerSync)
+	defer budget.logSummary(ctx)
+	return s.processItemsWithBudget(ctx, fetchedItems, paging, filterRepos, budget)
+}
+
+// processItemsWithBudget merges fetched items with their stored copies and saves them, drawing
+// review backfills from budget so that a sync cycle can share one budget across its batches.
+// paging holds the hydration paging state of the fetched items by ID; it may be nil (or lack
+// an item), in which case the item is treated as having no older reviews or comment cursors.
+func (s *SyncEngine) processItemsWithBudget(
+	ctx context.Context,
+	fetchedItems []*octodeckv1.Item,
+	paging github.HydrationPagingByID,
+	filterRepos bool,
+	budget *reviewBackfillBudget,
+) error {
 	if len(fetchedItems) == 0 {
 		return nil
 	}
@@ -1210,17 +1265,20 @@ func (s *SyncEngine) processItemsDirect(ctx context.Context, fetchedItems []*oct
 
 		if !isNew {
 			s.handleGapResolution(ctx, existing, item)
-			item.SetReviews(mergeReviews(existing.GetReviews(), item.GetReviews()))
 			item.SetStateEvents(mergeStateEvents(existing.GetStateEvents(), item.GetStateEvents()))
 			// Merge existing local state
 			item.SetLocal(existing.GetLocal())
 			if item.GetLocal() != nil {
 				item.GetLocal().ClearSyncError()
 			}
-		} else {
-			// Initialize Local if new
+		}
+		if item.GetLocal() == nil {
+			// Initialize Local if new (or missing)
 			item.SetLocal((&octodeckv1.ItemLocalState_builder{}).Build())
 		}
+		// Runs after local state is attached because it reads and updates the pending
+		// review backfill marker stored there.
+		s.handleReviewGapResolution(ctx, existing.GetReviews(), item, paging[item.GetId()], budget)
 
 		s.calculateItemState(item)
 		itemsToSave = append(itemsToSave, item)
@@ -1389,8 +1447,8 @@ func mergeComments(existing []*octodeckv1.Comment, fetched []*octodeckv1.Comment
 	return merged
 }
 
-// mergeReviewComments merges two lists of review comments, updating existing comments
-// in place and preserving older ones.
+// mergeReviewComments merges two lists of review comments by comment ID (falling back to URL),
+// with fresh data winning.
 func mergeReviewComments(
 	existing []*octodeckv1.ReviewComment,
 	fetched []*octodeckv1.ReviewComment,
@@ -1422,7 +1480,10 @@ func mergeReviewComments(
 			key = c.GetUrl()
 		}
 		if idx, ok := seen[key]; ok && key != "" {
-			// Update in place for edited review comment body
+			prev := merged[idx]
+			if c.GetReplyToId() == "" && prev.GetReplyToId() != "" {
+				c.SetReplyToId(prev.GetReplyToId())
+			}
 			merged[idx] = c
 		} else {
 			if key != "" {
@@ -1435,8 +1496,75 @@ func mergeReviewComments(
 	return merged
 }
 
-// mergeReviews merges two lists of reviews, removing duplicates based on URL or (author, submitted_at, state).
-// It updates matching reviews and review comments with freshly fetched data and guarantees chronological sorting.
+func isReviewCommentsFullyPaged(r, prev *octodeckv1.Review) bool {
+	if r.HasCommentCount() {
+		return github.ReviewCommentsComplete(r)
+	}
+	if len(r.GetComments()) == 0 {
+		return len(prev.GetComments()) == 0
+	}
+	return len(r.GetComments()) >= len(prev.GetComments())
+}
+
+// reviewIndex maps reviews to their position in a merged list. Reviews are matched by ID,
+// falling back to URL, and finally (only when both are absent) to an
+// (author, submitted_at, state) key.
+type reviewIndex struct {
+	byID       map[string]int
+	byURL      map[string]int
+	byFallback map[string]int
+}
+
+func newReviewIndex(capacity int) *reviewIndex {
+	return &reviewIndex{
+		byID:       make(map[string]int, capacity),
+		byURL:      make(map[string]int, capacity),
+		byFallback: make(map[string]int, capacity),
+	}
+}
+
+func reviewFallbackKey(r *octodeckv1.Review) string {
+	var sec int64
+	if r.GetSubmittedAt() != nil {
+		sec = r.GetSubmittedAt().GetSeconds()
+	}
+	return fmt.Sprintf("%s:%d:%s", r.GetAuthor().GetLogin(), sec, r.GetState())
+}
+
+func (ix *reviewIndex) register(r *octodeckv1.Review, idx int) {
+	if r.GetId() != "" {
+		ix.byID[r.GetId()] = idx
+	}
+	if r.GetUrl() != "" {
+		ix.byURL[r.GetUrl()] = idx
+	}
+	if r.GetId() == "" && r.GetUrl() == "" {
+		ix.byFallback[reviewFallbackKey(r)] = idx
+	}
+}
+
+func (ix *reviewIndex) find(r *octodeckv1.Review) (int, bool) {
+	if r.GetId() != "" {
+		if i, ok := ix.byID[r.GetId()]; ok {
+			return i, true
+		}
+	}
+	if r.GetUrl() != "" {
+		if i, ok := ix.byURL[r.GetUrl()]; ok {
+			return i, true
+		}
+	}
+	if r.GetId() == "" && r.GetUrl() == "" {
+		i, ok := ix.byFallback[reviewFallbackKey(r)]
+		return i, ok
+	}
+	return 0, false
+}
+
+// mergeReviews merges two lists of reviews, matching by ID and falling back to URL.
+// Fresh fields win. If the fetched review's comments were fully paged, they replace the stored list;
+// otherwise comments are merged by comment ID with fresh data winning.
+// Unmatched reviews are appended and the result is sorted chronologically by submitted_at.
 func mergeReviews(existing []*octodeckv1.Review, fetched []*octodeckv1.Review) []*octodeckv1.Review {
 	if len(existing) == 0 {
 		return fetched
@@ -1445,53 +1573,51 @@ func mergeReviews(existing []*octodeckv1.Review, fetched []*octodeckv1.Review) [
 		return existing
 	}
 
-	reviewKey := func(r *octodeckv1.Review) string {
-		if r.GetUrl() != "" {
-			return r.GetUrl()
-		}
-		var sec int64
-		if r.GetSubmittedAt() != nil {
-			sec = r.GetSubmittedAt().GetSeconds()
-		}
-		return fmt.Sprintf("%s:%d:%s", r.GetAuthor().GetLogin(), sec, r.GetState())
-	}
-
-	seen := make(map[string]int)
-	var merged []*octodeckv1.Review
+	index := newReviewIndex(len(existing) + len(fetched))
+	merged := make([]*octodeckv1.Review, 0, len(existing)+len(fetched))
 
 	for _, r := range existing {
-		k := reviewKey(r)
-		seen[k] = len(merged)
+		index.register(r, len(merged))
 		merged = append(merged, r)
 	}
 
 	for _, r := range fetched {
-		k := reviewKey(r)
-		if idx, ok := seen[k]; ok {
-			// If existing review already has comments and fetched also has comments,
-			// merge comments preserving older ones while updating edited ones.
-			if len(merged[idx].GetComments()) > 0 && len(r.GetComments()) > 0 {
-				r.SetComments(mergeReviewComments(merged[idx].GetComments(), r.GetComments()))
-			}
+		if idx, ok := index.find(r); ok {
+			mergeSingleFetchedReview(r, merged[idx])
 			merged[idx] = r
+			index.register(r, idx)
 		} else {
-			seen[k] = len(merged)
+			index.register(r, len(merged))
 			merged = append(merged, r)
 		}
 	}
 
-	sort.Slice(merged, func(i, j int) bool {
-		var tI, tJ int64
-		if merged[i].GetSubmittedAt() != nil {
-			tI = merged[i].GetSubmittedAt().GetSeconds()
-		}
-		if merged[j].GetSubmittedAt() != nil {
-			tJ = merged[j].GetSubmittedAt().GetSeconds()
-		}
-		return tI < tJ
+	sort.SliceStable(merged, func(i, j int) bool {
+		return merged[i].GetSubmittedAt().AsTime().Before(merged[j].GetSubmittedAt().AsTime())
 	})
 
 	return merged
+}
+
+func mergeSingleFetchedReview(r, prev *octodeckv1.Review) {
+	if r.GetId() == "" && prev.GetId() != "" {
+		r.SetId(prev.GetId())
+	}
+	if r.GetUrl() == "" && prev.GetUrl() != "" {
+		r.SetUrl(prev.GetUrl())
+	}
+	// Decide before carrying the stored paged total over: a partially loaded fresh review must
+	// not be treated as fully paged just because the stored copy was.
+	if !isReviewCommentsFullyPaged(r, prev) {
+		r.SetComments(mergeReviewComments(prev.GetComments(), r.GetComments()))
+		if r.HasCommentCount() && r.GetCommentsPagedTotal() == 0 &&
+			prev.GetCommentsPagedTotal() == r.GetCommentCount() {
+			// The stored comments were paged to exhaustion at this same count; keep that
+			// record so later syncs do not re-page them.
+			r.SetCommentsPagedTotal(prev.GetCommentsPagedTotal())
+		}
+	}
+	github.RecountReviewThreads(r)
 }
 
 // mergeStateEvents merges state events from DB with newly fetched state events.

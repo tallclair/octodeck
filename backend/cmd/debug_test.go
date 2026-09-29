@@ -27,8 +27,20 @@ type mockItemsFetcher struct {
 func (m *mockItemsFetcher) FetchItems(
 	ctx context.Context,
 	items []*octodeckv1.Item,
-) ([]*octodeckv1.Item, []string, error) {
-	return m.fetchItemsFunc(ctx, items)
+) ([]*octodeckv1.Item, github.HydrationPagingByID, []string, error) {
+	fetched, missing, err := m.fetchItemsFunc(ctx, items)
+	return fetched, nil, missing, err
+}
+
+type mockItemsBackfiller struct {
+	calls int
+	count int
+	err   error
+}
+
+func (m *mockItemsBackfiller) BackfillItems(context.Context) (int, error) {
+	m.calls++
+	return m.count, m.err
 }
 
 func TestBackfillDescriptions(t *testing.T) {
@@ -176,11 +188,23 @@ func TestBackfillItems(t *testing.T) {
 		},
 	}
 
-	// 1. Dry run
-	count, err := backfillItems(ctx, db, mockFetcher, true)
+	backfiller := &mockItemsBackfiller{count: 2}
+
+	// 1. Dry run: fetches from GitHub but neither saves nor merges anything.
+	noFilterCfg := config.NewForTest(octodeckv1.Config_builder{}.Build())
+	count, err := backfillItems(ctx, db, noFilterCfg, mockFetcher, backfiller, true)
 	require.NoError(t, err)
 	assert.Equal(t, 2, count)
 	assert.Equal(t, 1, fetchCalls)
+	assert.Zero(t, backfiller.calls)
+
+	// The dry run applies the same repo filter as the sync engine.
+	excludingCfg := config.NewForTest(octodeckv1.Config_builder{ExcludedRepos: []string{"org/repo"}}.Build())
+	count, err = backfillItems(ctx, db, excludingCfg, mockFetcher, backfiller, true)
+	require.NoError(t, err)
+	assert.Zero(t, count, "items in excluded repos would not be updated")
+	assert.Equal(t, 2, fetchCalls)
+	assert.Zero(t, backfiller.calls)
 
 	// Verify not saved during dry run
 	savedItem1, err := db.GetItem(ctx, "item_1")
@@ -188,28 +212,22 @@ func TestBackfillItems(t *testing.T) {
 	assert.Equal(t, "PR 1", savedItem1.GetTitle())
 	assert.Nil(t, savedItem1.GetMilestone())
 
-	// 2. Real backfill
-	count, err = backfillItems(ctx, db, mockFetcher, false)
+	// 2. Real backfill is delegated to the sync engine, which merges fetched items with stored
+	// history and local state; the command does not write fetched items itself.
+	count, err = backfillItems(ctx, db, noFilterCfg, mockFetcher, backfiller, false)
 	require.NoError(t, err)
 	assert.Equal(t, 2, count)
+	assert.Equal(t, 1, backfiller.calls)
+	assert.Equal(t, 2, fetchCalls, "the real backfill should not fetch outside the sync engine")
 
-	// Verify saved and local state preserved
 	savedItem1, err = db.GetItem(ctx, "item_1")
 	require.NoError(t, err)
-	assert.Equal(t, "PR 1 with full details", savedItem1.GetTitle())
-	require.NotNil(t, savedItem1.GetMilestone())
-	assert.Equal(t, "v1.0", savedItem1.GetMilestone().GetTitle())
-	require.Len(t, savedItem1.GetLabels(), 1)
-	assert.Equal(t, "kind/bug", savedItem1.GetLabels()[0].GetName())
-	assert.NotNil(t, savedItem1.GetLocal().GetAckedAt())
-	assert.Equal(t, "My private note", savedItem1.GetLocal().GetPrivateNotes())
-	assert.True(t, savedItem1.GetLocal().GetStarred())
+	assert.Equal(t, "PR 1", savedItem1.GetTitle())
 
-	savedItem2, err := db.GetItem(ctx, "item_2")
-	require.NoError(t, err)
-	assert.Equal(t, "Issue 2 with full details", savedItem2.GetTitle())
-	require.Len(t, savedItem2.GetLabels(), 1)
-	assert.Equal(t, "size/small", savedItem2.GetLabels()[0].GetName())
+	// 3. Engine errors are propagated.
+	backfiller.err = errors.New("engine failure")
+	_, err = backfillItems(ctx, db, noFilterCfg, mockFetcher, backfiller, false)
+	require.ErrorContains(t, err, "engine failure")
 }
 
 func TestDebugTracesCmd(t *testing.T) {
@@ -605,8 +623,9 @@ type mockHydrator struct {
 func (m *mockHydrator) FetchItemsByIDs(
 	ctx context.Context,
 	ids []string,
-) ([]*octodeckv1.Item, []string, error) {
-	return m.hydrateFunc(ctx, ids)
+) ([]*octodeckv1.Item, github.HydrationPagingByID, []string, error) {
+	items, missing, err := m.hydrateFunc(ctx, ids)
+	return items, nil, missing, err
 }
 
 func TestDebugHydrateItems_Formatting(t *testing.T) {

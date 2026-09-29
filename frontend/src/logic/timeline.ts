@@ -3,6 +3,11 @@ import { ItemState, StateChangeType, CommentNoiseType } from '../api/octodeck/v1
 import { isNoise, isFailureText, type BotSummaryGroup } from './noiseFilter';
 import type { Timestamp } from '@bufbuild/protobuf/wkt';
 
+/** Login shown for users GitHub did not return (e.g. deleted accounts). */
+export const UNKNOWN_LOGIN = 'unknown';
+/** GitHub's placeholder avatar, used when a user has no avatar URL. */
+export const GHOST_AVATAR_URL = 'https://github.com/ghost.png';
+
 export function getProtoTimestampMs(ts?: Timestamp | string | null): number {
     if (!ts) return 0;
     if (typeof ts === 'string') {
@@ -79,6 +84,106 @@ export type TimelineEntry =
     | TimelineStateChangeEntry
     | BotSummaryGroup;
 
+type ProtoReview = NonNullable<Item['reviews']>[number];
+type ProtoReviewComment = NonNullable<ProtoReview['comments']>[number];
+
+// toTimelineReviewComment maps a stored review comment to its timeline form, falling back to the
+// parent review's author when the comment has none.
+function toTimelineReviewComment(rc: ProtoReviewComment, review: ProtoReview): TimelineReviewComment {
+    const rcMs = getProtoTimestampMs(rc.createdAt);
+    return {
+        id: rc.id || '',
+        body: rc.body || '',
+        path: rc.path || '',
+        url: rc.url || '',
+        author: {
+            login: rc.author?.login || review.author?.login || UNKNOWN_LOGIN,
+            avatarUrl: rc.author?.avatarUrl || review.author?.avatarUrl || GHOST_AVATAR_URL,
+        },
+        createdAt: rcMs ? new Date(rcMs).toISOString() : undefined,
+        replyToId: rc.replyToId || undefined,
+    };
+}
+
+// getThreadContext returns the comments of the review thread that `comment` replies to which
+// precede it (root first, then chronologically), assembled on demand by scanning the item's
+// review comments. `rootMissing` is set when the thread root is not among the loaded comments.
+export function getThreadContext(
+    item: Item,
+    comment: TimelineReviewComment
+): { comments: TimelineReviewComment[]; rootMissing: boolean } {
+    const threadId = comment.replyToId;
+    if (!threadId) {
+        return { comments: [], rootMissing: false };
+    }
+
+    type ThreadSortEntry = {
+        comment?: TimelineReviewComment;
+        isNotRoot: number;
+        // Creation time in ms; missing timestamps sort last (+Infinity).
+        ms: number;
+        // Position in fetch order, used to break ties.
+        orderIdx: number;
+    };
+
+    const toSortMs = (ms: number): number => (ms > 0 ? ms : Number.POSITIVE_INFINITY);
+
+    // Total order: thread root first, then by creation time, then by fetch order.
+    const compareThreadEntries = (a: ThreadSortEntry, b: ThreadSortEntry): number => {
+        if (a.isNotRoot !== b.isNotRoot) {
+            return a.isNotRoot - b.isNotRoot;
+        }
+        if (a.ms !== b.ms) {
+            return a.ms < b.ms ? -1 : 1;
+        }
+        return a.orderIdx - b.orderIdx;
+    };
+
+    const candidates: ThreadSortEntry[] = [];
+    let targetEntry: ThreadSortEntry | null = null;
+    let orderIdx = 0;
+
+    for (const r of item.reviews || []) {
+        for (const rc of r.comments || []) {
+            const currentOrderIdx = orderIdx++;
+            if (rc.id !== threadId && rc.replyToId !== threadId) {
+                continue;
+            }
+
+            const rcMs = getProtoTimestampMs(rc.createdAt);
+
+            if (targetEntry === null && comment.id && rc.id === comment.id) {
+                targetEntry = { isNotRoot: 1, ms: toSortMs(rcMs), orderIdx: currentOrderIdx };
+                continue;
+            }
+
+            candidates.push({
+                comment: toTimelineReviewComment(rc, r),
+                isNotRoot: rc.id === threadId ? 0 : 1,
+                ms: toSortMs(rcMs),
+                orderIdx: currentOrderIdx,
+            });
+        }
+    }
+
+    // If the comment itself was not found among the loaded comments, position it by its own
+    // timestamp after every loaded comment with the same timestamp.
+    const resolvedTarget: ThreadSortEntry = targetEntry ?? {
+        isNotRoot: 1,
+        ms: toSortMs(getProtoTimestampMs(comment.createdAt)),
+        orderIdx: Number.MAX_SAFE_INTEGER,
+    };
+
+    const matched = candidates
+        .filter(entry => compareThreadEntries(entry, resolvedTarget) < 0)
+        .sort(compareThreadEntries);
+
+    const comments = matched.map(m => m.comment!);
+    const rootMissing = !comments.some(c => c.id === threadId);
+
+    return { comments, rootMissing };
+}
+
 export function buildTimeline(item: Item): TimelineEntry[] {
     const rawComments: {
         bodyText: string;
@@ -111,8 +216,8 @@ export function buildTimeline(item: Item): TimelineEntry[] {
             : item.url;
         rawComments.push({
             bodyText: c.bodyText || '',
-            authorLogin: c.author?.login || 'unknown',
-            authorAvatar: c.author?.avatarUrl || 'https://github.com/ghost.png',
+            authorLogin: c.author?.login || UNKNOWN_LOGIN,
+            authorAvatar: c.author?.avatarUrl || GHOST_AVATAR_URL,
             timestamp: ms ? new Date(ms).toISOString() : fallbackDateIso,
             url: commentUrl,
             noiseType: c.noiseType,
@@ -121,31 +226,17 @@ export function buildTimeline(item: Item): TimelineEntry[] {
     (item.commits || []).forEach(c => {
         const ms = getProtoTimestampMs(c.committedDate);
         rawCommits.push({
-            authorLogin: c.authorLogin || 'unknown',
+            authorLogin: c.authorLogin || UNKNOWN_LOGIN,
             timestamp: ms ? new Date(ms).toISOString() : fallbackDateIso,
         });
     });
     (item.reviews || []).forEach(r => {
         const ms = getProtoTimestampMs(r.submittedAt);
-        const parsedComments: TimelineReviewComment[] = (r.comments || []).map(rc => {
-            const rcMs = getProtoTimestampMs(rc.createdAt);
-            return {
-                id: rc.id || '',
-                body: rc.body || '',
-                path: rc.path || '',
-                url: rc.url || '',
-                author: {
-                    login: rc.author?.login || 'unknown',
-                    avatarUrl: rc.author?.avatarUrl || 'https://github.com/ghost.png',
-                },
-                createdAt: rcMs ? new Date(rcMs).toISOString() : undefined,
-                replyToId: rc.replyToId || undefined,
-            };
-        });
+        const parsedComments = (r.comments || []).map(rc => toTimelineReviewComment(rc, r));
 
         rawReviews.push({
-            authorLogin: r.author?.login || 'unknown',
-            authorAvatar: r.author?.avatarUrl || 'https://github.com/ghost.png',
+            authorLogin: r.author?.login || UNKNOWN_LOGIN,
+            authorAvatar: r.author?.avatarUrl || GHOST_AVATAR_URL,
             state: r.state || 'COMMENTED',
             timestamp: ms ? new Date(ms).toISOString() : fallbackDateIso,
             body: r.body || '',
@@ -222,8 +313,8 @@ export function buildTimeline(item: Item): TimelineEntry[] {
                 type: 'STATE_CHANGE' as const,
                 changeType,
                 actor: {
-                    login: e.actor?.login || 'unknown',
-                    avatarUrl: e.actor?.avatarUrl || 'https://github.com/ghost.png',
+                    login: e.actor?.login || UNKNOWN_LOGIN,
+                    avatarUrl: e.actor?.avatarUrl || GHOST_AVATAR_URL,
                 },
                 timestamp: ms ? new Date(ms).toISOString() : fallbackDateIso,
                 url: e.url || item.url,
@@ -239,8 +330,8 @@ export function buildTimeline(item: Item): TimelineEntry[] {
                 type: 'STATE_CHANGE' as const,
                 changeType: 'MERGED',
                 actor: {
-                    login: 'unknown',
-                    avatarUrl: 'https://github.com/ghost.png',
+                    login: UNKNOWN_LOGIN,
+                    avatarUrl: GHOST_AVATAR_URL,
                 },
                 timestamp: ms ? new Date(ms).toISOString() : fallbackDateIso,
                 url: item.url,
@@ -251,8 +342,8 @@ export function buildTimeline(item: Item): TimelineEntry[] {
                 type: 'STATE_CHANGE' as const,
                 changeType: 'CLOSED',
                 actor: {
-                    login: 'unknown',
-                    avatarUrl: 'https://github.com/ghost.png',
+                    login: UNKNOWN_LOGIN,
+                    avatarUrl: GHOST_AVATAR_URL,
                 },
                 timestamp: ms ? new Date(ms).toISOString() : fallbackDateIso,
                 url: item.url,

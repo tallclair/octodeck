@@ -31,6 +31,7 @@ import {
 import { client } from '../api/client';
 import { type Item, type SyncTrace } from '../api/octodeck/v1/resources_pb';
 import { formatExactDateTime, formatCompactTime } from '../utils/time';
+import { UNKNOWN_LOGIN } from '../logic/timeline';
 
 interface DataBrowserProps {
   onBack: (targetItemId?: string) => void;
@@ -524,7 +525,7 @@ export function DataBrowser({ onBack, initialSelectedItemId, initialTab = 'items
                               <div>Commits: {item.commits?.length ?? 0}</div>
                               <div>Reviews: {item.reviews?.length ?? 0}</div>
                               <div>Assignees: {item.assignees?.length ?? 0}</div>
-                              <div>Author: {item.author?.login ?? 'unknown'}</div>
+                              <div>Author: {item.author?.login ?? UNKNOWN_LOGIN}</div>
                             </div>
                           </div>
                         </div>

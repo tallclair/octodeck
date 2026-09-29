@@ -876,3 +876,57 @@ func TestDiscoveryQueryStats(t *testing.T) {
 	assert.InDelta(t, 0.0, avg7dPruned, 0.001)
 	assert.InDelta(t, 0.0, avg30dPruned, 0.001)
 }
+
+func TestGetPendingReviewBackfills(t *testing.T) {
+	db := setupTestDB(t)
+
+	base := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	newItem := func(id, repo string, syncedAt time.Time, pending bool) *octodeckv1.Item {
+		local := octodeckv1.ItemLocalState_builder{}.Build()
+		if pending {
+			local.SetReviewBackfillBefore(timestamppb.New(base))
+		}
+		return octodeckv1.Item_builder{
+			Id:           config.Ptr(id),
+			Repo:         config.Ptr(repo),
+			UpdatedAt:    timestamppb.New(base),
+			LastSyncedAt: timestamppb.New(syncedAt),
+			Local:        local,
+		}.Build()
+	}
+	errored := newItem("PR_errored", "owner/repo", base, true)
+	// Only whether sync_error is empty matters, not its content.
+	errored.GetLocal().SetSyncError("any sync error")
+
+	require.NoError(t, db.SaveItems(t.Context(), []*octodeckv1.Item{
+		newItem("PR_newer", "owner/repo", base.Add(2*time.Hour), true),
+		newItem("PR_done", "owner/repo", base, false),
+		newItem("PR_older", "other/repo", base.Add(time.Hour), true),
+		errored,
+	}))
+
+	pending, err := db.GetPendingReviewBackfills(t.Context(), 10)
+	require.NoError(t, err)
+	assert.Equal(t, []PendingReviewBackfill{
+		{ID: "PR_older", Repo: "other/repo"},
+		{ID: "PR_newer", Repo: "owner/repo"},
+	}, pending, "least recently synced first, excluding items whose last sync failed")
+
+	pending, err = db.GetPendingReviewBackfills(t.Context(), 1)
+	require.NoError(t, err)
+	assert.Equal(t, []PendingReviewBackfill{{ID: "PR_older", Repo: "other/repo"}}, pending)
+
+	pending, err = db.GetPendingReviewBackfills(t.Context(), 0)
+	require.NoError(t, err)
+	assert.Empty(t, pending)
+
+	// Clearing the marker via UpdateItem removes the item from the pending set.
+	_, err = db.UpdateItem(t.Context(), "PR_older", func(item *octodeckv1.Item) error {
+		item.GetLocal().ClearReviewBackfillBefore()
+		return nil
+	})
+	require.NoError(t, err)
+	pending, err = db.GetPendingReviewBackfills(t.Context(), 10)
+	require.NoError(t, err)
+	assert.Equal(t, []PendingReviewBackfill{{ID: "PR_newer", Repo: "owner/repo"}}, pending)
+}

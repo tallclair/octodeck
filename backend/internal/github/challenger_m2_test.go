@@ -185,7 +185,7 @@ func TestChallenger_FetchItemsByIDs_LargeBatchStress(t *testing.T) {
 	}
 
 	client := &Client{GraphQLClient: mockGQL}
-	items, missing, err := client.FetchItemsByIDs(t.Context(), ids)
+	items, _, missing, err := client.FetchItemsByIDs(t.Context(), ids)
 	require.NoError(t, err)
 
 	assert.Equal(t, 3, queryCalls, "Expected 3 GraphQL batch calls (50+50+35)")

@@ -47,6 +47,11 @@ type itemRow struct {
 	UpdatedAt    string         `db:"updated_at"`
 	LastSyncedAt sql.NullString `db:"last_synced_at"`
 	Data         []byte         `db:"data"`
+	// ReviewBackfillPending marks items eligible for the pending review backfill sweep: their
+	// local.review_backfill_before is set and their last sync did not fail (local.sync_error is
+	// empty). Items with a sync error keep their marker but wait until a successful re-hydration
+	// clears the error. It is only written (never selected into), so rows read back leave it false.
+	ReviewBackfillPending bool `db:"review_backfill_pending"`
 }
 
 func (r itemRow) toItem() (*octodeckv1.Item, error) {
@@ -108,6 +113,8 @@ func newItemRow(item *octodeckv1.Item) (itemRow, error) {
 		UpdatedAt:    updatedAt,
 		LastSyncedAt: lastSyncedAt,
 		Data:         data,
+
+		ReviewBackfillPending: item.GetLocal().HasReviewBackfillBefore() && item.GetLocal().GetSyncError() == "",
 	}, nil
 }
 
@@ -172,10 +179,10 @@ func (d *DB) SaveItems(ctx context.Context, items []*octodeckv1.Item) (err error
 	query := `
 		INSERT INTO items (
 			id, repo, type, state, author_login, is_assigned, is_viewed,
-			updated_at, last_synced_at, data
+			updated_at, last_synced_at, data, review_backfill_pending
 		) VALUES (
 			:id, :repo, :type, :state, :author_login, :is_assigned, :is_viewed,
-			:updated_at, :last_synced_at, :data
+			:updated_at, :last_synced_at, :data, :review_backfill_pending
 		)
 		ON CONFLICT(id) DO UPDATE SET
 			repo = excluded.repo,
@@ -186,7 +193,8 @@ func (d *DB) SaveItems(ctx context.Context, items []*octodeckv1.Item) (err error
 			is_viewed = excluded.is_viewed,
 			updated_at = excluded.updated_at,
 			last_synced_at = excluded.last_synced_at,
-			data = excluded.data
+			data = excluded.data,
+			review_backfill_pending = excluded.review_backfill_pending
 	`
 
 	// Prepare the rows
@@ -460,7 +468,8 @@ func (d *DB) UpdateItem(
 			is_viewed = :is_viewed,
 			updated_at = :updated_at,
 			last_synced_at = :last_synced_at,
-			data = :data
+			data = :data,
+			review_backfill_pending = :review_backfill_pending
 		WHERE id = :id
 	`
 	if _, err := tx.NamedExecContext(ctx, query, newRow); err != nil {
@@ -472,6 +481,32 @@ func (d *DB) UpdateItem(
 	}
 
 	return item, nil
+}
+
+// PendingReviewBackfill identifies an item whose PR review backfill is pending.
+type PendingReviewBackfill struct {
+	ID   string `db:"id"`
+	Repo string `db:"repo"`
+}
+
+// GetPendingReviewBackfills returns up to limit items that are eligible for the pending review
+// backfill sweep (see itemRow.ReviewBackfillPending), least recently synced first so that
+// repeated calls rotate through all of them.
+func (d *DB) GetPendingReviewBackfills(ctx context.Context, limit int) ([]PendingReviewBackfill, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	var pending []PendingReviewBackfill
+	err := d.SelectContext(ctx, &pending, `
+		SELECT id, repo FROM items
+		WHERE review_backfill_pending = 1
+		ORDER BY last_synced_at ASC, id ASC
+		LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query items with pending review backfill: %w", err)
+	}
+	return pending, nil
 }
 
 // GetMetadata retrieves a value from the metadata table.

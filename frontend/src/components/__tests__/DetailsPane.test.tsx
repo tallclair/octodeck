@@ -1248,6 +1248,465 @@ describe('DetailsPane Component', () => {
             expect(mergeIcon.classList.contains('text-purple-600')).toBe(true);
         });
     });
+
+    describe('Review Comment Thread Expansion and Timestamp Links', () => {
+        it('renders view thread as an interactive button instead of an external link and toggles thread expansion and collapse', () => {
+            const itemWithThread: Partial<Item> = {
+                ...mockProtoItemWithBody,
+                reviews: [
+                    {
+                        author: { login: 'aliceReviewer', avatarUrl: 'https://avatar.url/alice', type: 1 },
+                        state: 'COMMENTED',
+                        submittedAt: { seconds: BigInt(1700000100), nanos: 0 },
+                        commentCount: 4,
+                        url: 'https://github.com/owner/repo/pull/456#pullrequestreview-10',
+                        comments: [
+                            { id: 'other1', body: 'Unrelated comment 1', path: 'pkg/a.go' },
+                            { id: 'other2', body: 'Unrelated comment 2', path: 'pkg/b.go' },
+                            { id: 'other3', body: 'Unrelated comment 3', path: 'pkg/c.go' },
+                            {
+                                id: 'c_root',
+                                body: 'Root thread question about mutex locking',
+                                path: 'pkg/sync.go',
+                                url: 'https://github.com/owner/repo/pull/456#discussion_r1001',
+                                author: { login: 'aliceReviewer', avatarUrl: 'https://avatar.url/alice' },
+                                createdAt: { seconds: BigInt(1700000100), nanos: 0 },
+                            },
+                        ],
+                    } as any,
+                    {
+                        author: { login: 'bobAuthor', avatarUrl: 'https://avatar.url/bob', type: 1 },
+                        state: 'COMMENTED',
+                        submittedAt: { seconds: BigInt(1700000200), nanos: 0 },
+                        commentCount: 4,
+                        url: 'https://github.com/owner/repo/pull/456#pullrequestreview-11',
+                        comments: [
+                            { id: 'other4', body: 'Unrelated comment 4', path: 'pkg/d.go' },
+                            { id: 'other5', body: 'Unrelated comment 5', path: 'pkg/e.go' },
+                            { id: 'other6', body: 'Unrelated comment 6', path: 'pkg/f.go' },
+                            {
+                                id: 'c_reply1',
+                                body: 'First reply explaining lock acquisition order',
+                                path: 'pkg/sync.go',
+                                url: 'https://github.com/owner/repo/pull/456#discussion_r1002',
+                                author: { login: 'bobAuthor', avatarUrl: 'https://avatar.url/bob' },
+                                createdAt: { seconds: BigInt(1700000200), nanos: 0 },
+                                replyToId: 'c_root',
+                            },
+                        ],
+                    } as any,
+                    {
+                        author: { login: 'aliceReviewer', avatarUrl: 'https://avatar.url/alice', type: 1 },
+                        state: 'COMMENTED',
+                        submittedAt: { seconds: BigInt(1700000300), nanos: 0 },
+                        commentCount: 1,
+                        replyCount: 1,
+                        url: 'https://github.com/owner/repo/pull/456#pullrequestreview-12',
+                        comments: [
+                            {
+                                id: 'c_reply2',
+                                body: 'Second reply confirming the fix works',
+                                path: 'pkg/sync.go',
+                                url: 'https://github.com/owner/repo/pull/456#discussion_r1003',
+                                author: { login: 'aliceReviewer', avatarUrl: 'https://avatar.url/alice' },
+                                createdAt: { seconds: BigInt(1700000300), nanos: 0 },
+                                replyToId: 'c_root',
+                            },
+                        ],
+                    } as any,
+                    {
+                        author: { login: 'charlieLater', avatarUrl: 'https://avatar.url/charlie', type: 1 },
+                        state: 'COMMENTED',
+                        submittedAt: { seconds: BigInt(1700000400), nanos: 0 },
+                        commentCount: 4,
+                        url: 'https://github.com/owner/repo/pull/456#pullrequestreview-13',
+                        comments: [
+                            { id: 'other7', body: 'Unrelated comment 7', path: 'pkg/g.go' },
+                            { id: 'other8', body: 'Unrelated comment 8', path: 'pkg/h.go' },
+                            { id: 'other9', body: 'Unrelated comment 9', path: 'pkg/i.go' },
+                            {
+                                id: 'c_reply3_later',
+                                body: 'Later reply that occurred after c_reply2',
+                                path: 'pkg/sync.go',
+                                url: 'https://github.com/owner/repo/pull/456#discussion_r1004',
+                                author: { login: 'charlieLater', avatarUrl: 'https://avatar.url/charlie' },
+                                createdAt: { seconds: BigInt(1700000400), nanos: 0 },
+                                replyToId: 'c_root',
+                            },
+                        ],
+                    } as any,
+                ],
+            };
+
+            render(
+                <DetailsPane
+                    item={itemWithThread as Item}
+                    onAck={vi.fn()}
+                    onUnack={vi.fn()}
+                    onClose={vi.fn()}
+                />
+            );
+
+            // Initially collapsed: ancestor bodies are not displayed in the expanded thread container
+            expect(screen.queryByTestId('expanded-review-thread')).toBeNull();
+            expect(screen.queryByText('Root thread question about mutex locking')).toBeNull();
+            expect(screen.queryByText('First reply explaining lock acquisition order')).toBeNull();
+            expect(screen.getByText('Second reply confirming the fix works')).toBeDefined();
+
+            // Verify 'view thread' is a button, not an external link
+            const viewThreadBtn = screen.getByRole('button', { name: /view thread/i });
+            expect(viewThreadBtn.tagName).toBe('BUTTON');
+            expect(viewThreadBtn.getAttribute('aria-expanded')).toBe('false');
+            // Parentheses are part of the button label rather than loose surrounding text
+            expect(viewThreadBtn.textContent).toBe('(view thread)');
+            expect(viewThreadBtn.parentElement?.textContent).toBe('Reply to comment(view thread)');
+            // The controlled region is not rendered while collapsed, so nothing is referenced yet
+            expect(viewThreadBtn.hasAttribute('aria-controls')).toBe(false);
+
+            // Click 'view thread' to expand in-place
+            fireEvent.click(viewThreadBtn);
+
+            const expandedContainer = screen.getByTestId('expanded-review-thread');
+            expect(expandedContainer).toBeDefined();
+            const controlledId = screen.getByRole('button', { name: /hide thread/i }).getAttribute('aria-controls');
+            expect(controlledId).toBeTruthy();
+            expect(expandedContainer.id).toBe(controlledId);
+
+            // Verify ancestor comments and current reply are rendered in chronological order up to c_reply2
+            const threadItems = screen.getAllByTestId('review-thread-comment');
+            expect(threadItems).toHaveLength(3);
+            expect(threadItems[0].textContent).toContain('aliceReviewer');
+            expect(threadItems[0].textContent).toContain('Root thread question about mutex locking');
+            expect(threadItems[1].textContent).toContain('bobAuthor');
+            expect(threadItems[1].textContent).toContain('First reply explaining lock acquisition order');
+            expect(threadItems[2].textContent).toContain('aliceReviewer');
+            expect(threadItems[2].textContent).toContain('Second reply confirming the fix works');
+
+            // Verify c_reply3_later (which came after c_reply2) is NOT shown in c_reply2's thread expansion
+            expect(screen.queryByText('Later reply that occurred after c_reply2')).toBeNull();
+
+            // Verify timestamps inside expanded thread link directly to each comment's GitHub URL
+            const link0 = threadItems[0].querySelector('a');
+            expect(link0?.getAttribute('href')).toBe('https://github.com/owner/repo/pull/456#discussion_r1001');
+            expect(link0?.getAttribute('target')).toBe('_blank');
+            expect(link0?.getAttribute('rel')).toBe('noopener noreferrer');
+
+            const link1 = threadItems[1].querySelector('a');
+            expect(link1?.getAttribute('href')).toBe('https://github.com/owner/repo/pull/456#discussion_r1002');
+            expect(link1?.getAttribute('target')).toBe('_blank');
+
+            const link2 = threadItems[2].querySelector('a');
+            expect(link2?.getAttribute('href')).toBe('https://github.com/owner/repo/pull/456#discussion_r1003');
+            expect(link2?.getAttribute('target')).toBe('_blank');
+
+            // Click 'hide thread' to collapse back to compact view
+            const hideThreadBtn = screen.getByRole('button', { name: /hide thread/i });
+            expect(hideThreadBtn.getAttribute('aria-expanded')).toBe('true');
+            fireEvent.click(hideThreadBtn);
+
+            expect(screen.queryByTestId('expanded-review-thread')).toBeNull();
+            expect(screen.queryByText('Root thread question about mutex locking')).toBeNull();
+            expect(screen.getByText('Second reply confirming the fix works')).toBeDefined();
+            // When root is present, "view full thread on GitHub" link is NOT rendered
+            expect(screen.queryByRole('link', { name: /view full thread on GitHub/i })).toBeNull();
+        });
+
+        it('renders "view full thread on GitHub" link pointing to the PR files view when rootMissing is true', () => {
+            const itemWithMissingRoot: Partial<Item> = {
+                ...mockProtoItemWithBody,
+                reviews: [
+                    {
+                        author: { login: 'bobAuthor', avatarUrl: 'https://avatar.url/bob', type: 1 },
+                        state: 'COMMENTED',
+                        submittedAt: { seconds: BigInt(1700000300), nanos: 0 },
+                        commentCount: 2,
+                        replyCount: 2,
+                        url: 'https://github.com/owner/repo/pull/456#pullrequestreview-20',
+                        comments: [
+                            {
+                                id: 'c_prior_reply',
+                                body: 'Prior reply in thread whose root review is missing',
+                                path: 'pkg/sync.go',
+                                url: 'https://github.com/owner/repo/pull/456#discussion_r3001',
+                                author: { login: 'aliceReviewer', avatarUrl: 'https://avatar.url/alice' },
+                                createdAt: { seconds: BigInt(1700000200), nanos: 0 },
+                                replyToId: 'c_missing_root',
+                            },
+                            {
+                                id: 'c_reply_target',
+                                body: 'Target reply with missing root',
+                                path: 'pkg/sync.go',
+                                url: 'https://github.com/owner/repo/pull/456#discussion_r3002',
+                                author: { login: 'bobAuthor', avatarUrl: 'https://avatar.url/bob' },
+                                createdAt: { seconds: BigInt(1700000300), nanos: 0 },
+                                replyToId: 'c_missing_root',
+                            },
+                        ],
+                    } as any,
+                ],
+            };
+
+            render(
+                <DetailsPane
+                    item={itemWithMissingRoot as Item}
+                    onAck={vi.fn()}
+                    onUnack={vi.fn()}
+                    onClose={vi.fn()}
+                />
+            );
+
+            const viewThreadBtns = screen.getAllByRole('button', { name: /view thread/i });
+            fireEvent.click(viewThreadBtns[1]);
+
+            const fullThreadLink = screen.getByRole('link', { name: /view full thread on GitHub/i });
+            expect(fullThreadLink).toBeDefined();
+            expect(fullThreadLink.getAttribute('href')).toBe('https://github.com/owner/repo/pull/456/files');
+            expect(fullThreadLink.getAttribute('target')).toBe('_blank');
+            expect(fullThreadLink.getAttribute('rel')).toBe('noopener noreferrer');
+
+            const threadItems = screen.getAllByTestId('review-thread-comment');
+            expect(threadItems).toHaveLength(2);
+            expect(threadItems[0].textContent).toContain('Prior reply in thread whose root review is missing');
+            expect(threadItems[1].textContent).toContain('Target reply with missing root');
+        });
+
+        it('does not render the "view full thread on GitHub" link when no PR URL is available', () => {
+            const itemWithoutUrl: Partial<Item> = {
+                ...mockProtoItemWithBody,
+                url: '',
+                reviews: [
+                    {
+                        author: { login: 'bobAuthor', avatarUrl: 'https://avatar.url/bob', type: 1 },
+                        state: 'COMMENTED',
+                        submittedAt: { seconds: BigInt(1700000300), nanos: 0 },
+                        commentCount: 1,
+                        replyCount: 1,
+                        comments: [
+                            {
+                                id: 'c_orphan_reply',
+                                body: 'Reply whose root is not loaded',
+                                replyToId: 'c_missing_root',
+                                createdAt: { seconds: BigInt(1700000300), nanos: 0 },
+                            },
+                        ],
+                    } as any,
+                ],
+            };
+
+            render(
+                <DetailsPane
+                    item={itemWithoutUrl as Item}
+                    onAck={vi.fn()}
+                    onUnack={vi.fn()}
+                    onClose={vi.fn()}
+                />
+            );
+
+            fireEvent.click(screen.getByRole('button', { name: /view thread/i }));
+            expect(screen.getByTestId('expanded-review-thread')).toBeDefined();
+            expect(screen.queryByRole('link', { name: /view full thread on GitHub/i })).toBeNull();
+        });
+
+        it('keeps an expanded thread expanded when a new timeline entry is inserted before the review', () => {
+            const reviewWithReply = {
+                author: { login: 'bobAuthor', avatarUrl: 'https://avatar.url/bob', type: 1 },
+                state: 'COMMENTED',
+                submittedAt: { seconds: BigInt(1700000300), nanos: 0 },
+                commentCount: 2,
+                url: 'https://github.com/owner/repo/pull/456#pullrequestreview-30',
+                comments: [
+                    {
+                        id: 'c_root',
+                        body: 'Root comment body',
+                        url: 'https://github.com/owner/repo/pull/456#discussion_r4001',
+                        createdAt: { seconds: BigInt(1700000200), nanos: 0 },
+                    },
+                    {
+                        id: 'c_reply',
+                        body: 'Reply comment body',
+                        url: 'https://github.com/owner/repo/pull/456#discussion_r4002',
+                        replyToId: 'c_root',
+                        createdAt: { seconds: BigInt(1700000300), nanos: 0 },
+                    },
+                ],
+            } as any;
+            const initialItem: Partial<Item> = { ...mockProtoItemWithBody, reviews: [reviewWithReply] };
+
+            const { rerender } = render(
+                <DetailsPane item={initialItem as Item} onAck={vi.fn()} onUnack={vi.fn()} onClose={vi.fn()} />
+            );
+
+            fireEvent.click(screen.getByRole('button', { name: /view thread/i }));
+            expect(screen.getByTestId('expanded-review-thread')).toBeDefined();
+
+            // A new comment older than the review shifts the review's position in the timeline.
+            const updatedItem: Partial<Item> = {
+                ...initialItem,
+                comments: [
+                    {
+                        bodyText: 'Earlier issue comment inserted before the review',
+                        author: { login: 'carol', avatarUrl: 'https://avatar.url/carol' },
+                        createdAt: { seconds: BigInt(1700000000), nanos: 0 },
+                    } as any,
+                ],
+            };
+            rerender(
+                <DetailsPane item={updatedItem as Item} onAck={vi.fn()} onUnack={vi.fn()} onClose={vi.fn()} />
+            );
+
+            expect(screen.getByText('Earlier issue comment inserted before the review')).toBeDefined();
+            expect(screen.getByTestId('expanded-review-thread')).toBeDefined();
+            expect(screen.getByRole('button', { name: /hide thread/i }).getAttribute('aria-expanded')).toBe('true');
+        });
+
+        it('collapses expanded threads when switching to a different item with the same comment ids', () => {
+            const reviewWithReply = {
+                author: { login: 'bobAuthor', avatarUrl: 'https://avatar.url/bob', type: 1 },
+                state: 'COMMENTED',
+                submittedAt: { seconds: BigInt(1700000300), nanos: 0 },
+                commentCount: 2,
+                url: 'https://github.com/owner/repo/pull/456#pullrequestreview-31',
+                comments: [
+                    {
+                        id: 'c_root',
+                        body: 'Root comment body',
+                        url: 'https://github.com/owner/repo/pull/456#discussion_r5001',
+                        createdAt: { seconds: BigInt(1700000200), nanos: 0 },
+                    },
+                    {
+                        id: 'c_reply',
+                        body: 'Reply comment body',
+                        url: 'https://github.com/owner/repo/pull/456#discussion_r5002',
+                        replyToId: 'c_root',
+                        createdAt: { seconds: BigInt(1700000300), nanos: 0 },
+                    },
+                ],
+            } as any;
+            const firstItem: Partial<Item> = { ...mockProtoItemWithBody, reviews: [reviewWithReply] };
+
+            const { rerender } = render(
+                <DetailsPane item={firstItem as Item} onAck={vi.fn()} onUnack={vi.fn()} onClose={vi.fn()} />
+            );
+
+            fireEvent.click(screen.getByRole('button', { name: /view thread/i }));
+            expect(screen.getByTestId('expanded-review-thread')).toBeDefined();
+
+            // A different item whose reply shares the same comment id must not inherit the expansion.
+            const secondItem: Partial<Item> = { ...firstItem, id: `${mockProtoItemWithBody.id}_other` };
+            rerender(
+                <DetailsPane item={secondItem as Item} onAck={vi.fn()} onUnack={vi.fn()} onClose={vi.fn()} />
+            );
+
+            expect(screen.queryByTestId('expanded-review-thread')).toBeNull();
+            const viewThreadBtn = screen.getByRole('button', { name: /view thread/i });
+            expect(viewThreadBtn.textContent).toBe('(view thread)');
+            expect(viewThreadBtn.getAttribute('aria-expanded')).toBe('false');
+        });
+
+        it('renders review comment timestamps as external links to GitHub in standalone/compact view', () => {
+            const itemWithStandaloneReviewComment: Partial<Item> = {
+                ...mockProtoItemWithBody,
+                reviews: [
+                    {
+                        author: { login: 'reviewerOne', avatarUrl: 'https://avatar.url/one', type: 1 },
+                        state: 'COMMENTED',
+                        submittedAt: { seconds: BigInt(1700000500), nanos: 0 },
+                        commentCount: 1,
+                        url: 'https://github.com/owner/repo/pull/456#pullrequestreview-55',
+                        comments: [
+                            {
+                                id: 'rc_standalone',
+                                body: 'Standalone review comment body',
+                                path: 'pkg/server/handler.go',
+                                url: 'https://github.com/owner/repo/pull/456#discussion_r2001',
+                                createdAt: { seconds: BigInt(1700000550), nanos: 0 },
+                            },
+                        ],
+                    } as any,
+                ],
+            };
+
+            render(
+                <DetailsPane
+                    item={itemWithStandaloneReviewComment as Item}
+                    onAck={vi.fn()}
+                    onUnack={vi.fn()}
+                    onClose={vi.fn()}
+                />
+            );
+
+            const expectedTooltip = new Date(1700000550 * 1000).toLocaleString();
+            const timestampLink = screen.getByTitle(expectedTooltip);
+            expect(timestampLink.tagName).toBe('A');
+            expect(timestampLink.getAttribute('href')).toBe('https://github.com/owner/repo/pull/456#discussion_r2001');
+            expect(timestampLink.getAttribute('target')).toBe('_blank');
+            expect(timestampLink.getAttribute('rel')).toBe('noopener noreferrer');
+        });
+
+        it('does not synthesize fallback timestamps for review comments or thread ancestors when createdAt is unset', () => {
+            const itemWithMissingCreatedAt: Partial<Item> = {
+                ...mockProtoItemWithBody,
+                reviews: [
+                    {
+                        author: { login: 'aliceReviewer', avatarUrl: 'https://avatar.url/alice', type: 1 },
+                        state: 'COMMENTED',
+                        submittedAt: { seconds: BigInt(1700000100), nanos: 0 },
+                        commentCount: 1,
+                        url: 'https://github.com/owner/repo/pull/456#pullrequestreview-70',
+                        comments: [
+                            {
+                                id: 'c_root_unset_ts',
+                                body: 'Root comment with missing createdAt',
+                                path: 'pkg/sync.go',
+                                url: 'https://github.com/owner/repo/pull/456#discussion_r7001',
+                                author: { login: 'aliceReviewer', avatarUrl: 'https://avatar.url/alice' },
+                            },
+                        ],
+                    } as any,
+                    {
+                        author: { login: 'bobAuthor', avatarUrl: 'https://avatar.url/bob', type: 1 },
+                        state: 'COMMENTED',
+                        submittedAt: { seconds: BigInt(1700000200), nanos: 0 },
+                        commentCount: 1,
+                        replyCount: 1,
+                        url: 'https://github.com/owner/repo/pull/456#pullrequestreview-71',
+                        comments: [
+                            {
+                                id: 'c_reply_with_ts',
+                                body: 'Reply comment with valid createdAt',
+                                path: 'pkg/sync.go',
+                                url: 'https://github.com/owner/repo/pull/456#discussion_r7002',
+                                author: { login: 'bobAuthor', avatarUrl: 'https://avatar.url/bob' },
+                                createdAt: { seconds: BigInt(1700000250), nanos: 0 },
+                                replyToId: 'c_root_unset_ts',
+                            },
+                        ],
+                    } as any,
+                ],
+            };
+
+            render(
+                <DetailsPane
+                    item={itemWithMissingCreatedAt as Item}
+                    onAck={vi.fn()}
+                    onUnack={vi.fn()}
+                    onClose={vi.fn()}
+                />
+            );
+
+            const viewThreadBtn = screen.getByRole('button', { name: /view thread/i });
+            fireEvent.click(viewThreadBtn);
+
+            const threadItems = screen.getAllByTestId('review-thread-comment');
+            expect(threadItems).toHaveLength(2);
+            // Ancestor with unset createdAt must NOT render a timestamp link or fallback timestamp
+            expect(threadItems[0].querySelector('a')).toBeNull();
+            // Reply with valid createdAt renders its own timestamp link
+            const replyLink = threadItems[1].querySelector('a');
+            expect(replyLink).not.toBeNull();
+            expect(replyLink?.getAttribute('href')).toBe('https://github.com/owner/repo/pull/456#discussion_r7002');
+        });
+    });
 });
 
 
