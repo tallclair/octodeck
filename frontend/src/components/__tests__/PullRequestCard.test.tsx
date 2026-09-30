@@ -1061,6 +1061,25 @@ describe('PullRequestCard', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it('maintains constant vertical padding on quick ack button to prevent activity indicator shift on hover', () => {
+    render(
+      <PullRequestCard
+        item={mockProtoItem as Item}
+        isSelected={false}
+        onSelect={vi.fn()}
+        onAck={vi.fn()}
+      />
+    );
+
+    const ackBtn = screen.getByTestId('card-ack-btn');
+    expect(ackBtn.className).toContain('py-0.5');
+    expect(ackBtn.className).toContain('px-0');
+    expect(ackBtn.className).toContain('group-hover:px-0.5');
+    expect(ackBtn.className).toContain('focus:px-0.5');
+    expect(ackBtn.className).not.toContain('p-0 ');
+    expect(ackBtn.className).not.toContain('group-hover:p-0.5');
+  });
+
   it('triggers onUnack when clicking quick ack button on an acked item', () => {
     const onUnack = vi.fn();
     const onSelect = vi.fn();

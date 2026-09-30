@@ -316,7 +316,7 @@ export function PullRequestCard({
                         onAck(item.id);
                       }
                     }}
-                    className={`overflow-hidden max-w-0 opacity-0 group-hover:max-w-6 group-hover:opacity-100 group-hover:ml-1.5 focus:max-w-6 focus:opacity-100 focus:ml-1.5 flex items-center justify-center p-0 group-hover:p-0.5 focus:p-0.5 rounded transition-all duration-150 ease-out cursor-pointer shrink-0 ${
+                    className={`overflow-hidden max-w-0 opacity-0 group-hover:max-w-6 group-hover:opacity-100 group-hover:ml-1.5 focus:max-w-6 focus:opacity-100 focus:ml-1.5 flex items-center justify-center py-0.5 px-0 group-hover:px-0.5 focus:px-0.5 rounded transition-all duration-150 ease-out cursor-pointer shrink-0 ${
                       isAcked
                         ? 'text-green-600/70 dark:text-green-500/70 hover:text-green-700 dark:hover:text-green-400 hover:bg-slate-200/60 dark:hover:bg-slate-800'
                         : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800'
