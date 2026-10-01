@@ -96,6 +96,10 @@ export function PullRequestCard({
       statusText = 'New';
       statusColor = 'text-blue-600 dark:text-blue-400';
       break;
+    case ProtoItemStatus.NEW_MENTION:
+      statusText = 'New Mention';
+      statusColor = 'text-purple-600 dark:text-purple-400';
+      break;
     case ProtoItemStatus.NEW_ACTIVITY:
       statusText = 'New Activity';
       statusColor = 'text-amber-600 dark:text-yellow-400';

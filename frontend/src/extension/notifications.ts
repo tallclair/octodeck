@@ -136,7 +136,7 @@ export function checkForRecentActivity(
       if (
         c.noiseType === CommentNoiseType.BOT_AUTHOR ||
         c.noiseType === CommentNoiseType.SLASH_COMMAND ||
-        isBotAuthor(c.author?.login)
+        (c.noiseType === undefined && isBotAuthor(c.author?.login))
       ) {
         return false;
       }

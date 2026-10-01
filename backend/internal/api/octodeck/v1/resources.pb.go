@@ -167,6 +167,7 @@ const (
 	ItemStatus_ITEM_STATUS_NEW_CODE     ItemStatus = 4
 	ItemStatus_ITEM_STATUS_ACKED        ItemStatus = 5
 	ItemStatus_ITEM_STATUS_NOISE        ItemStatus = 6
+	ItemStatus_ITEM_STATUS_NEW_MENTION  ItemStatus = 7
 )
 
 // Enum value maps for ItemStatus.
@@ -179,6 +180,7 @@ var (
 		4: "ITEM_STATUS_NEW_CODE",
 		5: "ITEM_STATUS_ACKED",
 		6: "ITEM_STATUS_NOISE",
+		7: "ITEM_STATUS_NEW_MENTION",
 	}
 	ItemStatus_value = map[string]int32{
 		"ITEM_STATUS_UNSPECIFIED":  0,
@@ -188,6 +190,7 @@ var (
 		"ITEM_STATUS_NEW_CODE":     4,
 		"ITEM_STATUS_ACKED":        5,
 		"ITEM_STATUS_NOISE":        6,
+		"ITEM_STATUS_NEW_MENTION":  7,
 	}
 )
 
@@ -3252,7 +3255,7 @@ const file_octodeck_v1_resources_proto_rawDesc = "" +
 	"\bUserType\x12\x19\n" +
 	"\x15USER_TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eUSER_TYPE_USER\x10\x01\x12\x11\n" +
-	"\rUSER_TYPE_BOT\x10\x02*\xba\x01\n" +
+	"\rUSER_TYPE_BOT\x10\x02*\xd7\x01\n" +
 	"\n" +
 	"ItemStatus\x12\x1b\n" +
 	"\x17ITEM_STATUS_UNSPECIFIED\x10\x00\x12\x13\n" +
@@ -3261,7 +3264,8 @@ const file_octodeck_v1_resources_proto_rawDesc = "" +
 	"\x18ITEM_STATUS_NEW_ACTIVITY\x10\x03\x12\x18\n" +
 	"\x14ITEM_STATUS_NEW_CODE\x10\x04\x12\x15\n" +
 	"\x11ITEM_STATUS_ACKED\x10\x05\x12\x15\n" +
-	"\x11ITEM_STATUS_NOISE\x10\x06*\x85\x01\n" +
+	"\x11ITEM_STATUS_NOISE\x10\x06\x12\x1b\n" +
+	"\x17ITEM_STATUS_NEW_MENTION\x10\a*\x85\x01\n" +
 	"\x10CommentNoiseType\x12\"\n" +
 	"\x1eCOMMENT_NOISE_TYPE_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dCOMMENT_NOISE_TYPE_BOT_AUTHOR\x10\x01\x12$\n" +

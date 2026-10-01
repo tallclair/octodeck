@@ -253,15 +253,28 @@ describe('filterEngine - applyFilters', () => {
       local: { computedStatus: ProtoItemStatus.NOISE, privateNotes: '' },
       updatedAt: { seconds: BigInt(1700000400), nanos: 0 },
     });
-    const triageTestItems = [...allItems, item4];
+    const item5 = createMockItem({
+      id: 'PR_5',
+      repo: 'golang/go',
+      type: ProtoItemType.PR,
+      state: ProtoItemState.OPEN,
+      title: 'Mention PR',
+      body: 'Mentions user',
+      number: 505,
+      author: { login: 'eve' } as unknown as User,
+      assignees: [],
+      local: { computedStatus: ProtoItemStatus.NEW_MENTION, privateNotes: '' },
+      updatedAt: { seconds: BigInt(1700000500), nanos: 0 },
+    });
+    const triageTestItems = [...allItems, item4, item5];
 
-    // Inbox: unacked items (including IDLE and NOISE)
+    // Inbox: unacked items (including IDLE, NOISE, and NEW_MENTION)
     const inboxItems = applyFilters(triageTestItems, { ...DEFAULT_FILTER_STATE, state: 'all', triage: 'inbox' });
-    expect(inboxItems.map(i => i.id)).toEqual(['PR_4', 'PR_1', 'ISSUE_2']);
+    expect(inboxItems.map(i => i.id)).toEqual(['PR_5', 'PR_4', 'PR_1', 'ISSUE_2']);
 
     // Activity: unacked items with new actionable activity (computedStatus !== IDLE && computedStatus !== NOISE)
     const activityItems = applyFilters(triageTestItems, { ...DEFAULT_FILTER_STATE, state: 'all', triage: 'activity' });
-    expect(activityItems.map(i => i.id)).toEqual(['PR_1']);
+    expect(activityItems.map(i => i.id)).toEqual(['PR_5', 'PR_1']);
 
     // Acked: acked items
     const ackedItems = applyFilters(triageTestItems, { ...DEFAULT_FILTER_STATE, state: 'all', triage: 'acked' });
@@ -269,7 +282,7 @@ describe('filterEngine - applyFilters', () => {
 
     // All triage
     const allTriageItems = applyFilters(triageTestItems, { ...DEFAULT_FILTER_STATE, state: 'all', triage: 'all' });
-    expect(allTriageItems.length).toBe(4);
+    expect(allTriageItems.length).toBe(5);
   });
 
   it('filters by item state (open, closed, all)', () => {

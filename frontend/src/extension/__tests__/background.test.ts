@@ -107,6 +107,8 @@ describe('Extension Background Service Worker', () => {
       { id: '3', local: { computedStatus: ItemStatus.IDLE } },
       { id: '4', local: { computedStatus: ItemStatus.NOISE } },
       { id: '5', local: { computedStatus: ItemStatus.ACKED } },
+      { id: '6', local: { computedStatus: ItemStatus.NEW_MENTION } },
+      { id: '7', local: { computedStatus: ItemStatus.NEW_CODE } },
     ];
 
     it('identifies inbox items (all unacknowledged)', () => {
@@ -115,6 +117,8 @@ describe('Extension Background Service Worker', () => {
       expect(isItemInbox(testItems[2])).toBe(true);
       expect(isItemInbox(testItems[3])).toBe(true);
       expect(isItemInbox(testItems[4])).toBe(false);
+      expect(isItemInbox(testItems[5])).toBe(true);
+      expect(isItemInbox(testItems[6])).toBe(true);
     });
 
     it('identifies unread/new items (unacknowledged and not idle/noise)', () => {
@@ -123,11 +127,13 @@ describe('Extension Background Service Worker', () => {
       expect(isItemUnread(testItems[2])).toBe(false); // IDLE
       expect(isItemUnread(testItems[3])).toBe(false); // NOISE
       expect(isItemUnread(testItems[4])).toBe(false); // ACKED
+      expect(isItemUnread(testItems[5])).toBe(true); // NEW_MENTION
+      expect(isItemUnread(testItems[6])).toBe(true); // NEW_CODE
     });
 
     it('computes correct count based on selected mode', () => {
-      expect(computeBadgeCount(testItems, 'inbox')).toBe(4);
-      expect(computeBadgeCount(testItems, 'unread')).toBe(2);
+      expect(computeBadgeCount(testItems, 'inbox')).toBe(6);
+      expect(computeBadgeCount(testItems, 'unread')).toBe(4);
       expect(computeBadgeCount(testItems, 'disabled')).toBe(0);
     });
   });

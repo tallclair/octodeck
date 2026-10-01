@@ -66,8 +66,31 @@ func ClassifyCommentNoise(comment *octodeckv1.Comment, knownBots []string) octod
 	return octodeckv1.CommentNoiseType_COMMENT_NOISE_TYPE_UNSPECIFIED
 }
 
+// ClassifyCommentNoiseForUser evaluates a comment for a specific user and returns its CommentNoiseType.
+// Comments authored by another user that explicitly @mention currentUser are never classified as noise.
+func ClassifyCommentNoiseForUser(
+	comment *octodeckv1.Comment,
+	knownBots []string,
+	currentUser string,
+) octodeckv1.CommentNoiseType {
+	if comment == nil {
+		return octodeckv1.CommentNoiseType_COMMENT_NOISE_TYPE_UNSPECIFIED
+	}
+	author := comment.GetAuthor().GetLogin()
+	if !isSameUser(author, currentUser) && ContainsMention(comment.GetBodyText(), currentUser) {
+		return octodeckv1.CommentNoiseType_COMMENT_NOISE_TYPE_UNSPECIFIED
+	}
+	return ClassifyCommentNoise(comment, knownBots)
+}
+
 // ClassifyComments populates the NoiseType on all comments in the given items.
 func ClassifyComments(knownBots []string, items ...*octodeckv1.Item) {
+	ClassifyCommentsForUser(knownBots, "", items...)
+}
+
+// ClassifyCommentsForUser populates the NoiseType on all comments in the given items,
+// treating comments from other users that explicitly @mention currentUser as non-noise.
+func ClassifyCommentsForUser(knownBots []string, currentUser string, items ...*octodeckv1.Item) {
 	for _, item := range items {
 		if item == nil {
 			continue
@@ -76,7 +99,7 @@ func ClassifyComments(knownBots []string, items ...*octodeckv1.Item) {
 			if comment == nil {
 				continue
 			}
-			comment.SetNoiseType(ClassifyCommentNoise(comment, knownBots))
+			comment.SetNoiseType(ClassifyCommentNoiseForUser(comment, knownBots, currentUser))
 		}
 	}
 }
@@ -84,4 +107,10 @@ func ClassifyComments(knownBots []string, items ...*octodeckv1.Item) {
 // IsNoise determines if a comment is noise (bot comment or slash command).
 func IsNoise(comment *octodeckv1.Comment, knownBots []string) bool {
 	return ClassifyCommentNoise(comment, knownBots) != octodeckv1.CommentNoiseType_COMMENT_NOISE_TYPE_UNSPECIFIED
+}
+
+// IsNoiseForUser determines if a comment is noise relative to currentUser.
+func IsNoiseForUser(comment *octodeckv1.Comment, knownBots []string, currentUser string) bool {
+	return ClassifyCommentNoiseForUser(comment, knownBots, currentUser) !=
+		octodeckv1.CommentNoiseType_COMMENT_NOISE_TYPE_UNSPECIFIED
 }

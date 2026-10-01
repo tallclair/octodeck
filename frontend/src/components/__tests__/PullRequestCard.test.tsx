@@ -61,6 +61,17 @@ describe('PullRequestCard', () => {
     expect(screen.getByText('New')).toBeDefined();
   });
 
+  it('renders NEW_MENTION status correctly', () => {
+    const item: Partial<Item> = {
+      ...mockItem,
+      local: { computedStatus: ItemStatus.NEW_MENTION, isAcked: false, privateNotes: '' } as any,
+    };
+    render(<PullRequestCard item={item as Item} isSelected={false} onSelect={vi.fn()} />);
+    const badge = screen.getByText('New Mention');
+    expect(badge).toBeDefined();
+    expect(badge.className).toContain('text-purple-600');
+  });
+
   it('renders NEW_CODE status correctly', () => {
     const item: Partial<Item> = {
       ...mockItem,

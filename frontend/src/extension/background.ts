@@ -150,7 +150,7 @@ export function isItemUnread(item?: Item | null): boolean {
   if (!item || !item.local) return false;
   const s = item.local.computedStatus as unknown;
   if (s === ItemStatus.ACKED || s === 5 || s === 'ITEM_STATUS_ACKED' || s === 'ACKED') return false;
-  if (s === ItemStatus.IDLE || s === 4 || s === 'ITEM_STATUS_IDLE' || s === 'IDLE') return false;
+  if (s === ItemStatus.IDLE || s === 2 || s === 'ITEM_STATUS_IDLE' || s === 'IDLE') return false;
   if (s === ItemStatus.NOISE || s === 6 || s === 'ITEM_STATUS_NOISE' || s === 'NOISE') return false;
   return true;
 }

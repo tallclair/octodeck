@@ -145,4 +145,65 @@ func TestShouldAutoAck(t *testing.T) {
 		shouldAck, _ := ShouldAutoAck(item, currentUser, knownBots)
 		assert.False(t, shouldAck)
 	})
+
+	t.Run("should not auto-ack if subsequent slash command or bot comment mentions currentUser", func(t *testing.T) {
+		item := proto.Clone(baseItem).(*octodeckv1.Item)
+		myCommentTime := time.Now().Add(-2 * time.Hour).Truncate(time.Second)
+		item.SetComments([]*octodeckv1.Comment{
+			octodeckv1.Comment_builder{
+				CreatedAt: timestamppb.New(myCommentTime),
+				BodyText:  config.Ptr("My reply"),
+				Author:    octodeckv1.User_builder{Login: config.Ptr(currentUser)}.Build(),
+			}.Build(),
+			octodeckv1.Comment_builder{
+				CreatedAt: timestamppb.New(time.Now().Add(-1 * time.Hour)),
+				BodyText:  config.Ptr("/cc @me"),
+				Author:    octodeckv1.User_builder{Login: config.Ptr("other")}.Build(),
+			}.Build(),
+		})
+		shouldAck, _ := ShouldAutoAck(item, currentUser, knownBots)
+		assert.False(t, shouldAck)
+	})
+
+	t.Run("should not auto-ack if subsequent review comment mentions currentUser", func(t *testing.T) {
+		item := proto.Clone(baseItem).(*octodeckv1.Item)
+		tDraft := time.Now().Add(-3 * time.Hour).Truncate(time.Second)
+		myCommentTime := time.Now().Add(-2 * time.Hour).Truncate(time.Second)
+		tSubmit := time.Now().Add(-1 * time.Hour).Truncate(time.Second)
+
+		item.SetComments([]*octodeckv1.Comment{
+			octodeckv1.Comment_builder{
+				CreatedAt: timestamppb.New(myCommentTime),
+				BodyText:  config.Ptr("My reply"),
+				Author:    octodeckv1.User_builder{Login: config.Ptr(currentUser)}.Build(),
+			}.Build(),
+		})
+		item.SetReviews([]*octodeckv1.Review{
+			octodeckv1.Review_builder{
+				SubmittedAt: timestamppb.New(tSubmit),
+				State:       config.Ptr("COMMENTED"),
+				Author:      octodeckv1.User_builder{Login: config.Ptr("reviewer")}.Build(),
+				Comments: []*octodeckv1.ReviewComment{
+					octodeckv1.ReviewComment_builder{
+						CreatedAt: timestamppb.New(tDraft),
+						Body:      config.Ptr("Hey @me, thoughts on this?"),
+						Author:    octodeckv1.User_builder{Login: config.Ptr("reviewer")}.Build(),
+					}.Build(),
+				},
+			}.Build(),
+		})
+		shouldAck, _ := ShouldAutoAck(item, currentUser, knownBots)
+		assert.False(t, shouldAck)
+
+		// If currentUser replies after the review comment mention, it should auto-ack at the reply time.
+		myLaterReply := time.Now().Add(-30 * time.Minute).Truncate(time.Second)
+		item.SetComments(append(item.GetComments(), octodeckv1.Comment_builder{
+			CreatedAt: timestamppb.New(myLaterReply),
+			BodyText:  config.Ptr("Addressed, thanks!"),
+			Author:    octodeckv1.User_builder{Login: config.Ptr(currentUser)}.Build(),
+		}.Build()))
+		shouldAckAfterReply, ackTime := ShouldAutoAck(item, currentUser, knownBots)
+		assert.True(t, shouldAckAfterReply)
+		assert.True(t, ackTime.Equal(myLaterReply))
+	})
 }

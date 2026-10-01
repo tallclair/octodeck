@@ -237,7 +237,7 @@ func (h *octoDeckHandler) populateComputedStatus(ctx context.Context, items ...*
 	}
 	knownBots := h.cfg.GetKnownBots()
 
-	logic.ClassifyComments(knownBots, items...)
+	logic.ClassifyCommentsForUser(knownBots, currentUser, items...)
 
 	for _, item := range items {
 		if item == nil {

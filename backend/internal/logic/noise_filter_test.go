@@ -231,3 +231,63 @@ func TestClassifyComments(t *testing.T) {
 	assert.Equal(t, octodeckv1.CommentNoiseType_COMMENT_NOISE_TYPE_SLASH_COMMAND, c2.GetNoiseType())
 	assert.Equal(t, octodeckv1.CommentNoiseType_COMMENT_NOISE_TYPE_BOT_AUTHOR, c3.GetNoiseType())
 }
+
+func TestClassifyCommentsForUser(t *testing.T) {
+	knownBots := []string{"k8s-ci-robot"}
+	currentUser := "tallclair"
+
+	slashMentionByOther := octodeckv1.Comment_builder{
+		Author:   octodeckv1.User_builder{Login: config.Ptr("reviewer")}.Build(),
+		BodyText: config.Ptr("/cc @tallclair"),
+	}.Build()
+
+	botMentionByBot := octodeckv1.Comment_builder{
+		Author:   octodeckv1.User_builder{Login: config.Ptr("k8s-ci-robot")}.Build(),
+		BodyText: config.Ptr("@tallclair: The following test failed."),
+	}.Build()
+
+	slashSelfMention := octodeckv1.Comment_builder{
+		Author:   octodeckv1.User_builder{Login: config.Ptr("tallclair")}.Build(),
+		BodyText: config.Ptr("/assign @tallclair"),
+	}.Build()
+
+	slashNoMention := octodeckv1.Comment_builder{
+		Author:   octodeckv1.User_builder{Login: config.Ptr("reviewer")}.Build(),
+		BodyText: config.Ptr("/lgtm"),
+	}.Build()
+
+	item := octodeckv1.Item_builder{
+		Id: config.Ptr("item1"),
+		Comments: []*octodeckv1.Comment{
+			slashMentionByOther,
+			botMentionByBot,
+			slashSelfMention,
+			slashNoMention,
+		},
+	}.Build()
+
+	ClassifyCommentsForUser(knownBots, currentUser, item)
+
+	assert.Equal(
+		t, octodeckv1.CommentNoiseType_COMMENT_NOISE_TYPE_UNSPECIFIED,
+		slashMentionByOther.GetNoiseType(),
+		"slash command mentioning currentUser should not be classified as noise",
+	)
+	assert.Equal(
+		t, octodeckv1.CommentNoiseType_COMMENT_NOISE_TYPE_UNSPECIFIED,
+		botMentionByBot.GetNoiseType(),
+		"bot comment mentioning currentUser should not be classified as noise",
+	)
+	assert.Equal(
+		t, octodeckv1.CommentNoiseType_COMMENT_NOISE_TYPE_SLASH_COMMAND,
+		slashSelfMention.GetNoiseType(),
+		"self-authored slash command should remain slash command noise type",
+	)
+	assert.Equal(
+		t, octodeckv1.CommentNoiseType_COMMENT_NOISE_TYPE_SLASH_COMMAND,
+		slashNoMention.GetNoiseType(),
+	)
+	assert.False(t, IsNoiseForUser(slashMentionByOther, knownBots, currentUser))
+	assert.False(t, IsNoiseForUser(botMentionByBot, knownBots, currentUser))
+	assert.True(t, IsNoiseForUser(slashNoMention, knownBots, currentUser))
+}

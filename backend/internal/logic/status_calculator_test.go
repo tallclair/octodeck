@@ -386,4 +386,230 @@ func TestCalculateStatus(t *testing.T) {
 		result := CalculateStatus(item, currentUser, knownBots)
 		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_CODE, result)
 	})
+
+	t.Run("returns NEW_MENTION when new comment explicitly mentions currentUser", func(t *testing.T) {
+		item := createBaseItem()
+		item.SetComments([]*octodeckv1.Comment{
+			octodeckv1.Comment_builder{
+				CreatedAt: timestamppb.New(newDate),
+				BodyText:  config.Ptr("Hey @me, could you take a look at this?"),
+				Author:    octodeckv1.User_builder{Login: config.Ptr("user")}.Build(),
+			}.Build(),
+		})
+		result := CalculateStatus(item, currentUser, knownBots)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_MENTION, result)
+	})
+
+	t.Run("prioritizes NEW_MENTION over NEW_ACTIVITY and NEW_CODE", func(t *testing.T) {
+		item := createBaseItem()
+		item.SetCommits([]*octodeckv1.Commit{
+			octodeckv1.Commit_builder{CommittedDate: timestamppb.New(newDate)}.Build(),
+		})
+		item.SetComments([]*octodeckv1.Comment{
+			octodeckv1.Comment_builder{
+				CreatedAt: timestamppb.New(newDate),
+				BodyText:  config.Ptr("Regular comment"),
+				Author:    octodeckv1.User_builder{Login: config.Ptr("other_user")}.Build(),
+			}.Build(),
+			octodeckv1.Comment_builder{
+				CreatedAt: timestamppb.New(newDate),
+				BodyText:  config.Ptr("Pinging @ME for review"),
+				Author:    octodeckv1.User_builder{Login: config.Ptr("user")}.Build(),
+			}.Build(),
+		})
+		result := CalculateStatus(item, currentUser, knownBots)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_MENTION, result)
+	})
+
+	t.Run("prioritizes NEW_MENTION over NEW when never-viewed item has a mention comment", func(t *testing.T) {
+		item := createBaseItem()
+		item.GetLocal().ClearLastViewedAt()
+		item.SetComments([]*octodeckv1.Comment{
+			octodeckv1.Comment_builder{
+				CreatedAt: timestamppb.New(oldDate),
+				BodyText:  config.Ptr("cc @me"),
+				Author:    octodeckv1.User_builder{Login: config.Ptr("user")}.Build(),
+			}.Build(),
+		})
+		result := CalculateStatus(item, currentUser, knownBots)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_MENTION, result)
+	})
+
+	t.Run("returns NEW_MENTION even if comment is a slash command or from a bot", func(t *testing.T) {
+		item := createBaseItem()
+		item.SetComments([]*octodeckv1.Comment{
+			octodeckv1.Comment_builder{
+				CreatedAt: timestamppb.New(newDate),
+				BodyText:  config.Ptr("/cc @me"),
+				Author:    octodeckv1.User_builder{Login: config.Ptr("k8s-ci-robot")}.Build(),
+			}.Build(),
+		})
+		result := CalculateStatus(item, currentUser, knownBots)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_MENTION, result)
+	})
+
+	t.Run("un-acks item and returns NEW_MENTION when mentioned after ack", func(t *testing.T) {
+		item := createBaseItem()
+		item.GetLocal().SetAckedAt(timestamppb.New(lastViewed))
+		item.SetComments([]*octodeckv1.Comment{
+			octodeckv1.Comment_builder{
+				CreatedAt: timestamppb.New(newDate),
+				BodyText:  config.Ptr("/assign @me"),
+				Author:    octodeckv1.User_builder{Login: config.Ptr("user")}.Build(),
+			}.Build(),
+		})
+		result := CalculateStatus(item, currentUser, knownBots)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_MENTION, result)
+	})
+
+	t.Run("ignores self-mentions by currentUser", func(t *testing.T) {
+		item := createBaseItem()
+		item.SetComments([]*octodeckv1.Comment{
+			octodeckv1.Comment_builder{
+				CreatedAt: timestamppb.New(newDate),
+				BodyText:  config.Ptr("Note to @me"),
+				Author:    octodeckv1.User_builder{Login: config.Ptr(currentUser)}.Build(),
+			}.Build(),
+		})
+		result := CalculateStatus(item, currentUser, knownBots)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_IDLE, result)
+	})
+
+	t.Run("ignores old mentions before lastViewedAt", func(t *testing.T) {
+		item := createBaseItem()
+		item.SetComments([]*octodeckv1.Comment{
+			octodeckv1.Comment_builder{
+				CreatedAt: timestamppb.New(oldDate),
+				BodyText:  config.Ptr("Hey @me"),
+				Author:    octodeckv1.User_builder{Login: config.Ptr("user")}.Build(),
+			}.Build(),
+			octodeckv1.Comment_builder{
+				CreatedAt: timestamppb.New(newDate),
+				BodyText:  config.Ptr("Follow-up without mention"),
+				Author:    octodeckv1.User_builder{Login: config.Ptr("user")}.Build(),
+			}.Build(),
+		})
+		result := CalculateStatus(item, currentUser, knownBots)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, result)
+	})
+
+	t.Run("returns NEW_MENTION when PR review body or review comment mentions currentUser", func(t *testing.T) {
+		item := createBaseItem()
+		item.SetReviews([]*octodeckv1.Review{
+			octodeckv1.Review_builder{
+				SubmittedAt: timestamppb.New(newDate),
+				State:       config.Ptr("COMMENTED"),
+				Body:        config.Ptr("Looks good, deferring to @me for final approval."),
+				Author:      octodeckv1.User_builder{Login: config.Ptr("reviewer")}.Build(),
+			}.Build(),
+		})
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_MENTION, CalculateStatus(item, currentUser, knownBots))
+
+		itemInline := createBaseItem()
+		itemInline.SetReviews([]*octodeckv1.Review{
+			octodeckv1.Review_builder{
+				SubmittedAt: timestamppb.New(newDate),
+				State:       config.Ptr("COMMENTED"),
+				Author:      octodeckv1.User_builder{Login: config.Ptr("reviewer")}.Build(),
+				Comments: []*octodeckv1.ReviewComment{
+					octodeckv1.ReviewComment_builder{
+						CreatedAt: timestamppb.New(newDate),
+						Body:      config.Ptr("What do you think about this line @me?"),
+						Author:    octodeckv1.User_builder{Login: config.Ptr("reviewer")}.Build(),
+					}.Build(),
+				},
+			}.Build(),
+		})
+		assert.Equal(
+			t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_MENTION,
+			CalculateStatus(itemInline, currentUser, knownBots),
+		)
+	})
+
+	t.Run("returns NEW_MENTION for pending review comment submitted after view", func(t *testing.T) {
+		item := createBaseItem()
+		item.SetReviews([]*octodeckv1.Review{
+			octodeckv1.Review_builder{
+				SubmittedAt: timestamppb.New(newDate),
+				State:       config.Ptr("COMMENTED"),
+				Author:      octodeckv1.User_builder{Login: config.Ptr("reviewer")}.Build(),
+				Comments: []*octodeckv1.ReviewComment{
+					octodeckv1.ReviewComment_builder{
+						CreatedAt: timestamppb.New(oldDate), // drafted before lastViewed
+						Body:      config.Ptr("Please check this @me"),
+						Author:    octodeckv1.User_builder{Login: config.Ptr("reviewer")}.Build(),
+					}.Build(),
+				},
+			}.Build(),
+		})
+		assert.Equal(
+			t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_MENTION,
+			CalculateStatus(item, currentUser, knownBots),
+		)
+	})
+
+	t.Run("returns NEW_MENTION when never-viewed item mentions currentUser in body", func(t *testing.T) {
+		item := createBaseItem()
+		item.GetLocal().ClearLastViewedAt()
+		item.SetCreatedAt(timestamppb.New(oldDate))
+		item.SetBody("Opening this PR for @me to review")
+		assert.Equal(
+			t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_MENTION,
+			CalculateStatus(item, currentUser, knownBots),
+		)
+
+		// Once viewed after creation, the initial body mention does not re-trigger NEW_MENTION on unrelated commits.
+		item.GetLocal().SetLastViewedAt(timestamppb.New(lastViewed))
+		item.SetCommits([]*octodeckv1.Commit{
+			octodeckv1.Commit_builder{CommittedDate: timestamppb.New(newDate)}.Build(),
+		})
+		assert.Equal(
+			t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_CODE,
+			CalculateStatus(item, currentUser, knownBots),
+		)
+	})
+}
+
+func TestContainsMention(t *testing.T) {
+	tests := []struct {
+		name     string
+		text     string
+		username string
+		expected bool
+	}{
+		{"exact match", "@tallclair", "tallclair", true},
+		{"case insensitive", "Hey @TallClair!", "tallclair", true},
+		{"username with leading at", "cc @tallclair", "@tallclair", true},
+		{"followed by period at end of sentence", "Thanks @tallclair.", "tallclair", true},
+		{"followed by period and space", "Ask @tallclair. They know.", "tallclair", true},
+		{"in parentheses", "(cc @tallclair)", "tallclair", true},
+		{"prefix substring mismatch", "Hey @tallclair2", "tallclair", false},
+		{"hyphenated suffix mismatch", "Hey @tallclair-bot", "tallclair", false},
+		{"underscore suffix mismatch", "Hey @tallclair_dev", "tallclair", false},
+		{"email address mismatch", "Contact user@tallclair.com for info", "tallclair", false},
+		{"domain like suffix mismatch", "Visit @tallclair.com", "tallclair", false},
+		{"team mention mismatch", "Ping @tallclair/maintainers", "tallclair", false},
+		{"inline code ignored", "Use `@tallclair` in config", "tallclair", false},
+		{"multi-backtick inline code ignored", "Use `` `@tallclair` `` in config", "tallclair", false},
+		{
+			"mention after multi-backtick inline code",
+			"Here is `` ` `` and @tallclair outside `code`",
+			"tallclair",
+			true,
+		},
+		{"fenced code block ignored", "```yaml\nowner: @tallclair\n```", "tallclair", false},
+		{"blockquote reply ignored", "> Hey @tallclair, PTAL\n\nDone!", "tallclair", false},
+		{"indented blockquote ignored", "  > cc @tallclair\nFixed.", "tallclair", false},
+		{"mention outside blockquote detected", "> Quoted line\n\nHey @tallclair, PTAL!", "tallclair", true},
+		{"html comment ignored", "<!-- cc @tallclair -->\nLGTM", "tallclair", false},
+		{"mention outside inline code", "Run `make test` and ping @tallclair", "tallclair", true},
+		{"empty username", "Hey @tallclair", "", false},
+		{"empty text", "", "tallclair", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, ContainsMention(tc.text, tc.username))
+		})
+	}
 }

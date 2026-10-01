@@ -34,6 +34,7 @@ enum ItemStatus {
   ITEM_STATUS_NEW_CODE = 4;
   ITEM_STATUS_ACKED = 5;
   ITEM_STATUS_NOISE = 6;
+  ITEM_STATUS_NEW_MENTION = 7;
 }
 
 enum CommentNoiseType {
