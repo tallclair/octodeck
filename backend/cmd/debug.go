@@ -225,7 +225,7 @@ var debugItemCmd = &cobra.Command{
 		}
 		var currentUser string
 		if ghClient, err := github.NewClient(); err == nil {
-			currentUser, _, _ = ghClient.CheckAuth(cmd.Context())
+			currentUser, _ = ghClient.ResolveCurrentUser(cmd.Context())
 		}
 		status := logic.CalculateStatus(item, currentUser, cfg.GetKnownBots())
 		item.GetLocal().SetComputedStatus(status)

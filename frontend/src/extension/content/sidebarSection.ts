@@ -494,25 +494,23 @@ export class SidebarSection {
         if (this.currentItem) {
           if (!this.currentItem.local) {
             this.currentItem.local = create(ItemLocalStateSchema, {
-              computedStatus: nextAcked ? ItemStatus.ACKED : ItemStatus.IDLE,
               starred: false,
               privateNotes: '',
             });
+          }
+          this.currentItem.local.computedStatus = nextAcked ? ItemStatus.ACKED : ItemStatus.IDLE;
+          if (nextAcked) {
+            // Only the daemon knows the synced activity watermark. Leaving it unset makes
+            // readers fall back to ackedAt (now), placing the marker at the end until the
+            // daemon's response replaces the item.
+            this.currentItem.local.ackedAt = create(TimestampSchema, {
+              seconds: BigInt(Math.floor(Date.now() / 1000)),
+              nanos: 0,
+            });
+            this.currentItem.local.ackedActivityAt = undefined;
           } else {
-            this.currentItem.local.computedStatus = nextAcked ? ItemStatus.ACKED : ItemStatus.IDLE;
-            if (nextAcked) {
-              // Only the daemon knows the synced activity watermark. Leaving it unset makes
-              // readers fall back to ackedAt (now), placing the marker at the end until the
-              // daemon's response replaces the item.
-              this.currentItem.local.ackedAt = create(TimestampSchema, {
-                seconds: BigInt(Math.floor(Date.now() / 1000)),
-                nanos: 0,
-              });
-              this.currentItem.local.ackedActivityAt = undefined;
-            } else {
-              this.currentItem.local.ackedAt = undefined;
-              this.currentItem.local.ackedActivityAt = undefined;
-            }
+            this.currentItem.local.ackedAt = undefined;
+            this.currentItem.local.ackedActivityAt = undefined;
           }
         }
         this.render();

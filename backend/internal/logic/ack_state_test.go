@@ -285,9 +285,16 @@ func TestCalculateStatus_OwnCommits(t *testing.T) {
 		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_CODE, CalculateStatus(item, ackTestUser, ackTestBots()))
 	})
 
-	t.Run("own commit to un-acked PR is still NEW_CODE", func(t *testing.T) {
+	t.Run("own commit to un-acked PR is IDLE", func(t *testing.T) {
 		item := ackTestItem(ackTestUser)
 		item.SetCommits([]*octodeckv1.Commit{ackTestCommit(ackTestUser, ackTestTime(1))})
+		touch(item, ackTestTime(1))
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_IDLE, CalculateStatus(item, ackTestUser, ackTestBots()))
+	})
+
+	t.Run("commit by someone else to un-acked viewed PR is NEW_CODE", func(t *testing.T) {
+		item := ackTestItem(ackTestUser)
+		item.SetCommits([]*octodeckv1.Commit{ackTestCommit(ackTestOther, ackTestTime(1))})
 		touch(item, ackTestTime(1))
 		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_CODE, CalculateStatus(item, ackTestUser, ackTestBots()))
 	})
@@ -392,17 +399,156 @@ func TestAutoAckAgreesWithStatus(t *testing.T) {
 }
 
 func TestCalculateStatus_PendingReviewsIgnored(t *testing.T) {
-	item := ackTestItem(ackTestOther)
-	SetAcked(item.GetLocal(), ackTestTime(0), ackTestTime(0))
-	item.SetReviews([]*octodeckv1.Review{octodeckv1.Review_builder{
-		State:  config.Ptr("PENDING"),
-		Author: ackTestUserProto(ackTestOther),
-		Body:   config.Ptr("@me draft"),
-		Comments: []*octodeckv1.ReviewComment{octodeckv1.ReviewComment_builder{
-			CreatedAt: timestamppb.New(ackTestTime(1)),
-			Body:      config.Ptr("@me draft comment"),
-		}.Build()},
-	}.Build()})
-	touch(item, ackTestTime(1))
-	require.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, CalculateStatus(item, ackTestUser, ackTestBots()))
+	t.Run("pending human review with mention after ack stays ACKED", func(t *testing.T) {
+		item := ackTestItem(ackTestOther)
+		SetAcked(item.GetLocal(), ackTestTime(0), ackTestTime(0))
+		item.SetReviews([]*octodeckv1.Review{octodeckv1.Review_builder{
+			State:  config.Ptr("PENDING"),
+			Author: ackTestUserProto(ackTestOther),
+			Body:   config.Ptr("@me draft"),
+			Comments: []*octodeckv1.ReviewComment{octodeckv1.ReviewComment_builder{
+				CreatedAt: timestamppb.New(ackTestTime(1)),
+				Body:      config.Ptr("@me draft comment"),
+			}.Build()},
+		}.Build()})
+		touch(item, ackTestTime(1))
+		require.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, CalculateStatus(item, ackTestUser, ackTestBots()))
+	})
+
+	t.Run("pending bot review on un-acked viewed item stays IDLE", func(t *testing.T) {
+		item := ackTestItem(ackTestOther)
+		item.SetReviews([]*octodeckv1.Review{octodeckv1.Review_builder{
+			State:       config.Ptr("PENDING"),
+			Author:      ackTestUserProto(ackTestBot),
+			Body:        config.Ptr("Automated draft review"),
+			SubmittedAt: timestamppb.New(ackTestTime(1)),
+			Comments: []*octodeckv1.ReviewComment{octodeckv1.ReviewComment_builder{
+				CreatedAt: timestamppb.New(ackTestTime(1)),
+				Body:      config.Ptr("Automated draft comment"),
+				Author:    ackTestUserProto(ackTestBot),
+			}.Build()},
+		}.Build()})
+		touch(item, ackTestTime(1))
+		require.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_IDLE, CalculateStatus(item, ackTestUser, ackTestBots()))
+	})
+
+	t.Run("submitted review with newer bot inline review comment is NOISE", func(t *testing.T) {
+		item := ackTestItem(ackTestOther)
+		item.SetReviews([]*octodeckv1.Review{octodeckv1.Review_builder{
+			State:       config.Ptr("COMMENTED"),
+			Author:      ackTestUserProto(ackTestOther),
+			Body:        config.Ptr("Old review before view"),
+			SubmittedAt: timestamppb.New(ackTestTime(-40)),
+			Comments: []*octodeckv1.ReviewComment{octodeckv1.ReviewComment_builder{
+				CreatedAt: timestamppb.New(ackTestTime(1)),
+				Body:      config.Ptr("Consider renaming this variable."),
+				Author:    ackTestUserProto(ackTestBot),
+			}.Build()},
+		}.Build()})
+		touch(item, ackTestTime(1))
+		require.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NOISE, CalculateStatus(item, ackTestUser, ackTestBots()))
+	})
+}
+
+func TestCalculateStatus_OwnActivityNeverUnviewed(t *testing.T) {
+	unviewedItem := func(author string) *octodeckv1.Item {
+		item := ackTestItem(author)
+		item.GetLocal().ClearLastViewedAt()
+		return item
+	}
+
+	t.Run("never-viewed un-acked item authored by other is NEW", func(t *testing.T) {
+		item := unviewedItem(ackTestOther)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW, CalculateStatus(item, ackTestUser, ackTestBots()))
+	})
+
+	t.Run("never-viewed un-acked item authored by currentUser with only own activity is IDLE", func(t *testing.T) {
+		item := unviewedItem(ackTestUser)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_IDLE, CalculateStatus(item, ackTestUser, ackTestBots()))
+
+		item.SetCommits([]*octodeckv1.Commit{ackTestCommit(ackTestUser, ackTestTime(1))})
+		item.SetComments([]*octodeckv1.Comment{ackTestComment(ackTestUser, ackTestTime(2))})
+		item.SetReviews([]*octodeckv1.Review{octodeckv1.Review_builder{
+			State:       config.Ptr("COMMENTED"),
+			Author:      ackTestUserProto(ackTestUser),
+			Body:        config.Ptr("Self-review note @me"),
+			SubmittedAt: timestamppb.New(ackTestTime(3)),
+			Comments: []*octodeckv1.ReviewComment{octodeckv1.ReviewComment_builder{
+				CreatedAt: timestamppb.New(ackTestTime(4)),
+				Body:      config.Ptr("Inline self-note @me"),
+				Author:    ackTestUserProto(ackTestUser),
+			}.Build()},
+		}.Build()})
+		item.SetStateEvents([]*octodeckv1.StateEvent{ackTestStateEvent(ackTestUser, ackTestTime(5))})
+		touch(item, ackTestTime(5))
+
+		// Even if currentUser is mistakenly listed in knownBots, own activity stays IDLE (never NOISE).
+		botsWithMe := append(ackTestBots(), ackTestUser)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_IDLE, CalculateStatus(item, ackTestUser, botsWithMe))
+	})
+
+	t.Run("never-viewed un-acked item authored by currentUser reflects others' activity", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			apply func(item *octodeckv1.Item)
+			want  octodeckv1.ItemStatus
+		}{
+			{
+				name: "comment by someone else is NEW_ACTIVITY",
+				apply: func(item *octodeckv1.Item) {
+					item.SetComments([]*octodeckv1.Comment{ackTestComment(ackTestOther, ackTestTime(1))})
+				},
+				want: octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY,
+			},
+			{
+				name: "review by someone else is NEW_ACTIVITY",
+				apply: func(item *octodeckv1.Item) {
+					item.SetReviews([]*octodeckv1.Review{octodeckv1.Review_builder{
+						State:       config.Ptr("APPROVED"),
+						Author:      ackTestUserProto(ackTestOther),
+						SubmittedAt: timestamppb.New(ackTestTime(1)),
+					}.Build()})
+				},
+				want: octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY,
+			},
+			{
+				name: "commit by someone else is NEW_CODE",
+				apply: func(item *octodeckv1.Item) {
+					item.SetCommits([]*octodeckv1.Commit{ackTestCommit(ackTestOther, ackTestTime(1))})
+				},
+				want: octodeckv1.ItemStatus_ITEM_STATUS_NEW_CODE,
+			},
+			{
+				name: "mention by someone else is NEW_MENTION",
+				apply: func(item *octodeckv1.Item) {
+					c := ackTestComment(ackTestOther, ackTestTime(1))
+					c.SetBodyText("PTAL @me")
+					item.SetComments([]*octodeckv1.Comment{c})
+				},
+				want: octodeckv1.ItemStatus_ITEM_STATUS_NEW_MENTION,
+			},
+			{
+				name: "bot comment is NOISE",
+				apply: func(item *octodeckv1.Item) {
+					item.SetComments([]*octodeckv1.Comment{ackTestComment(ackTestBot, ackTestTime(1))})
+				},
+				want: octodeckv1.ItemStatus_ITEM_STATUS_NOISE,
+			},
+			{
+				name: "bot state event is NOISE",
+				apply: func(item *octodeckv1.Item) {
+					item.SetStateEvents([]*octodeckv1.StateEvent{ackTestStateEvent(ackTestBot, ackTestTime(1))})
+				},
+				want: octodeckv1.ItemStatus_ITEM_STATUS_NOISE,
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				item := unviewedItem(ackTestUser)
+				tc.apply(item)
+				touch(item, ackTestTime(1))
+				assert.Equal(t, tc.want, CalculateStatus(item, ackTestUser, ackTestBots()))
+			})
+		}
+	})
 }

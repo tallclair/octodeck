@@ -283,6 +283,40 @@ describe('SidebarSection', () => {
     sidebarSection.destroy();
   });
 
+  it('optimistically sets ackedAt and renders Acked button when item.local is initially undefined', async () => {
+    mockSendMessage.mockImplementation((msg: any, callback: any) => {
+      if (msg.type === 'GET_ITEM') {
+        callback({
+          ok: true,
+          data: {
+            id: 'kubernetes/kubernetes#12345',
+          },
+        });
+      }
+      // ACK_ITEM never responds, so the optimistic state stays visible.
+    });
+
+    const sidebarSection = new SidebarSection('kubernetes/kubernetes#12345');
+    await sidebarSection.init(container);
+    const local = () => (sidebarSection as any).currentItem.local;
+
+    const ackBtn = container.querySelector('.octodeck-gh-comment-ack-btn') as HTMLButtonElement;
+    expect(ackBtn.textContent).toContain('Ack');
+    expect(ackBtn.classList.contains('octodeck-gh-btn-acked')).toBe(false);
+
+    const before = Date.now();
+    ackBtn.click();
+
+    expect(local()).toBeDefined();
+    expect(local().computedStatus).toBe(ItemStatus.ACKED);
+    expect(Number(local().ackedAt.seconds) * 1000).toBeGreaterThanOrEqual(Math.floor(before / 1000) * 1000);
+    expect(local().ackedActivityAt).toBeUndefined();
+    expect(ackBtn.textContent).toContain('Acked');
+    expect(ackBtn.classList.contains('octodeck-gh-btn-acked')).toBe(true);
+
+    sidebarSection.destroy();
+  });
+
   it('renders existing private notes in a styled box and supports editing and saving with updated placeholder', async () => {
     const sidebarSection = new SidebarSection('kubernetes/kubernetes#12345');
     await sidebarSection.init(container);

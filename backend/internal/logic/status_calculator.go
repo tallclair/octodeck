@@ -30,13 +30,16 @@ func CalculateStatus(item *octodeckv1.Item, currentUser string, knownBots []stri
 		}
 	}
 
-	// 1. Never before seen => New Mention if explicitly mentioned, otherwise New (blue)
+	// 1. Never before seen => New Mention if explicitly mentioned, otherwise New (blue) unless
+	// authored by currentUser (creating the item is the user's own activity, not unviewed activity).
 	hasViewed := item.GetLocal().GetLastViewedAt() != nil && item.GetLocal().GetLastViewedAt().GetSeconds() > 0
 	if !hasViewed && !hasAcked {
 		if hasNewMention(item, time.Time{}, currentUser) {
 			return octodeckv1.ItemStatus_ITEM_STATUS_NEW_MENTION
 		}
-		return octodeckv1.ItemStatus_ITEM_STATUS_NEW
+		if !isSameUser(item.GetAuthor().GetLogin(), currentUser) {
+			return octodeckv1.ItemStatus_ITEM_STATUS_NEW
+		}
 	}
 
 	// Determine baseline timestamp "since" for what constitutes new activity to the user.
@@ -44,7 +47,7 @@ func CalculateStatus(item *octodeckv1.Item, currentUser string, knownBots []stri
 	since := baselineSince(item, hasViewed, hasAcked, ackedAt)
 
 	// If no updates since baseline
-	if !updatedAt.After(since) {
+	if !since.IsZero() && !updatedAt.After(since) {
 		return octodeckv1.ItemStatus_ITEM_STATUS_IDLE
 	}
 
@@ -61,7 +64,7 @@ func CalculateStatus(item *octodeckv1.Item, currentUser string, knownBots []stri
 	}
 
 	// 4. New commit pushed => New Commit (green)
-	if hasNewCommits(item, since) {
+	if hasValidNewCommits(item, since, currentUser) {
 		return octodeckv1.ItemStatus_ITEM_STATUS_NEW_CODE
 	}
 
@@ -90,7 +93,7 @@ func remainsAcked(
 		!hasValidNewComments(item, ackedAt, currentUser, knownBots) &&
 		!hasValidNewReviews(item, ackedAt, currentUser, knownBots) &&
 		!hasValidNewStateEvents(item, ackedAt, currentUser, knownBots) &&
-		!hasUnackingNewCommits(item, ackedAt, currentUser)
+		!hasValidNewCommits(item, ackedAt, currentUser)
 }
 
 func baselineSince(item *octodeckv1.Item, hasViewed, hasAcked bool, ackedAt time.Time) time.Time {
@@ -287,21 +290,38 @@ func reviewCommentHasNewMention(
 
 func hasNoiseActivity(item *octodeckv1.Item, since time.Time, currentUser string, knownBots []string) bool {
 	for _, c := range item.GetComments() {
-		if c.GetCreatedAt() != nil && c.GetCreatedAt().AsTime().After(since) {
-			author := c.GetAuthor().GetLogin()
-			if !isSameUser(author, currentUser) && IsNoiseForUser(c, knownBots, currentUser) {
-				return true
-			}
+		if c.GetCreatedAt() != nil && c.GetCreatedAt().AsTime().After(since) &&
+			!isSameUser(c.GetAuthor().GetLogin(), currentUser) && IsNoiseForUser(c, knownBots, currentUser) {
+			return true
 		}
 	}
 	for _, r := range item.GetReviews() {
-		if r.GetSubmittedAt() != nil && r.GetSubmittedAt().AsTime().After(since) &&
-			isReviewActivityNoise(r.GetAuthor(), r.GetBody(), currentUser, knownBots) {
+		if !isPendingReview(r) && reviewHasNoiseActivity(r, since, currentUser, knownBots) {
 			return true
 		}
 	}
 	for _, e := range item.GetStateEvents() {
-		if e.GetCreatedAt() != nil && e.GetCreatedAt().AsTime().After(since) && isBotStateEvent(e, knownBots) {
+		if e.GetCreatedAt() != nil && e.GetCreatedAt().AsTime().After(since) &&
+			!isSameUser(e.GetActor().GetLogin(), currentUser) && isBotStateEvent(e, knownBots) {
+			return true
+		}
+	}
+	return false
+}
+
+func reviewHasNoiseActivity(
+	r *octodeckv1.Review,
+	since time.Time,
+	currentUser string,
+	knownBots []string,
+) bool {
+	if r.GetSubmittedAt() != nil && r.GetSubmittedAt().AsTime().After(since) &&
+		isReviewActivityNoise(r.GetAuthor(), r.GetBody(), currentUser, knownBots) {
+		return true
+	}
+	for _, rc := range r.GetComments() {
+		if rc.GetCreatedAt() != nil && rc.GetCreatedAt().AsTime().After(since) &&
+			isReviewActivityNoise(reviewCommentAuthor(rc, r), rc.GetBody(), currentUser, knownBots) {
 			return true
 		}
 	}
@@ -365,20 +385,12 @@ func isOthersSignificantReviewActivity(
 	return !isSameUser(author.GetLogin(), currentUser) && !isReviewActivityNoise(author, body, currentUser, knownBots)
 }
 
-func hasNewCommits(item *octodeckv1.Item, since time.Time) bool {
-	for _, c := range item.GetCommits() {
-		if c.GetCommittedDate() != nil && c.GetCommittedDate().AsTime().After(since) {
-			return true
-		}
-	}
-	return false
-}
-
-// hasUnackingNewCommits reports whether commits after since supersede an acknowledgement. Commits
-// authored by the user are the user's own activity and don't, regardless of who opened the PR;
-// commits by anyone else (maintainers, bots) do. A commit whose author isn't linked to a GitHub
-// login can't be attributed to the user, so it un-acks rather than risk hiding someone else's work.
-func hasUnackingNewCommits(item *octodeckv1.Item, since time.Time, currentUser string) bool {
+// hasValidNewCommits reports whether commits after since count as new code or supersede an
+// acknowledgement. Commits authored by currentUser are the user's own activity and never count as
+// unviewed activity, regardless of who opened the PR; commits by anyone else (maintainers, bots)
+// do. A commit whose author isn't linked to a GitHub login can't be attributed to the user, so it
+// counts as new code rather than risk hiding someone else's work.
+func hasValidNewCommits(item *octodeckv1.Item, since time.Time, currentUser string) bool {
 	for _, c := range item.GetCommits() {
 		if c.GetCommittedDate() == nil || !c.GetCommittedDate().AsTime().After(since) {
 			continue
