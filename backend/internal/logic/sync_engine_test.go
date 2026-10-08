@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -134,7 +135,7 @@ func TestRunInventorySync_NewItem(t *testing.T) {
 		return nil
 	}
 
-	ghClient := &github.Client{RestClient: mockREST, GraphQLClient: mockGQL}
+	ghClient := &github.Client{RestClient: mockREST, GraphQLClient: mockGQL, CurrentUser: "testuser"}
 	cfg := config.NewForTest(octodeckv1.Config_builder{KnownBots: []string{}}.Build())
 	engine := NewSyncEngine(db, ghClient, cfg)
 
@@ -875,7 +876,7 @@ func TestRunGarbageCollection(t *testing.T) {
 		return nil
 	}
 
-	ghClient := &github.Client{RestClient: mockREST, GraphQLClient: mockGQL}
+	ghClient := &github.Client{RestClient: mockREST, GraphQLClient: mockGQL, CurrentUser: "testuser"}
 	cfg := config.NewForTest(octodeckv1.Config_builder{KnownBots: []string{}}.Build())
 	engine := NewSyncEngine(db, ghClient, cfg)
 
@@ -960,7 +961,7 @@ func TestRunGarbageCollection_RetentionPruning(t *testing.T) {
 		return nil
 	}
 
-	ghClient := &github.Client{RestClient: mockREST, GraphQLClient: mockGQL}
+	ghClient := &github.Client{RestClient: mockREST, GraphQLClient: mockGQL, CurrentUser: "testuser"}
 	cfg := config.NewForTest(octodeckv1.Config_builder{KnownBots: []string{}}.Build())
 	engine := NewSyncEngine(db, ghClient, cfg)
 
@@ -1952,7 +1953,7 @@ func TestRefetchItem_UntrackedItemOnDemandFetch(t *testing.T) {
 			return nil
 		},
 	}
-	ghClient := &github.Client{RestClient: mockREST, GraphQLClient: mockGQL}
+	ghClient := &github.Client{RestClient: mockREST, GraphQLClient: mockGQL, CurrentUser: "testuser"}
 	cfg := config.NewForTest(octodeckv1.Config_builder{KnownBots: []string{}}.Build())
 	engine := NewSyncEngine(db, ghClient, cfg)
 
@@ -2519,15 +2520,17 @@ func TestSyncEngine_UntrackedItem_LifecycleAndGCRefresh(t *testing.T) {
 		"Closed item LastSyncedAt must remain untouched")
 }
 
-// TestStress_FetchCurrentUser_Concurrency verifies that multiple concurrent callers of
-// fetchCurrentUser and fetchCurrentUserLocked under -race execute safely with 0 warnings.
-func TestStress_FetchCurrentUser_Concurrency(t *testing.T) {
+// TestStress_EnsureCurrentUser_Concurrency verifies that concurrent sync runs resolving the login
+// are race-free and share a single GitHub lookup, after which the login is served from the cache.
+func TestStress_EnsureCurrentUser_Concurrency(t *testing.T) {
 	db := setupTestDB(t)
 	defer func() { require.NoError(t, db.Close()) }()
 
+	var userCalls atomic.Int32
 	mockREST := &mockRESTClient{
 		doFunc: func(_ context.Context, _, path string, _ io.Reader, response any) error {
 			if path == "user" {
+				userCalls.Add(1)
 				data, _ := json.Marshal(map[string]any{"login": "concurrent_user"})
 				return json.Unmarshal(data, response)
 			}
@@ -2545,31 +2548,69 @@ func TestStress_FetchCurrentUser_Concurrency(t *testing.T) {
 	var wg sync.WaitGroup
 	startCh := make(chan struct{})
 
-	for workerID := range numGoroutines {
+	for range numGoroutines {
 		wg.Go(func() {
 			<-startCh
 			for range iterations {
-				if workerID%2 == 0 {
-					err := engine.fetchCurrentUser(ctx)
-					require.NoError(t, err)
-				} else {
-					engine.mu.Lock()
-					err := engine.fetchCurrentUserLocked(ctx)
-					engine.mu.Unlock()
-					require.NoError(t, err)
-				}
-				user := engine.getCurrentUser()
-				assert.Equal(t, "concurrent_user", user)
+				require.NoError(t, engine.ensureCurrentUser(ctx))
+				assert.Equal(t, "concurrent_user", engine.getCurrentUser())
 			}
 		})
 	}
 
 	close(startCh)
 	wg.Wait()
+	assert.Equal(t, int32(1), userCalls.Load(), "the login is looked up once, then cached")
+}
+
+// TestSyncEngine_CurrentUser_PicksUpChangedLogin verifies that the sync engine has no login cache
+// of its own: when a live auth check observes a different user, auto-ack uses the new login.
+func TestSyncEngine_CurrentUser_PicksUpChangedLogin(t *testing.T) {
+	var login atomic.Value
+	login.Store("old-me")
+	mockREST := &mockRESTClient{
+		doFunc: func(_ context.Context, _, path string, _ io.Reader, response any) error {
+			if path == "user" {
+				data, _ := json.Marshal(map[string]any{"login": login.Load()})
+				return json.Unmarshal(data, response)
+			}
+			return nil
+		},
+	}
+	engine := &SyncEngine{
+		gh: &github.Client{RestClient: mockREST},
+		cfg: config.NewForTest(octodeckv1.Config_builder{
+			AutoAckOwnActivity: config.Ptr(true),
+		}.Build()),
+	}
+	require.NoError(t, engine.ensureCurrentUser(t.Context()))
+	require.Equal(t, "old-me", engine.getCurrentUser())
+
+	newItem := func() *octodeckv1.Item {
+		item := ackTestItem(ackTestOther)
+		item.SetComments([]*octodeckv1.Comment{ackTestComment("new-me", ackTestTime(1))})
+		touch(item, ackTestTime(1))
+		return item
+	}
+	item := newItem()
+	engine.calculateItemState(item)
+	assert.False(t, IsAcked(item.GetLocal()), "new-me's comment is not old-me's own activity")
+
+	// The credentials now belong to new-me; a live auth check (e.g. /api/v1/status) sees it.
+	login.Store("new-me")
+	gotLogin, ok, err := engine.gh.CheckAuth(t.Context())
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "new-me", gotLogin)
+
+	assert.Equal(t, "new-me", engine.getCurrentUser())
+	item = newItem()
+	engine.calculateItemState(item)
+	assert.True(t, IsAcked(item.GetLocal()), "auto-ack uses the updated login")
 }
 
 // TestStress_CalculateItemState_CurrentUser_Race verifies that concurrent RunDiscovery,
-// calculateItemState, and fetchCurrentUser callers pass under -race with 0 warnings.
+// calculateItemState, and login resolution callers pass under -race with 0 warnings.
 func TestStress_CalculateItemState_CurrentUser_Race(t *testing.T) {
 	db := setupTestDB(t)
 	defer func() { require.NoError(t, db.Close()) }()
@@ -2654,16 +2695,14 @@ func TestStress_CalculateItemState_CurrentUser_Race(t *testing.T) {
 		}
 	})
 
-	// Goroutine 2: fetchCurrentUser callers
+	// Goroutine 2: login resolution and live auth checks (which refresh the cached login)
 	wg.Go(func() {
 		<-startCh
 		for i := range iterations {
 			if i%2 == 0 {
-				_ = engine.fetchCurrentUser(ctx)
+				_ = engine.ensureCurrentUser(ctx)
 			} else {
-				engine.mu.Lock()
-				_ = engine.fetchCurrentUserLocked(ctx)
-				engine.mu.Unlock()
+				_, _, _ = ghClient.CheckAuth(ctx)
 			}
 		}
 	})

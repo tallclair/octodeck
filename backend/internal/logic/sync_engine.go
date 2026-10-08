@@ -72,9 +72,6 @@ type SyncEngine struct {
 	mu          sync.Mutex
 	discoveryMu sync.Mutex
 
-	currentUserMu sync.RWMutex
-	currentUser   string
-
 	tickerInc       *time.Ticker
 	tickerDiscovery *time.Ticker
 
@@ -273,12 +270,8 @@ func (s *SyncEngine) Start(ctx context.Context) {
 		s.mu.Lock()
 		s.loadPersistedStatus(ctx)
 		s.mu.Unlock()
-		// Initial user fetch
-		fetchCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
-		if err := s.fetchCurrentUser(fetchCtx); err != nil {
-			slog.ErrorContext(ctx, "Failed to fetch current user, sync engine will retry later", "error", err)
-		}
-		cancel()
+		// The authenticated login is resolved once at daemon startup (see cmd/serve.go). If that
+		// failed, each sync run retries it via ensureCurrentUser until it succeeds.
 
 		// Initial Population (Backfill)
 		// Trigger: Backend startup IF the issues table is empty.
@@ -367,33 +360,19 @@ func (s *SyncEngine) Stop() {
 	})
 }
 
-func (s *SyncEngine) fetchCurrentUser(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.fetchCurrentUserLocked(ctx)
-}
-
-func (s *SyncEngine) fetchCurrentUserLocked(ctx context.Context) error {
-	if s.currentUser != "" {
-		return nil
+// ensureCurrentUser makes sure the authenticated login is known before a sync run that depends on
+// it. It is a no-op once the login is cached by the GitHub client; until then (e.g. GitHub was
+// unreachable at startup) it retries the lookup.
+func (s *SyncEngine) ensureCurrentUser(ctx context.Context) error {
+	if _, err := s.gh.ResolveCurrentUser(ctx); err != nil {
+		return fmt.Errorf("failed to resolve authenticated GitHub user: %w", err)
 	}
-	login, ok, err := s.gh.CheckAuth(ctx)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return errors.New("not authenticated")
-	}
-	s.currentUserMu.Lock()
-	s.currentUser = login
-	s.currentUserMu.Unlock()
 	return nil
 }
 
+// getCurrentUser returns the authenticated login cached by the GitHub client, or "" if unknown.
 func (s *SyncEngine) getCurrentUser() string {
-	s.currentUserMu.RLock()
-	defer s.currentUserMu.RUnlock()
-	return s.currentUser
+	return s.gh.CurrentLogin()
 }
 
 // ForceSync triggers an immediate incremental sync.
@@ -470,10 +449,8 @@ func (s *SyncEngine) RefetchItem(ctx context.Context, id string) (*octodeckv1.It
 		})
 	}()
 
-	if s.currentUser == "" {
-		if refetchErr = s.fetchCurrentUserLocked(ctx); refetchErr != nil {
-			return nil, refetchErr
-		}
+	if refetchErr = s.ensureCurrentUser(ctx); refetchErr != nil {
+		return nil, refetchErr
 	}
 
 	existingItem, _ := s.db.GetItem(ctx, id)
@@ -516,10 +493,8 @@ func (s *SyncEngine) BackfillItems(ctx context.Context) (int, error) {
 		})
 	}()
 
-	if s.currentUser == "" {
-		if backfillErr = s.fetchCurrentUserLocked(ctx); backfillErr != nil {
-			return 0, backfillErr
-		}
+	if backfillErr = s.ensureCurrentUser(ctx); backfillErr != nil {
+		return 0, backfillErr
 	}
 
 	var items []*octodeckv1.Item
@@ -649,10 +624,8 @@ func (s *SyncEngine) RunInventorySync(ctx context.Context) error {
 		})
 	}()
 
-	if s.currentUser == "" {
-		if err = s.fetchCurrentUserLocked(ctx); err != nil {
-			return err
-		}
+	if err = s.ensureCurrentUser(ctx); err != nil {
+		return err
 	}
 
 	slog.InfoContext(ctx, "Starting Hybrid Inventory Sync (Backfill)")
@@ -803,10 +776,8 @@ func (s *SyncEngine) runIncrementalSync(ctx context.Context, triggerSource strin
 		})
 	}()
 
-	if s.currentUser == "" {
-		if err = s.fetchCurrentUserLocked(ctx); err != nil {
-			return err
-		}
+	if err = s.ensureCurrentUser(ctx); err != nil {
+		return err
 	}
 
 	var skip bool
@@ -1032,10 +1003,8 @@ func (s *SyncEngine) RunGarbageCollection(ctx context.Context) error {
 		})
 	}()
 
-	if s.currentUser == "" {
-		if gcErr = s.fetchCurrentUserLocked(ctx); gcErr != nil {
-			return gcErr
-		}
+	if gcErr = s.ensureCurrentUser(ctx); gcErr != nil {
+		return gcErr
 	}
 
 	slog.InfoContext(ctx, "Starting Garbage Collection")

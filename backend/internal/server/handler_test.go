@@ -900,43 +900,52 @@ func TestOctoDeckHandler_GetDatabaseStats_AckedCountsCurrentStatus(t *testing.T)
 	assert.Equal(t, int64(2), resp.Msg.GetStats().GetUnackedItems())
 }
 
-// cachedLoginGitHubClient is a mock GitHub client that also exposes a cached login.
-type cachedLoginGitHubClient struct {
-	mockGitHubClient
-
-	cached     string
-	checkCalls int
-}
-
-func (m *cachedLoginGitHubClient) CachedCurrentUser() string { return m.cached }
-
-func (m *cachedLoginGitHubClient) CheckAuth(ctx context.Context) (string, bool, error) {
-	m.checkCalls++
-	return m.mockGitHubClient.CheckAuth(ctx)
-}
-
 func TestOctoDeckHandler_CurrentUser(t *testing.T) {
-	t.Run("prefers the cached login without calling CheckAuth", func(t *testing.T) {
-		gh := &cachedLoginGitHubClient{mockGitHubClient: mockGitHubClient{authenticated: true}, cached: "cached-me"}
-		h := &octoDeckHandler{ghClient: gh}
-		assert.Equal(t, "cached-me", h.currentUser(t.Context()))
-		assert.Zero(t, gh.checkCalls)
-	})
+	mockGH := &mockGitHubClient{authenticated: true, login: "old-me"}
+	db, client, addHeaders, _ := setupTestHandlerWithGH(t, mockGH)
 
-	t.Run("falls back to CheckAuth when nothing is cached", func(t *testing.T) {
-		gh := &cachedLoginGitHubClient{mockGitHubClient: mockGitHubClient{authenticated: true}}
-		h := &octoDeckHandler{ghClient: gh}
-		assert.Equal(t, "testuser", h.currentUser(t.Context()))
-		assert.Equal(t, 1, gh.checkCalls)
-	})
+	// A never-viewed item that @mentions "new-me": "New" for old-me, "New Mention" for new-me.
+	require.NoError(t, db.SaveItems(t.Context(), []*octodeckv1.Item{octodeckv1.Item_builder{
+		Id:        config.Ptr("login/item"),
+		UpdatedAt: timestamppb.New(time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)),
+		Comments: []*octodeckv1.Comment{octodeckv1.Comment_builder{
+			CreatedAt: timestamppb.New(time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)),
+			BodyText:  config.Ptr("@new-me could you take a look?"),
+			Author:    octodeckv1.User_builder{Login: config.Ptr("someone")}.Build(),
+		}.Build()},
+	}.Build()}))
 
-	t.Run("clients without a cache use CheckAuth", func(t *testing.T) {
-		h := &octoDeckHandler{ghClient: &mockGitHubClient{authenticated: true}}
-		assert.Equal(t, "testuser", h.currentUser(t.Context()))
-	})
+	getLoginAndStatus := func(t *testing.T) (string, octodeckv1.ItemStatus) {
+		t.Helper()
+		cfgReq := connect.NewRequest(&octodeckv1.GetConfigRequest{})
+		addHeaders(cfgReq)
+		cfgResp, err := client.GetConfig(t.Context(), cfgReq)
+		require.NoError(t, err)
 
-	t.Run("nil client yields no user", func(t *testing.T) {
-		assert.Empty(t, (&octoDeckHandler{}).currentUser(t.Context()))
+		itemReq := connect.NewRequest(octodeckv1.GetItemRequest_builder{ItemId: config.Ptr("login/item")}.Build())
+		addHeaders(itemReq)
+		itemResp, err := client.GetItem(t.Context(), itemReq)
+		require.NoError(t, err)
+		return cfgResp.Msg.GetCurrentUserLogin(), itemResp.Msg.GetItem().GetLocal().GetComputedStatus()
+	}
+
+	login, status := getLoginAndStatus(t)
+	assert.Equal(t, "old-me", login)
+	assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW, status)
+
+	// The client's cached login changes (e.g. a CheckAuth after a credential reload saw a new
+	// user): requests pick it up immediately.
+	mockGH.setLogin("new-me")
+	login, status = getLoginAndStatus(t)
+	assert.Equal(t, "new-me", login)
+	assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_MENTION, status)
+
+	assert.Zero(t, mockGH.checkAuthCount(), "requests must read the cached login, not call GitHub")
+
+	t.Run("unknown login yields no user", func(t *testing.T) {
+		h := &octoDeckHandler{ghClient: &mockGitHubClient{}}
+		assert.Empty(t, h.currentUser())
+		assert.Empty(t, (&octoDeckHandler{}).currentUser())
 	})
 }
 

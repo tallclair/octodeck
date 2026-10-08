@@ -29,7 +29,12 @@ var Version = "dev"
 
 // GitHubClient defines the interface for GitHub authentication checks and mutations.
 type GitHubClient interface {
+	// CheckAuth performs a live authentication check against GitHub. On success it also
+	// refreshes the cached login returned by CurrentLogin.
 	CheckAuth(ctx context.Context) (string, bool, error)
+	// CurrentLogin returns the cached authenticated login without contacting GitHub, or "" if
+	// it is not known yet.
+	CurrentLogin() string
 	HasNotificationsScope() bool
 	SetNotificationsScope(hasScope bool)
 	UpdateSubscription(ctx context.Context, id string, state octodeckv1.SubscriptionState) error
@@ -154,6 +159,9 @@ type statusResponse struct {
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	// This is the auth health probe, so it checks live rather than reporting the cached login:
+	// it must notice revoked tokens and missing scopes, and it is where the client reloads gh
+	// credentials (and so picks up a changed login) when a required scope is missing.
 	_, authenticated, err := s.ghClient.CheckAuth(r.Context())
 
 	resp := statusResponse{

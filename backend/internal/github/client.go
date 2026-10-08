@@ -119,13 +119,17 @@ type Client struct {
 	RestClient    RESTClient
 	GraphQLClient GraphQLClient
 	HTTPClient    HTTPClient
-	CurrentUser   string
+	// CurrentUser is the cached login of the authenticated user (see CurrentLogin). Set it
+	// directly only when constructing a client; afterwards it is maintained by CheckAuth.
+	CurrentUser string
 
 	isDefaultClient       bool
 	useHTTPForAuth        bool
 	scopeMu               sync.RWMutex
 	scopesChecked         bool
 	hasNotificationsScope bool
+	// resolveMu serializes ResolveCurrentUser so concurrent callers make at most one CheckAuth.
+	resolveMu sync.Mutex
 }
 
 // NewClient creates a new GitHub client using default gh auth.
@@ -246,7 +250,16 @@ func (c *Client) getGraphQLClient() GraphQLClient {
 	return c.GraphQLClient
 }
 
-func (c *Client) getCurrentUser() string {
+// CurrentLogin returns the cached login of the authenticated GitHub user without contacting
+// GitHub. Returns "" if it has not been resolved yet (see ResolveCurrentUser).
+//
+// The client is the single source of truth for the login. It is resolved once (at daemon startup,
+// or lazily by the first caller of ResolveCurrentUser after a failed startup attempt) and then
+// served from this cache. It can only change when the credentials change, and the client only
+// picks up new credentials in CheckAuth (see reloadDefaultClientsIfNeeded), which re-reads the
+// login in the same call. So every successful CheckAuth refreshes the cache, which keeps it
+// correct without any per-request lookups.
+func (c *Client) CurrentLogin() string {
 	if c == nil {
 		return ""
 	}
@@ -255,19 +268,43 @@ func (c *Client) getCurrentUser() string {
 	return c.CurrentUser
 }
 
-// SetCurrentUser sets the authenticated user login for the client safely under lock.
-func (c *Client) SetCurrentUser(login string) {
-	if c != nil {
-		c.scopeMu.Lock()
-		c.CurrentUser = login
-		c.scopeMu.Unlock()
+// setCurrentUser records the authenticated login, logging when it changes from a known value.
+func (c *Client) setCurrentUser(login string) {
+	if c == nil || login == "" {
+		return
+	}
+	c.scopeMu.Lock()
+	prev := c.CurrentUser
+	c.CurrentUser = login
+	c.scopeMu.Unlock()
+	if prev != "" && prev != login {
+		slog.Info("Authenticated GitHub login changed", "previous", prev, "current", login)
 	}
 }
 
-// CachedCurrentUser returns the login recorded by the last successful CheckAuth (or
-// SetCurrentUser) without contacting GitHub. Returns "" if none is known yet.
-func (c *Client) CachedCurrentUser() string {
-	return c.getCurrentUser()
+// ResolveCurrentUser returns the authenticated login, calling CheckAuth only if it is not cached
+// yet. Once resolved it never contacts GitHub again; later changes are picked up by CheckAuth.
+// Concurrent callers share a single in-flight resolution.
+func (c *Client) ResolveCurrentUser(ctx context.Context) (string, error) {
+	if c == nil {
+		return "", errors.New("github client is not initialized")
+	}
+	if login := c.CurrentLogin(); login != "" {
+		return login, nil
+	}
+	c.resolveMu.Lock()
+	defer c.resolveMu.Unlock()
+	if login := c.CurrentLogin(); login != "" {
+		return login, nil
+	}
+	login, ok, err := c.CheckAuth(ctx)
+	if err != nil {
+		return "", err
+	}
+	if !ok || login == "" {
+		return "", errors.New("not authenticated with GitHub")
+	}
+	return login, nil
 }
 
 // CheckAuth verifies if the client is authenticated with GitHub and inspects X-OAuth-Scopes headers when available.
@@ -293,7 +330,7 @@ func (c *Client) CheckAuth(ctx context.Context) (string, bool, error) {
 	if err != nil {
 		return "", false, fmt.Errorf("authentication check failed: %w", err)
 	}
-	c.SetCurrentUser(user.Login)
+	c.setCurrentUser(user.Login)
 	return user.Login, true, nil
 }
 
@@ -331,7 +368,7 @@ func (c *Client) checkAuthViaHTTP(ctx context.Context, httpClient HTTPClient) (s
 	if err := json.Unmarshal(bodyBytes, &user); err != nil {
 		return "", false, fmt.Errorf("failed to decode user response: %w", err)
 	}
-	c.SetCurrentUser(user.Login)
+	c.setCurrentUser(user.Login)
 	return user.Login, true, nil
 }
 
@@ -1488,7 +1525,7 @@ func (c *Client) fetchAllItems(
 			return nil, nil, err
 		}
 
-		currentUser := c.getCurrentUser()
+		currentUser := c.CurrentLogin()
 		for _, node := range query.Search.Nodes {
 			item, err := node.toProto(currentUser)
 			if err == nil {
@@ -1617,7 +1654,7 @@ func (c *Client) fetchNodesBatch(
 
 	var foundItems []*octodeckv1.Item
 	var missingIDs []string
-	currentUser := c.getCurrentUser()
+	currentUser := c.CurrentLogin()
 
 	for i, node := range query.Nodes {
 		requestedID := ids[i]

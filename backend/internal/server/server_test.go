@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"testing/fstest"
 
@@ -24,10 +25,42 @@ type mockGitHubClient struct {
 	err                   error
 	updateSubscriptionFn  func(ctx context.Context, id string, state octodeckv1.SubscriptionState) error
 	countSearchIssuesFn   func(ctx context.Context, searchQuery string) (int32, error)
+	// login overrides the cached login; by default an authenticated client knows "testuser".
+	// Guarded by mu because tests change it while the server handles requests.
+	mu             sync.Mutex
+	login          string
+	checkAuthCalls int
 }
 
 func (m *mockGitHubClient) CheckAuth(_ context.Context) (string, bool, error) {
+	m.mu.Lock()
+	m.checkAuthCalls++
+	m.mu.Unlock()
 	return "testuser", m.authenticated, m.err
+}
+
+func (m *mockGitHubClient) CurrentLogin() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.login != "" {
+		return m.login
+	}
+	if m.authenticated {
+		return "testuser"
+	}
+	return ""
+}
+
+func (m *mockGitHubClient) setLogin(login string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.login = login
+}
+
+func (m *mockGitHubClient) checkAuthCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.checkAuthCalls
 }
 
 func (m *mockGitHubClient) HasNotificationsScope() bool {

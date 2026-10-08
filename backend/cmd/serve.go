@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -16,6 +19,10 @@ import (
 	"github.com/tallclair/octodeck/backend/internal/logic"
 	"github.com/tallclair/octodeck/backend/internal/server"
 )
+
+// startupLoginTimeout bounds the startup lookup of the authenticated login, so an unreachable
+// GitHub delays serving by at most this long.
+const startupLoginTimeout = 15 * time.Second
 
 var (
 	port       int
@@ -65,16 +72,35 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to create GitHub client: %w", err)
 	}
 
-	syncEngine := logic.NewSyncEngine(db, ghClient, cfg)
-	srv := server.New(db, ghClient, syncEngine, cfg, frontendFS)
-
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	resolveStartupLogin(ctx, ghClient)
+
+	syncEngine := logic.NewSyncEngine(db, ghClient, cfg)
+	srv := server.New(db, ghClient, syncEngine, cfg, frontendFS)
 
 	syncEngine.Start(ctx)
 	defer syncEngine.Stop()
 
 	return srv.Start(ctx, port)
+}
+
+// resolveStartupLogin looks up the authenticated GitHub login once, before serving, so that request
+// handlers and the sync engine read it from the client's cache instead of asking GitHub. A failure
+// (e.g. offline at startup) is not fatal: the daemon still serves cached data, and the sync engine
+// retries the lookup at the start of each sync run until it succeeds, after which it is never
+// looked up again. Later identity changes are picked up by CheckAuth (see github.Client.CurrentLogin).
+func resolveStartupLogin(ctx context.Context, ghClient *github.Client) {
+	resolveCtx, cancel := context.WithTimeout(ctx, startupLoginTimeout)
+	defer cancel()
+	login, err := ghClient.ResolveCurrentUser(resolveCtx)
+	if err != nil {
+		slog.WarnContext(ctx, "Could not resolve the authenticated GitHub user at startup; will retry on sync",
+			"error", err)
+		return
+	}
+	slog.InfoContext(ctx, "Authenticated to GitHub", "login", login)
 }
 
 func init() {

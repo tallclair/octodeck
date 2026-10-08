@@ -28,29 +28,19 @@ type octoDeckHandler struct {
 	ghClient   GitHubClient
 }
 
-// cachedLoginProvider is implemented by GitHub clients that remember the authenticated login.
-type cachedLoginProvider interface {
-	CachedCurrentUser() string
-}
-
-// currentUser returns the authenticated GitHub login, preferring the client's cached value and
-// falling back to a CheckAuth round trip. Returns "" if unknown.
-func (h *octoDeckHandler) currentUser(ctx context.Context) string {
+// currentUser returns the authenticated GitHub login cached by the client, or "" if it is not
+// known yet (GitHub auth failed at startup and no sync has resolved it since). It never contacts
+// GitHub, so request latency doesn't depend on GitHub being reachable.
+func (h *octoDeckHandler) currentUser() string {
 	if h.ghClient == nil {
 		return ""
 	}
-	if p, ok := h.ghClient.(cachedLoginProvider); ok {
-		if login := p.CachedCurrentUser(); login != "" {
-			return login
-		}
-	}
-	login, _, _ := h.ghClient.CheckAuth(ctx)
-	return login
+	return h.ghClient.CurrentLogin()
 }
 
 func (h *octoDeckHandler) GetConfig(ctx context.Context,
 	_ *connect.Request[octodeckv1.GetConfigRequest]) (*connect.Response[octodeckv1.GetConfigResponse], error) {
-	currentUser := h.currentUser(ctx)
+	currentUser := h.currentUser()
 	cfgProto := h.cfg.GetProto()
 	res := octodeckv1.GetConfigResponse_builder{
 		Config:     cfgProto,
@@ -247,8 +237,8 @@ func (h *octoDeckHandler) filterItemLabels(items ...*octodeckv1.Item) {
 	}
 }
 
-func (h *octoDeckHandler) populateComputedStatus(ctx context.Context, items ...*octodeckv1.Item) {
-	currentUser := h.currentUser(ctx)
+func (h *octoDeckHandler) populateComputedStatus(items ...*octodeckv1.Item) {
+	currentUser := h.currentUser()
 	knownBots := h.cfg.GetKnownBots()
 
 	logic.ClassifyCommentsForUser(knownBots, currentUser, items...)
@@ -331,7 +321,7 @@ func (h *octoDeckHandler) GetItems(ctx context.Context,
 
 	items = h.filterItemRepos(items)
 	h.filterItemLabels(items...)
-	h.populateComputedStatus(ctx, items...)
+	h.populateComputedStatus(items...)
 
 	if filter := req.Msg.GetFilter(); filter != nil {
 		items = filterByComputedStatus(items, filter.GetStatus())
@@ -356,7 +346,7 @@ func (h *octoDeckHandler) GetItem(ctx context.Context,
 	}
 
 	h.filterItemLabels(item)
-	h.populateComputedStatus(ctx, item)
+	h.populateComputedStatus(item)
 
 	return connect.NewResponse(octodeckv1.GetItemResponse_builder{
 		Item: item,
@@ -429,7 +419,7 @@ func (h *octoDeckHandler) mutateItemLocalState(
 	}
 
 	h.filterItemLabels(item)
-	h.populateComputedStatus(ctx, item)
+	h.populateComputedStatus(item)
 
 	return item, nil
 }
@@ -522,7 +512,7 @@ func (h *octoDeckHandler) RefetchItem(ctx context.Context,
 	}
 
 	h.filterItemLabels(item)
-	h.populateComputedStatus(ctx, item)
+	h.populateComputedStatus(item)
 
 	return connect.NewResponse(octodeckv1.RefetchItemResponse_builder{
 		Item: item,
@@ -602,7 +592,7 @@ func (h *octoDeckHandler) UpdateSubscription(
 	}
 
 	h.filterItemLabels(item)
-	h.populateComputedStatus(ctx, item)
+	h.populateComputedStatus(item)
 
 	return connect.NewResponse(octodeckv1.UpdateSubscriptionResponse_builder{
 		Item: item,
@@ -799,7 +789,7 @@ func (h *octoDeckHandler) GetDatabaseStats(
 	_ *connect.Request[octodeckv1.GetDatabaseStatsRequest],
 ) (*connect.Response[octodeckv1.GetDatabaseStatsResponse], error) {
 	dbPath, _ := h.cfg.GetDBPath()
-	currentUser := h.currentUser(ctx)
+	currentUser := h.currentUser()
 	knownBots := h.cfg.GetKnownBots()
 	// Count items whose computed status is ACKED, not merely items that were acked at some point.
 	isAcked := func(item *octodeckv1.Item) bool {

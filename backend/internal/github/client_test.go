@@ -3,6 +3,7 @@ package github
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -82,6 +83,57 @@ func TestCheckAuth_Unit(t *testing.T) {
 			assert.Equal(t, tt.wantAuth, gotAuth)
 		})
 	}
+}
+
+func TestResolveCurrentUser(t *testing.T) {
+	login := "old-me"
+	var userCalls int
+	var failAuth bool
+	client := &Client{RestClient: &mockRESTClient{
+		doFunc: func(_ context.Context, _ string, path string, _ io.Reader, response any) error {
+			if path != "user" {
+				return fmt.Errorf("unexpected path: %s", path)
+			}
+			userCalls++
+			if failAuth {
+				return errors.New("network unreachable")
+			}
+			return json.Unmarshal(fmt.Appendf(nil, `{"login": %q}`, login), response)
+		},
+	}}
+
+	// Startup lookup fails (e.g. offline): nothing is cached, and the next call retries.
+	failAuth = true
+	_, err := client.ResolveCurrentUser(t.Context())
+	require.Error(t, err)
+	assert.Empty(t, client.CurrentLogin())
+
+	failAuth = false
+	got, err := client.ResolveCurrentUser(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, "old-me", got)
+	assert.Equal(t, 2, userCalls)
+
+	// Once resolved, the login is served from the cache without contacting GitHub.
+	got, err = client.ResolveCurrentUser(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, "old-me", got)
+	assert.Equal(t, "old-me", client.CurrentLogin())
+	assert.Equal(t, 2, userCalls)
+
+	// A live auth check that sees a different user updates the cache.
+	login = "new-me"
+	got, ok, err := client.CheckAuth(t.Context())
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "new-me", got)
+	assert.Equal(t, "new-me", client.CurrentLogin())
+
+	// A failed live check keeps the last known login.
+	failAuth = true
+	_, _, err = client.CheckAuth(t.Context())
+	require.Error(t, err)
+	assert.Equal(t, "new-me", client.CurrentLogin())
 }
 
 func TestCheckAuth_OAuthScopes(t *testing.T) {

@@ -124,7 +124,7 @@ func newAutoAckTestEngine(enabled bool) *SyncEngine {
 			KnownBots:          ackTestBots(),
 			AutoAckOwnActivity: config.Ptr(enabled),
 		}.Build()),
-		currentUser: ackTestUser,
+		gh: &github.Client{CurrentUser: ackTestUser},
 	}
 }
 

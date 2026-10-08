@@ -111,11 +111,9 @@ func (s *SyncEngine) runDiscovery(ctx context.Context, triggerSource string) err
 		})
 	}()
 
-	if s.getCurrentUser() == "" {
-		if err := s.fetchCurrentUser(ctx); err != nil {
-			runErr = fmt.Errorf("failed to fetch current user for discovery: %w", err)
-			return runErr
-		}
+	if err := s.ensureCurrentUser(ctx); err != nil {
+		runErr = fmt.Errorf("discovery: %w", err)
+		return runErr
 	}
 
 	knownIDs, err := s.db.GetAllItemIDs(ctx)
