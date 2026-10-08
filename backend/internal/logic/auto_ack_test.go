@@ -207,3 +207,44 @@ func TestShouldAutoAck(t *testing.T) {
 		assert.True(t, ackTime.Equal(myLaterReply))
 	})
 }
+
+func TestShouldAutoAck_PendingReviews(t *testing.T) {
+	item := ackTestItem(ackTestOther)
+	item.SetComments([]*octodeckv1.Comment{ackTestComment(ackTestOther, ackTestTime(1))})
+
+	pendingWithState := octodeckv1.Review_builder{
+		State:       config.Ptr("PENDING"),
+		SubmittedAt: timestamppb.New(ackTestTime(3)),
+		Author:      ackTestUserProto(ackTestUser),
+	}.Build()
+	pendingNoSubmit := octodeckv1.Review_builder{
+		State:  config.Ptr("COMMENTED"),
+		Author: ackTestUserProto(ackTestUser),
+		Comments: []*octodeckv1.ReviewComment{octodeckv1.ReviewComment_builder{
+			CreatedAt: timestamppb.New(ackTestTime(2)),
+		}.Build()},
+	}.Build()
+	item.SetReviews([]*octodeckv1.Review{pendingWithState, pendingNoSubmit})
+
+	shouldAck, _ := ShouldAutoAck(item, ackTestUser, ackTestBots())
+	assert.False(t, shouldAck, "unsubmitted reviews must not auto-ack")
+}
+
+func TestShouldAutoAck_BotStateEvents(t *testing.T) {
+	t.Run("bot state event after own comment does not block auto-ack", func(t *testing.T) {
+		item := ackTestItem(ackTestOther)
+		item.SetComments([]*octodeckv1.Comment{ackTestComment(ackTestUser, ackTestTime(5))})
+		item.SetStateEvents([]*octodeckv1.StateEvent{ackTestStateEvent(ackTestBot, ackTestTime(6))})
+		shouldAck, ackTime := ShouldAutoAck(item, ackTestUser, ackTestBots())
+		assert.True(t, shouldAck)
+		assert.True(t, ackTime.Equal(ackTestTime(5)))
+	})
+
+	t.Run("human state event after own comment blocks auto-ack", func(t *testing.T) {
+		item := ackTestItem(ackTestOther)
+		item.SetComments([]*octodeckv1.Comment{ackTestComment(ackTestUser, ackTestTime(5))})
+		item.SetStateEvents([]*octodeckv1.StateEvent{ackTestStateEvent(ackTestOther, ackTestTime(6))})
+		shouldAck, _ := ShouldAutoAck(item, ackTestUser, ackTestBots())
+		assert.False(t, shouldAck)
+	})
+}

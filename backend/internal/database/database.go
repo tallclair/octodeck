@@ -653,7 +653,14 @@ func ptr[T any](v T) *T {
 }
 
 // GetDatabaseStats computes and returns aggregated storage and item inventory statistics.
-func (d *DB) GetDatabaseStats(ctx context.Context, dbPath string) (*octodeckv1.DatabaseStats, error) {
+// isAcked classifies an item as currently acknowledged (the rest count as inbox). It is supplied
+// by the caller because acknowledgement depends on activity since the ack, which is computed by
+// the logic package.
+func (d *DB) GetDatabaseStats(
+	ctx context.Context,
+	dbPath string,
+	isAcked func(*octodeckv1.Item) bool,
+) (*octodeckv1.DatabaseStats, error) {
 	items, err := d.GetItems(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load items for database stats: %w", err)
@@ -678,7 +685,7 @@ func (d *DB) GetDatabaseStats(ctx context.Context, dbPath string) (*octodeckv1.D
 			issueItems++
 		}
 
-		if it.GetLocal() != nil && it.GetLocal().GetAckedAt() != nil && it.GetLocal().GetAckedAt().GetSeconds() > 0 {
+		if isAcked(it) {
 			ackedItems++
 		} else {
 			unackedItems++

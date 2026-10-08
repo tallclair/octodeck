@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	octodeckv1 "github.com/tallclair/octodeck/backend/internal/api/octodeck/v1"
@@ -185,6 +186,17 @@ func TestLatestActivityTime(t *testing.T) {
 		})
 	}
 
+	t.Run("pending reviews are ignored", func(t *testing.T) {
+		item := ackTestItem(ackTestOther)
+		item.SetReviews([]*octodeckv1.Review{octodeckv1.Review_builder{
+			State: config.Ptr("PENDING"),
+			Comments: []*octodeckv1.ReviewComment{octodeckv1.ReviewComment_builder{
+				CreatedAt: timestamppb.New(latest),
+			}.Build()},
+		}.Build()})
+		assert.True(t, ackTestTime(0).Equal(LatestActivityTime(item)))
+	})
+
 	t.Run("zero when there are no timestamps", func(t *testing.T) {
 		assert.True(t, LatestActivityTime(octodeckv1.Item_builder{}.Build()).IsZero())
 	})
@@ -210,4 +222,187 @@ func TestCalculateStatus_UsesActivityWatermark(t *testing.T) {
 		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY,
 			CalculateStatus(item, ackTestUser, ackTestBots()))
 	})
+}
+
+func TestCalculateStatus_BotStateEventsAreNoise(t *testing.T) {
+	t.Run("bot state event after ack keeps the item ACKED", func(t *testing.T) {
+		item := ackTestItem(ackTestOther)
+		SetAcked(item.GetLocal(), ackTestTime(0), ackTestTime(0))
+		item.SetStateEvents([]*octodeckv1.StateEvent{ackTestStateEvent(ackTestBot, ackTestTime(1))})
+		touch(item, ackTestTime(1))
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, CalculateStatus(item, ackTestUser, ackTestBots()))
+	})
+
+	t.Run("bot state event on an un-acked item is NOISE", func(t *testing.T) {
+		item := ackTestItem(ackTestOther)
+		item.SetStateEvents([]*octodeckv1.StateEvent{ackTestStateEvent(ackTestBot, ackTestTime(1))})
+		touch(item, ackTestTime(1))
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NOISE, CalculateStatus(item, ackTestUser, ackTestBots()))
+	})
+
+	t.Run("bot detected by user type", func(t *testing.T) {
+		item := ackTestItem(ackTestOther)
+		SetAcked(item.GetLocal(), ackTestTime(0), ackTestTime(0))
+		e := ackTestStateEvent("some-app", ackTestTime(1))
+		e.GetActor().SetType(octodeckv1.UserType_USER_TYPE_BOT)
+		item.SetStateEvents([]*octodeckv1.StateEvent{e})
+		touch(item, ackTestTime(1))
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, CalculateStatus(item, ackTestUser, nil))
+	})
+
+	t.Run("human state event still un-acks", func(t *testing.T) {
+		item := ackTestItem(ackTestOther)
+		SetAcked(item.GetLocal(), ackTestTime(0), ackTestTime(0))
+		item.SetStateEvents([]*octodeckv1.StateEvent{ackTestStateEvent(ackTestOther, ackTestTime(1))})
+		touch(item, ackTestTime(1))
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY,
+			CalculateStatus(item, ackTestUser, ackTestBots()))
+	})
+}
+
+func TestCalculateStatus_OwnCommits(t *testing.T) {
+	t.Run("own commit to own PR after ack keeps it ACKED", func(t *testing.T) {
+		item := ackTestItem(ackTestUser)
+		SetAcked(item.GetLocal(), ackTestTime(0), ackTestTime(0))
+		item.SetCommits([]*octodeckv1.Commit{ackTestCommit(ackTestUser, ackTestTime(1))})
+		touch(item, ackTestTime(1))
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, CalculateStatus(item, ackTestUser, ackTestBots()))
+	})
+
+	t.Run("own commit to someone else's PR after ack keeps it ACKED", func(t *testing.T) {
+		item := ackTestItem(ackTestOther)
+		SetAcked(item.GetLocal(), ackTestTime(0), ackTestTime(0))
+		item.SetCommits([]*octodeckv1.Commit{ackTestCommit(ackTestUser, ackTestTime(1))})
+		touch(item, ackTestTime(1))
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, CalculateStatus(item, ackTestUser, ackTestBots()))
+	})
+
+	t.Run("commit by someone else to someone else's PR after ack un-acks as NEW_CODE", func(t *testing.T) {
+		item := ackTestItem(ackTestOther)
+		SetAcked(item.GetLocal(), ackTestTime(0), ackTestTime(0))
+		item.SetCommits([]*octodeckv1.Commit{ackTestCommit(ackTestOther, ackTestTime(1))})
+		touch(item, ackTestTime(1))
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_CODE, CalculateStatus(item, ackTestUser, ackTestBots()))
+	})
+
+	t.Run("own commit to un-acked PR is still NEW_CODE", func(t *testing.T) {
+		item := ackTestItem(ackTestUser)
+		item.SetCommits([]*octodeckv1.Commit{ackTestCommit(ackTestUser, ackTestTime(1))})
+		touch(item, ackTestTime(1))
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_CODE, CalculateStatus(item, ackTestUser, ackTestBots()))
+	})
+
+	t.Run("commit by someone else to own PR after ack un-acks as NEW_CODE", func(t *testing.T) {
+		for _, author := range []string{ackTestOther, ackTestBot} {
+			item := ackTestItem(ackTestUser)
+			SetAcked(item.GetLocal(), ackTestTime(0), ackTestTime(0))
+			item.SetCommits([]*octodeckv1.Commit{
+				ackTestCommit(ackTestUser, ackTestTime(1)),
+				ackTestCommit(author, ackTestTime(2)),
+			})
+			touch(item, ackTestTime(2))
+			assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_CODE,
+				CalculateStatus(item, ackTestUser, ackTestBots()), "author %q", author)
+		}
+	})
+
+	t.Run("commit with no author login un-acks even on own PR", func(t *testing.T) {
+		for _, prAuthor := range []string{ackTestUser, ackTestOther} {
+			item := ackTestItem(prAuthor)
+			SetAcked(item.GetLocal(), ackTestTime(0), ackTestTime(0))
+			item.SetCommits([]*octodeckv1.Commit{ackTestCommit("", ackTestTime(1))})
+			touch(item, ackTestTime(1))
+			assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_CODE,
+				CalculateStatus(item, ackTestUser, ackTestBots()), "PR author %q", prAuthor)
+		}
+	})
+}
+
+func ackTestBotReview(at time.Time, comments ...*octodeckv1.ReviewComment) *octodeckv1.Review {
+	return octodeckv1.Review_builder{
+		State:       config.Ptr("COMMENTED"),
+		Author:      ackTestUserProto(ackTestBot),
+		Body:        config.Ptr("Automated review summary"),
+		SubmittedAt: timestamppb.New(at),
+		Comments:    comments,
+	}.Build()
+}
+
+// TestAutoAckAgreesWithStatus checks that ShouldAutoAck and CalculateStatus agree on what is noise:
+// noise following the user's own action must neither block auto-ack nor un-ack the item, otherwise
+// the watermark gets stuck behind the user's latest action.
+func TestAutoAckAgreesWithStatus(t *testing.T) {
+	ownAt, noiseAt := ackTestTime(10), ackTestTime(11)
+
+	noise := map[string]func(item *octodeckv1.Item){
+		"bot comment": func(item *octodeckv1.Item) {
+			item.SetComments(append(item.GetComments(), ackTestComment(ackTestBot, noiseAt)))
+		},
+		"slash command": func(item *octodeckv1.Item) {
+			c := ackTestComment(ackTestOther, noiseAt)
+			c.SetBodyText("/lgtm")
+			item.SetComments(append(item.GetComments(), c))
+		},
+		"bot review": func(item *octodeckv1.Item) {
+			item.SetReviews([]*octodeckv1.Review{ackTestBotReview(noiseAt)})
+		},
+		"bot review comment": func(item *octodeckv1.Item) {
+			item.SetReviews([]*octodeckv1.Review{ackTestBotReview(noiseAt,
+				octodeckv1.ReviewComment_builder{
+					CreatedAt: timestamppb.New(ackTestTime(12)),
+					Body:      config.Ptr("Consider renaming this variable."),
+					Author:    ackTestUserProto(ackTestBot),
+				}.Build())})
+		},
+		"bot state event": func(item *octodeckv1.Item) {
+			item.SetStateEvents([]*octodeckv1.StateEvent{ackTestStateEvent(ackTestBot, noiseAt)})
+		},
+	}
+	for name, apply := range noise {
+		t.Run(name, func(t *testing.T) {
+			item := ackTestItem(ackTestOther)
+			SetAcked(item.GetLocal(), ackTestTime(0), ackTestTime(0))
+			item.SetComments([]*octodeckv1.Comment{ackTestComment(ackTestUser, ownAt)})
+			apply(item)
+			touch(item, LatestActivityTime(item))
+
+			shouldAck, ackTime := ShouldAutoAck(item, ackTestUser, ackTestBots())
+			require.True(t, shouldAck)
+			assert.True(t, ownAt.Equal(ackTime), "ackTime: want %v, got %v", ownAt, ackTime)
+
+			SetAcked(item.GetLocal(), ackTime, ackTime)
+			assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, CalculateStatus(item, ackTestUser, ackTestBots()))
+		})
+	}
+
+	t.Run("bot review that mentions the user is significant for both", func(t *testing.T) {
+		item := ackTestItem(ackTestOther)
+		SetAcked(item.GetLocal(), ackTestTime(0), ackTestTime(0))
+		item.SetComments([]*octodeckv1.Comment{ackTestComment(ackTestUser, ownAt)})
+		r := ackTestBotReview(noiseAt)
+		r.SetBody("@me please take a look")
+		item.SetReviews([]*octodeckv1.Review{r})
+		touch(item, noiseAt)
+
+		shouldAck, _ := ShouldAutoAck(item, ackTestUser, ackTestBots())
+		assert.False(t, shouldAck)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_MENTION,
+			CalculateStatus(item, ackTestUser, ackTestBots()))
+	})
+}
+
+func TestCalculateStatus_PendingReviewsIgnored(t *testing.T) {
+	item := ackTestItem(ackTestOther)
+	SetAcked(item.GetLocal(), ackTestTime(0), ackTestTime(0))
+	item.SetReviews([]*octodeckv1.Review{octodeckv1.Review_builder{
+		State:  config.Ptr("PENDING"),
+		Author: ackTestUserProto(ackTestOther),
+		Body:   config.Ptr("@me draft"),
+		Comments: []*octodeckv1.ReviewComment{octodeckv1.ReviewComment_builder{
+			CreatedAt: timestamppb.New(ackTestTime(1)),
+			Body:      config.Ptr("@me draft comment"),
+		}.Build()},
+	}.Build()})
+	touch(item, ackTestTime(1))
+	require.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, CalculateStatus(item, ackTestUser, ackTestBots()))
 }

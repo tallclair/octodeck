@@ -854,6 +854,92 @@ func TestOctoDeckHandler_StatsAndTraces(t *testing.T) {
 	})
 }
 
+func TestOctoDeckHandler_GetDatabaseStats_AckedCountsCurrentStatus(t *testing.T) {
+	db, client, addHeaders, _ := setupTestHandler(t)
+
+	watermark := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	later := watermark.Add(time.Hour)
+	ackedLocal := func() *octodeckv1.ItemLocalState {
+		return octodeckv1.ItemLocalState_builder{
+			AckedAt:         timestamppb.New(later.Add(time.Hour)),
+			AckedActivityAt: timestamppb.New(watermark),
+		}.Build()
+	}
+	items := []*octodeckv1.Item{
+		// Acked with no activity since: ACKED.
+		octodeckv1.Item_builder{
+			Id:        config.Ptr("stats/acked"),
+			UpdatedAt: timestamppb.New(watermark),
+			Local:     ackedLocal(),
+		}.Build(),
+		// Acked, but someone commented after the watermark: back in the inbox.
+		octodeckv1.Item_builder{
+			Id:        config.Ptr("stats/superseded"),
+			UpdatedAt: timestamppb.New(later),
+			Comments: []*octodeckv1.Comment{octodeckv1.Comment_builder{
+				CreatedAt: timestamppb.New(later),
+				BodyText:  config.Ptr("New question"),
+				Author:    octodeckv1.User_builder{Login: config.Ptr("someone")}.Build(),
+			}.Build()},
+			Local: ackedLocal(),
+		}.Build(),
+		// Never acked.
+		octodeckv1.Item_builder{
+			Id:        config.Ptr("stats/new"),
+			UpdatedAt: timestamppb.New(watermark),
+		}.Build(),
+	}
+	require.NoError(t, db.SaveItems(t.Context(), items))
+
+	req := connect.NewRequest(&octodeckv1.GetDatabaseStatsRequest{})
+	addHeaders(req)
+	resp, err := client.GetDatabaseStats(t.Context(), req)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), resp.Msg.GetStats().GetTotalItems())
+	assert.Equal(t, int64(1), resp.Msg.GetStats().GetAckedItems())
+	assert.Equal(t, int64(2), resp.Msg.GetStats().GetUnackedItems())
+}
+
+// cachedLoginGitHubClient is a mock GitHub client that also exposes a cached login.
+type cachedLoginGitHubClient struct {
+	mockGitHubClient
+
+	cached     string
+	checkCalls int
+}
+
+func (m *cachedLoginGitHubClient) CachedCurrentUser() string { return m.cached }
+
+func (m *cachedLoginGitHubClient) CheckAuth(ctx context.Context) (string, bool, error) {
+	m.checkCalls++
+	return m.mockGitHubClient.CheckAuth(ctx)
+}
+
+func TestOctoDeckHandler_CurrentUser(t *testing.T) {
+	t.Run("prefers the cached login without calling CheckAuth", func(t *testing.T) {
+		gh := &cachedLoginGitHubClient{mockGitHubClient: mockGitHubClient{authenticated: true}, cached: "cached-me"}
+		h := &octoDeckHandler{ghClient: gh}
+		assert.Equal(t, "cached-me", h.currentUser(t.Context()))
+		assert.Zero(t, gh.checkCalls)
+	})
+
+	t.Run("falls back to CheckAuth when nothing is cached", func(t *testing.T) {
+		gh := &cachedLoginGitHubClient{mockGitHubClient: mockGitHubClient{authenticated: true}}
+		h := &octoDeckHandler{ghClient: gh}
+		assert.Equal(t, "testuser", h.currentUser(t.Context()))
+		assert.Equal(t, 1, gh.checkCalls)
+	})
+
+	t.Run("clients without a cache use CheckAuth", func(t *testing.T) {
+		h := &octoDeckHandler{ghClient: &mockGitHubClient{authenticated: true}}
+		assert.Equal(t, "testuser", h.currentUser(t.Context()))
+	})
+
+	t.Run("nil client yields no user", func(t *testing.T) {
+		assert.Empty(t, (&octoDeckHandler{}).currentUser(t.Context()))
+	})
+}
+
 func TestOctoDeckHandler_DiscoveryAndTrackedQueriesConfig(t *testing.T) {
 	_, client, addHeaders, _ := setupTestHandler(t)
 

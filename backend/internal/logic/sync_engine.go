@@ -1318,19 +1318,35 @@ func (s *SyncEngine) handleGapResolution(ctx context.Context, existing, item *oc
 	}
 }
 
+// calculateItemState auto-acknowledges the item when the user's own action is its latest
+// significant event. This runs whatever the current status: the user's own activity never un-acks
+// an item, so gating on a non-ACKED status would leave the watermark behind the user's latest
+// action. Neither the watermark nor acked_at (the "Last Acked" sort key) ever moves backwards.
 func (s *SyncEngine) calculateItemState(item *octodeckv1.Item) {
-	// Auto-Ack
-	if s.cfg.GetAutoAckOwnActivity() {
-		currentUser := s.getCurrentUser()
-		status := CalculateStatus(item, currentUser, s.cfg.GetKnownBots())
-		if status != octodeckv1.ItemStatus_ITEM_STATUS_ACKED {
-			if shouldAck, ackTime := ShouldAutoAck(item, currentUser, s.cfg.GetKnownBots()); shouldAck {
-				slog.Info("Auto-acking item (last action was me)", "id", item.GetId(), "ackTime", ackTime)
-				// The user's own GitHub event is both the ack action and the activity watermark.
-				SetAcked(item.GetLocal(), ackTime, ackTime)
-			}
-		}
+	if !s.cfg.GetAutoAckOwnActivity() {
+		return
 	}
+	shouldAck, ackTime := ShouldAutoAck(item, s.getCurrentUser(), s.cfg.GetKnownBots())
+	if !shouldAck {
+		return
+	}
+	local := item.GetLocal()
+	if local == nil {
+		// The sync path attaches local state before calling this; the guard keeps direct callers safe.
+		local = octodeckv1.ItemLocalState_builder{}.Build()
+		item.SetLocal(local)
+	}
+	if IsAcked(local) && !ackTime.After(AckedActivityAt(local)) {
+		return
+	}
+	slog.Info("Auto-acking item (last action was me)", "id", item.GetId(), "ackTime", ackTime)
+	// The user's own GitHub event is both the ack action and the activity watermark, except that a
+	// later explicit ack (daemon clock) keeps its acked_at so "Last Acked" ordering never regresses.
+	actionTime := ackTime
+	if validTimestamp(local.GetAckedAt()) && local.GetAckedAt().AsTime().After(ackTime) {
+		actionTime = local.GetAckedAt().AsTime()
+	}
+	SetAcked(local, actionTime, ackTime)
 }
 
 func (s *SyncEngine) discoverBots(items []*octodeckv1.Item) {

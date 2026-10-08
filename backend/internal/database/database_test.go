@@ -484,7 +484,9 @@ func TestGetDatabaseStats(t *testing.T) {
 	err := db.SaveItems(ctx, items)
 	require.NoError(t, err)
 
-	stats, err := db.GetDatabaseStats(ctx, InMemoryDSN)
+	// Acked classification is delegated to the caller.
+	isAcked := func(it *octodeckv1.Item) bool { return it.GetId() == "org/repo1#2" }
+	stats, err := db.GetDatabaseStats(ctx, InMemoryDSN, isAcked)
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), stats.GetTotalItems())
 	assert.Equal(t, int64(2), stats.GetOpenItems())

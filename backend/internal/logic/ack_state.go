@@ -6,6 +6,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	octodeckv1 "github.com/tallclair/octodeck/backend/internal/api/octodeck/v1"
+	"github.com/tallclair/octodeck/backend/internal/github"
 )
 
 // The acknowledgement state of an item is stored in two ItemLocalState fields:
@@ -52,9 +53,9 @@ func ClearAcked(l *octodeckv1.ItemLocalState) {
 }
 
 // LatestActivityTime returns the newest synced timestamp among everything CalculateStatus
-// inspects: updated_at, created_at, comments, reviews and their comments, commits, and state
-// events. Using it as the watermark guarantees that an item acked at this time stays ACKED until
-// newer activity is synced. Returns the zero time if the item has no timestamps.
+// inspects: updated_at, created_at, comments, submitted reviews and their comments, commits, and
+// state events. Using it as the watermark guarantees that an item acked at this time stays ACKED
+// until newer activity is synced. Returns the zero time if the item has no timestamps.
 func LatestActivityTime(item *octodeckv1.Item) time.Time {
 	var latest time.Time
 	consider := func(ts *timestamppb.Timestamp) {
@@ -69,6 +70,9 @@ func LatestActivityTime(item *octodeckv1.Item) time.Time {
 		consider(c.GetCreatedAt())
 	}
 	for _, r := range item.GetReviews() {
+		if isPendingReview(r) {
+			continue
+		}
 		consider(r.GetSubmittedAt())
 		for _, rc := range r.GetComments() {
 			consider(rc.GetCreatedAt())
@@ -81,4 +85,10 @@ func LatestActivityTime(item *octodeckv1.Item) time.Time {
 		consider(e.GetCreatedAt())
 	}
 	return latest
+}
+
+// isPendingReview reports whether r is an unsubmitted (draft) review. Drafts are only visible to
+// their author and are dropped at ingestion; this guards against any that slip through.
+func isPendingReview(r *octodeckv1.Review) bool {
+	return r.GetState() == github.ReviewStatePending || !validTimestamp(r.GetSubmittedAt())
 }

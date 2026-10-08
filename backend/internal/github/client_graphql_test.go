@@ -651,6 +651,12 @@ func TestToProto_Reviews(t *testing.T) {
 			Author:      gqlUser{Login: "reviewer3", AvatarURL: "https://avatar3.url"},
 		},
 		{
+			ID:          "PRR_PENDING",
+			State:       "PENDING",
+			SubmittedAt: "2026-08-02T00:00:00Z", // PENDING state is a draft even with a timestamp
+			Author:      gqlUser{Login: "reviewer5", AvatarURL: "https://avatar5.url"},
+		},
+		{
 			ID:          "PRR_4",
 			State:       "CHANGES_REQUESTED",
 			SubmittedAt: "2026-08-02T15:30:00Z",

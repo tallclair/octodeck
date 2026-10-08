@@ -28,12 +28,29 @@ type octoDeckHandler struct {
 	ghClient   GitHubClient
 }
 
+// cachedLoginProvider is implemented by GitHub clients that remember the authenticated login.
+type cachedLoginProvider interface {
+	CachedCurrentUser() string
+}
+
+// currentUser returns the authenticated GitHub login, preferring the client's cached value and
+// falling back to a CheckAuth round trip. Returns "" if unknown.
+func (h *octoDeckHandler) currentUser(ctx context.Context) string {
+	if h.ghClient == nil {
+		return ""
+	}
+	if p, ok := h.ghClient.(cachedLoginProvider); ok {
+		if login := p.CachedCurrentUser(); login != "" {
+			return login
+		}
+	}
+	login, _, _ := h.ghClient.CheckAuth(ctx)
+	return login
+}
+
 func (h *octoDeckHandler) GetConfig(ctx context.Context,
 	_ *connect.Request[octodeckv1.GetConfigRequest]) (*connect.Response[octodeckv1.GetConfigResponse], error) {
-	var currentUser string
-	if h.ghClient != nil {
-		currentUser, _, _ = h.ghClient.CheckAuth(ctx)
-	}
+	currentUser := h.currentUser(ctx)
 	cfgProto := h.cfg.GetProto()
 	res := octodeckv1.GetConfigResponse_builder{
 		Config:     cfgProto,
@@ -231,10 +248,7 @@ func (h *octoDeckHandler) filterItemLabels(items ...*octodeckv1.Item) {
 }
 
 func (h *octoDeckHandler) populateComputedStatus(ctx context.Context, items ...*octodeckv1.Item) {
-	var currentUser string
-	if h.ghClient != nil {
-		currentUser, _, _ = h.ghClient.CheckAuth(ctx)
-	}
+	currentUser := h.currentUser(ctx)
 	knownBots := h.cfg.GetKnownBots()
 
 	logic.ClassifyCommentsForUser(knownBots, currentUser, items...)
@@ -777,12 +791,21 @@ func (h *octoDeckHandler) GetSyncTraces(
 	}.Build()), nil
 }
 
+// GetDatabaseStats reports storage statistics. Counts are computed over all stored items (not
+// filtered by tracked repos or queries); the acked count is the number of items whose computed
+// status is currently ACKED.
 func (h *octoDeckHandler) GetDatabaseStats(
 	ctx context.Context,
 	_ *connect.Request[octodeckv1.GetDatabaseStatsRequest],
 ) (*connect.Response[octodeckv1.GetDatabaseStatsResponse], error) {
 	dbPath, _ := h.cfg.GetDBPath()
-	stats, err := h.db.GetDatabaseStats(ctx, dbPath)
+	currentUser := h.currentUser(ctx)
+	knownBots := h.cfg.GetKnownBots()
+	// Count items whose computed status is ACKED, not merely items that were acked at some point.
+	isAcked := func(item *octodeckv1.Item) bool {
+		return logic.CalculateStatus(item, currentUser, knownBots) == octodeckv1.ItemStatus_ITEM_STATUS_ACKED
+	}
+	stats, err := h.db.GetDatabaseStats(ctx, dbPath, isAcked)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to get database stats: %w", err))
 	}

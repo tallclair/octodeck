@@ -21,37 +21,21 @@ func ShouldAutoAck(item *octodeckv1.Item, currentUser string, knownBots []string
 		return false, time.Time{}
 	}
 
-	var events []event
+	// An event is significant if the user performed it, or if it would supersede an
+	// acknowledgement according to the status calculator. Sharing the predicates keeps the two in
+	// agreement: noise (bot comments, slash commands, bot reviews and review comments, bot state
+	// events) never blocks auto-acking the user's own action.
+	events := appendCommentEvents(nil, item, currentUser, knownBots)
 
-	// 1. Process Comments
-	for _, comment := range item.GetComments() {
-		author := comment.GetAuthor().GetLogin()
-		// Own comments are always significant events regardless of slash commands.
-		// Comments by others that explicitly @mention currentUser or are non-noise are also significant.
-		if isSameUser(author, currentUser) || !IsNoiseForUser(comment, knownBots, currentUser) {
-			if comment.GetCreatedAt() != nil {
-				events = append(events, event{
-					timestamp: comment.GetCreatedAt().AsTime(),
-					author:    author,
-				})
-			}
-		}
-	}
-
-	// 2. Process Reviews & Review Comments
+	// Unsubmitted (pending) reviews are only visible to their author and are not activity yet.
 	for _, review := range item.GetReviews() {
+		if isPendingReview(review) {
+			continue
+		}
 		events = appendReviewEvents(events, review, currentUser, knownBots)
 	}
 
-	// 3. Process StateEvents
-	for _, se := range item.GetStateEvents() {
-		if se.GetCreatedAt() != nil && se.GetActor() != nil {
-			events = append(events, event{
-				timestamp: se.GetCreatedAt().AsTime(),
-				author:    se.GetActor().GetLogin(),
-			})
-		}
-	}
+	events = appendStateEventEvents(events, item, currentUser, knownBots)
 
 	if len(events) == 0 {
 		return false, time.Time{}
@@ -75,20 +59,59 @@ func ShouldAutoAck(item *octodeckv1.Item, currentUser string, knownBots []string
 	return false, time.Time{}
 }
 
+func appendCommentEvents(events []event, item *octodeckv1.Item, currentUser string, knownBots []string) []event {
+	for _, comment := range item.GetComments() {
+		author := comment.GetAuthor().GetLogin()
+		if comment.GetCreatedAt() != nil &&
+			(isSameUser(author, currentUser) || isOthersSignificantComment(comment, currentUser, knownBots)) {
+			events = append(events, event{
+				timestamp: comment.GetCreatedAt().AsTime(),
+				author:    author,
+			})
+		}
+	}
+	return events
+}
+
+// appendStateEventEvents collects significant state events. Bot-performed events (e.g. Prow
+// merging after the user's "/approve") are noise and must not block auto-acking the user's own
+// triggering action.
+func appendStateEventEvents(events []event, item *octodeckv1.Item, currentUser string, knownBots []string) []event {
+	for _, se := range item.GetStateEvents() {
+		if se.GetCreatedAt() == nil || se.GetActor() == nil {
+			continue
+		}
+		actor := se.GetActor().GetLogin()
+		if isSameUser(actor, currentUser) || isOthersSignificantStateEvent(se, currentUser, knownBots) {
+			events = append(events, event{
+				timestamp: se.GetCreatedAt().AsTime(),
+				author:    actor,
+			})
+		}
+	}
+	return events
+}
+
 func appendReviewEvents(
 	events []event,
 	review *octodeckv1.Review,
 	currentUser string,
 	knownBots []string,
 ) []event {
-	reviewAuthor := review.GetAuthor().GetLogin()
+	isSignificant := func(author *octodeckv1.User, body string) bool {
+		return isSameUser(author.GetLogin(), currentUser) ||
+			isOthersSignificantReviewActivity(author, body, currentUser, knownBots)
+	}
+
 	var reviewTime time.Time
 	if review.GetSubmittedAt() != nil {
 		reviewTime = review.GetSubmittedAt().AsTime()
-		events = append(events, event{
-			timestamp: reviewTime,
-			author:    reviewAuthor,
-		})
+		if isSignificant(review.GetAuthor(), review.GetBody()) {
+			events = append(events, event{
+				timestamp: reviewTime,
+				author:    review.GetAuthor().GetLogin(),
+			})
+		}
 	}
 
 	for _, rc := range review.GetComments() {
@@ -96,18 +119,11 @@ func appendReviewEvents(
 		if rcTime.IsZero() {
 			continue
 		}
-		rcAuthor := rc.GetAuthor().GetLogin()
-		rcType := rc.GetAuthor().GetType()
-		if rcAuthor == "" {
-			rcAuthor = reviewAuthor
-			rcType = review.GetAuthor().GetType()
-		}
-		if isSameUser(rcAuthor, currentUser) ||
-			ContainsMention(rc.GetBody(), currentUser) ||
-			!IsBot(rcAuthor, rcType, knownBots) {
+		rcAuthor := reviewCommentAuthor(rc, review)
+		if isSignificant(rcAuthor, rc.GetBody()) {
 			events = append(events, event{
 				timestamp: rcTime,
-				author:    rcAuthor,
+				author:    rcAuthor.GetLogin(),
 			})
 		}
 	}

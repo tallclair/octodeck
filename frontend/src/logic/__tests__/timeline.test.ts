@@ -27,6 +27,42 @@ describe('timeline logic', () => {
         });
     });
 
+    describe('buildTimeline - pending reviews', () => {
+        it('skips unsubmitted reviews instead of rendering them at the epoch', () => {
+            const item: Partial<Item> = {
+                id: 'owner/repo#3',
+                repo: 'owner/repo',
+                number: 3,
+                type: ItemType.PR,
+                title: 'Pending review PR',
+                state: ItemState.OPEN,
+                url: 'https://github.com/owner/repo/pull/3',
+                author: { login: 'octo', avatarUrl: 'https://avatar.url' } as any,
+                commits: [],
+                comments: [],
+                reviews: [
+                    { author: { login: 'me' }, state: 'PENDING', body: 'draft', comments: [] } as any,
+                    {
+                        author: { login: 'me' },
+                        state: 'PENDING',
+                        submittedAt: { seconds: BigInt(1700000200), nanos: 0 },
+                        comments: [],
+                    } as any,
+                    {
+                        author: { login: 'reviewer' },
+                        state: 'APPROVED',
+                        submittedAt: { seconds: BigInt(1700000300), nanos: 0 },
+                        comments: [],
+                    } as any,
+                ],
+            };
+
+            const reviews = buildTimeline(item as Item).filter(e => e.type === 'REVIEW');
+            expect(reviews).toHaveLength(1);
+            expect(reviews[0].timestamp).toBe(new Date(1700000300000).toISOString());
+        });
+    });
+
     describe('buildTimeline - commit condensation', () => {
         it('condenses multiple commits into only the single most recent commit', () => {
             const item: Partial<Item> = {

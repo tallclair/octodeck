@@ -92,6 +92,9 @@ const (
 	stateMerged = "MERGED"
 )
 
+// ReviewStatePending is the GitHub pull request review state for unsubmitted (draft) reviews.
+const ReviewStatePending = "PENDING"
+
 // MaxReviewBackfill is the safety cap on the number of reviews FetchReviews collects for a PR.
 const MaxReviewBackfill = 500
 
@@ -259,6 +262,12 @@ func (c *Client) SetCurrentUser(login string) {
 		c.CurrentUser = login
 		c.scopeMu.Unlock()
 	}
+}
+
+// CachedCurrentUser returns the login recorded by the last successful CheckAuth (or
+// SetCurrentUser) without contacting GitHub. Returns "" if none is known yet.
+func (c *Client) CachedCurrentUser() string {
+	return c.getCurrentUser()
 }
 
 // CheckAuth verifies if the client is authenticated with GitHub and inspects X-OAuth-Scopes headers when available.
@@ -1104,8 +1113,14 @@ func ReviewCommentsCompleteFor(r *octodeckv1.Review, commentCount int32) bool {
 	return r.GetCommentsPagedTotal() > 0 && r.GetCommentsPagedTotal() == commentCount
 }
 
+// isPending reports whether the review is an unsubmitted draft. Drafts are only visible to their
+// author (GitHub returns the viewer's own with a null submittedAt) and are not activity yet.
+func (r gqlReview) isPending() bool {
+	return r.SubmittedAt == "" || r.State == ReviewStatePending
+}
+
 func (r gqlReview) toProto() *octodeckv1.Review {
-	if r.SubmittedAt == "" {
+	if r.isPending() {
 		return nil
 	}
 	t, err := time.Parse(time.RFC3339, r.SubmittedAt)
@@ -1777,7 +1792,7 @@ func collectBackfillReviews(
 		if known != nil && r.ID != "" && known(r.ID) {
 			return collected, true
 		}
-		if r.SubmittedAt == "" {
+		if r.isPending() {
 			continue
 		}
 		collected = append(collected, r)

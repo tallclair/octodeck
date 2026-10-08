@@ -56,7 +56,7 @@ func CalculateStatus(item *octodeckv1.Item, currentUser string, knownBots []stri
 	// 3. New non-noise comments, PR reviews, OR state events => New Activity (yellow/orange)
 	if hasValidNewComments(item, since, currentUser, knownBots) ||
 		hasValidNewReviews(item, since, currentUser, knownBots) ||
-		hasValidNewStateEvents(item, since, currentUser) {
+		hasValidNewStateEvents(item, since, currentUser, knownBots) {
 		return octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY
 	}
 
@@ -89,8 +89,8 @@ func remainsAcked(
 	return !hasNewMention(item, ackedAt, currentUser) &&
 		!hasValidNewComments(item, ackedAt, currentUser, knownBots) &&
 		!hasValidNewReviews(item, ackedAt, currentUser, knownBots) &&
-		!hasValidNewStateEvents(item, ackedAt, currentUser) &&
-		!hasNewCommits(item, ackedAt)
+		!hasValidNewStateEvents(item, ackedAt, currentUser, knownBots) &&
+		!hasUnackingNewCommits(item, ackedAt, currentUser)
 }
 
 func baselineSince(item *octodeckv1.Item, hasViewed, hasAcked bool, ackedAt time.Time) time.Time {
@@ -244,7 +244,7 @@ func hasNewMention(item *octodeckv1.Item, since time.Time, currentUser string) b
 	}
 
 	for _, r := range item.GetReviews() {
-		if reviewHasNewMention(r, since, currentUser) {
+		if !isPendingReview(r) && reviewHasNewMention(r, since, currentUser) {
 			return true
 		}
 	}
@@ -295,11 +295,14 @@ func hasNoiseActivity(item *octodeckv1.Item, since time.Time, currentUser string
 		}
 	}
 	for _, r := range item.GetReviews() {
-		if r.GetSubmittedAt() != nil && r.GetSubmittedAt().AsTime().After(since) {
-			author := r.GetAuthor().GetLogin()
-			if !isSameUser(author, currentUser) && IsBot(author, r.GetAuthor().GetType(), knownBots) {
-				return true
-			}
+		if r.GetSubmittedAt() != nil && r.GetSubmittedAt().AsTime().After(since) &&
+			isReviewActivityNoise(r.GetAuthor(), r.GetBody(), currentUser, knownBots) {
+			return true
+		}
+	}
+	for _, e := range item.GetStateEvents() {
+		if e.GetCreatedAt() != nil && e.GetCreatedAt().AsTime().After(since) && isBotStateEvent(e, knownBots) {
+			return true
 		}
 	}
 	return false
@@ -307,7 +310,7 @@ func hasNoiseActivity(item *octodeckv1.Item, since time.Time, currentUser string
 
 func hasValidNewReviews(item *octodeckv1.Item, since time.Time, currentUser string, knownBots []string) bool {
 	for _, r := range item.GetReviews() {
-		if reviewHasValidNewActivity(r, since, currentUser, knownBots) {
+		if !isPendingReview(r) && reviewHasValidNewActivity(r, since, currentUser, knownBots) {
 			return true
 		}
 	}
@@ -320,26 +323,46 @@ func reviewHasValidNewActivity(
 	currentUser string,
 	knownBots []string,
 ) bool {
-	reviewAuthor := r.GetAuthor().GetLogin()
-	if r.GetSubmittedAt() != nil && r.GetSubmittedAt().AsTime().After(since) {
-		if !isSameUser(reviewAuthor, currentUser) && !IsBot(reviewAuthor, r.GetAuthor().GetType(), knownBots) {
+	if r.GetSubmittedAt() != nil && r.GetSubmittedAt().AsTime().After(since) &&
+		isOthersSignificantReviewActivity(r.GetAuthor(), r.GetBody(), currentUser, knownBots) {
+		return true
+	}
+	for _, rc := range r.GetComments() {
+		if rc.GetCreatedAt() != nil && rc.GetCreatedAt().AsTime().After(since) &&
+			isOthersSignificantReviewActivity(reviewCommentAuthor(rc, r), rc.GetBody(), currentUser, knownBots) {
 			return true
 		}
 	}
-	for _, rc := range r.GetComments() {
-		if rc.GetCreatedAt() != nil && rc.GetCreatedAt().AsTime().After(since) {
-			rcAuthor := rc.GetAuthor().GetLogin()
-			rcType := rc.GetAuthor().GetType()
-			if rcAuthor == "" {
-				rcAuthor = reviewAuthor
-				rcType = r.GetAuthor().GetType()
-			}
-			if !isSameUser(rcAuthor, currentUser) && !IsBot(rcAuthor, rcType, knownBots) {
-				return true
-			}
-		}
-	}
 	return false
+}
+
+// reviewCommentAuthor returns the author of a review comment, falling back to the review's author
+// when the comment carries none.
+func reviewCommentAuthor(rc *octodeckv1.ReviewComment, r *octodeckv1.Review) *octodeckv1.User {
+	if rc.GetAuthor().GetLogin() == "" {
+		return r.GetAuthor()
+	}
+	return rc.GetAuthor()
+}
+
+// isReviewActivityNoise reports whether a submitted review or review comment is noise for
+// currentUser: written by a bot other than currentUser without @mentioning currentUser. The status
+// calculator and ShouldAutoAck share this predicate so they agree on which review activity counts.
+func isReviewActivityNoise(author *octodeckv1.User, body, currentUser string, knownBots []string) bool {
+	login := author.GetLogin()
+	return !isSameUser(login, currentUser) &&
+		IsBot(login, author.GetType(), knownBots) &&
+		!ContainsMention(body, currentUser)
+}
+
+// isOthersSignificantReviewActivity reports whether review activity by someone other than
+// currentUser is significant (not noise), and therefore supersedes an acknowledgement.
+func isOthersSignificantReviewActivity(
+	author *octodeckv1.User,
+	body, currentUser string,
+	knownBots []string,
+) bool {
+	return !isSameUser(author.GetLogin(), currentUser) && !isReviewActivityNoise(author, body, currentUser, knownBots)
 }
 
 func hasNewCommits(item *octodeckv1.Item, since time.Time) bool {
@@ -351,25 +374,59 @@ func hasNewCommits(item *octodeckv1.Item, since time.Time) bool {
 	return false
 }
 
+// hasUnackingNewCommits reports whether commits after since supersede an acknowledgement. Commits
+// authored by the user are the user's own activity and don't, regardless of who opened the PR;
+// commits by anyone else (maintainers, bots) do. A commit whose author isn't linked to a GitHub
+// login can't be attributed to the user, so it un-acks rather than risk hiding someone else's work.
+func hasUnackingNewCommits(item *octodeckv1.Item, since time.Time, currentUser string) bool {
+	for _, c := range item.GetCommits() {
+		if c.GetCommittedDate() == nil || !c.GetCommittedDate().AsTime().After(since) {
+			continue
+		}
+		if isSameUser(c.GetAuthorLogin(), currentUser) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
 func hasValidNewComments(item *octodeckv1.Item, since time.Time, currentUser string, knownBots []string) bool {
 	for _, c := range item.GetComments() {
-		if c.GetCreatedAt() != nil && c.GetCreatedAt().AsTime().After(since) {
-			author := c.GetAuthor().GetLogin()
-			if !isSameUser(author, currentUser) && !IsNoiseForUser(c, knownBots, currentUser) {
-				return true
-			}
+		if c.GetCreatedAt() != nil && c.GetCreatedAt().AsTime().After(since) &&
+			isOthersSignificantComment(c, currentUser, knownBots) {
+			return true
 		}
 	}
 	return false
 }
 
-func hasValidNewStateEvents(item *octodeckv1.Item, since time.Time, currentUser string) bool {
+// isOthersSignificantComment reports whether a comment by someone other than currentUser is
+// significant (not a bot comment or slash command, unless it @mentions currentUser).
+func isOthersSignificantComment(c *octodeckv1.Comment, currentUser string, knownBots []string) bool {
+	return !isSameUser(c.GetAuthor().GetLogin(), currentUser) && !IsNoiseForUser(c, knownBots, currentUser)
+}
+
+func hasValidNewStateEvents(item *octodeckv1.Item, since time.Time, currentUser string, knownBots []string) bool {
 	for _, e := range item.GetStateEvents() {
-		if e.GetCreatedAt() != nil && e.GetCreatedAt().AsTime().After(since) {
-			if !isSameUser(e.GetActor().GetLogin(), currentUser) {
-				return true
-			}
+		if e.GetCreatedAt() != nil && e.GetCreatedAt().AsTime().After(since) &&
+			isOthersSignificantStateEvent(e, currentUser, knownBots) {
+			return true
 		}
 	}
 	return false
+}
+
+// isOthersSignificantStateEvent reports whether a state event performed by someone other than
+// currentUser supersedes an acknowledgement.
+func isOthersSignificantStateEvent(e *octodeckv1.StateEvent, currentUser string, knownBots []string) bool {
+	return !isSameUser(e.GetActor().GetLogin(), currentUser) && !isBotStateEvent(e, knownBots)
+}
+
+// isBotStateEvent reports whether a state event was performed by a bot. Bots typically act on a
+// human's command (e.g. Prow assigning, closing or merging after "/assign", "/close" or
+// "/approve"), so these events are treated as noise rather than as new activity.
+func isBotStateEvent(e *octodeckv1.StateEvent, knownBots []string) bool {
+	actor := e.GetActor()
+	return actor != nil && IsBot(actor.GetLogin(), actor.GetType(), knownBots)
 }

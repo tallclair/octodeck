@@ -7,6 +7,8 @@ import type { Timestamp } from '@bufbuild/protobuf/wkt';
 export const UNKNOWN_LOGIN = 'unknown';
 /** GitHub's placeholder avatar, used when a user has no avatar URL. */
 export const GHOST_AVATAR_URL = 'https://github.com/ghost.png';
+/** GitHub's review state for a review that has been started but not submitted. */
+export const REVIEW_STATE_PENDING = 'PENDING';
 
 export function getProtoTimestampMs(ts?: Timestamp | string | null): number {
     if (!ts) return 0;
@@ -232,6 +234,9 @@ export function buildTimeline(item: Item): TimelineEntry[] {
     });
     (item.reviews || []).forEach(r => {
         const ms = getProtoTimestampMs(r.submittedAt);
+        // Unsubmitted (pending) reviews are drafts, not activity. The daemon drops them at
+        // ingestion; skip any that slip through rather than rendering them at the epoch.
+        if (!ms || r.state === REVIEW_STATE_PENDING) return;
         const parsedComments = (r.comments || []).map(rc => toTimelineReviewComment(rc, r));
 
         rawReviews.push({
