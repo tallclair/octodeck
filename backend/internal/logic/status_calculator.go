@@ -18,12 +18,13 @@ var (
 
 // CalculateStatus derives the status of an item based on its history and user interaction.
 func CalculateStatus(item *octodeckv1.Item, currentUser string, knownBots []string) octodeckv1.ItemStatus {
-	hasAcked := item.GetLocal().GetAckedAt() != nil && item.GetLocal().GetAckedAt().GetSeconds() > 0
+	hasAcked := IsAcked(item.GetLocal())
+	// ackedAt is the activity watermark (GitHub clock), not the time the ack happened.
 	var ackedAt time.Time
 	updatedAt := item.GetUpdatedAt().AsTime()
 
 	if hasAcked {
-		ackedAt = item.GetLocal().GetAckedAt().AsTime()
+		ackedAt = AckedActivityAt(item.GetLocal())
 		if remainsAcked(item, ackedAt, updatedAt, currentUser, knownBots) {
 			return octodeckv1.ItemStatus_ITEM_STATUS_ACKED
 		}

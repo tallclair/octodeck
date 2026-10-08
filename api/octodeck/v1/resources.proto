@@ -127,6 +127,9 @@ message Label {
 message ItemLocalState {
   ItemStatus computed_status = 1;
   google.protobuf.Timestamp last_viewed_at = 2;
+  // Daemon wall-clock time at which the item was acknowledged, explicitly or via auto-ack (for
+  // auto-ack: the time of the user's own triggering GitHub event). Presence means the item is acked.
+  // Used for "Last Acked" ordering. Never compare against GitHub activity; use acked_activity_at.
   google.protobuf.Timestamp acked_at = 3;
   reserved 4;
   string private_notes = 5;
@@ -136,6 +139,11 @@ message ItemLocalState {
   // reviews submitted before this time are contiguous history; newer stored reviews
   // may be preceded by a gap. The next sync retries the backfill and clears it on success.
   google.protobuf.Timestamp review_backfill_before = 8;
+  // Activity watermark (GitHub clock): activity at or before this time is acknowledged. Set to the
+  // latest synced activity timestamp when acked, never the wall clock, so activity that happened
+  // on GitHub before the ack but hasn't synced yet is not hidden. If unset on an acked item,
+  // readers fall back to acked_at (older rows stored the watermark there).
+  google.protobuf.Timestamp acked_activity_at = 9;
 }
 
 message Item {

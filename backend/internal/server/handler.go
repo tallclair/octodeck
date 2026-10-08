@@ -465,32 +465,6 @@ func (h *octoDeckHandler) SetNotes(ctx context.Context,
 	return connect.NewResponse(octodeckv1.SetNotesResponse_builder{Item: item}.Build()), nil
 }
 
-func getLatestActivityTimestamp(item *octodeckv1.Item) *timestamppb.Timestamp {
-	var maxTime time.Time
-	if item.GetUpdatedAt() != nil {
-		maxTime = item.GetUpdatedAt().AsTime()
-	}
-	for _, c := range item.GetComments() {
-		if c.GetCreatedAt() != nil && c.GetCreatedAt().AsTime().After(maxTime) {
-			maxTime = c.GetCreatedAt().AsTime()
-		}
-	}
-	for _, r := range item.GetReviews() {
-		if r.GetSubmittedAt() != nil && r.GetSubmittedAt().AsTime().After(maxTime) {
-			maxTime = r.GetSubmittedAt().AsTime()
-		}
-	}
-	for _, e := range item.GetStateEvents() {
-		if e.GetCreatedAt() != nil && e.GetCreatedAt().AsTime().After(maxTime) {
-			maxTime = e.GetCreatedAt().AsTime()
-		}
-	}
-	if maxTime.IsZero() {
-		maxTime = time.Now()
-	}
-	return timestamppb.New(maxTime)
-}
-
 func (h *octoDeckHandler) AckItem(ctx context.Context,
 	req *connect.Request[octodeckv1.AckItemRequest]) (*connect.Response[octodeckv1.AckItemResponse], error) {
 	acked := true
@@ -501,11 +475,19 @@ func (h *octoDeckHandler) AckItem(ctx context.Context,
 	item, err := h.mutateItemLocalState(
 		ctx, id, "ack", true,
 		func(item *octodeckv1.Item, loc *octodeckv1.ItemLocalState) {
-			if acked {
-				loc.SetAckedAt(getLatestActivityTimestamp(item))
-			} else {
-				loc.ClearAckedAt()
+			if !acked {
+				logic.ClearAcked(loc)
+				return
 			}
+			now := time.Now()
+			// The watermark is the latest synced activity, never the wall clock: activity that
+			// happened on GitHub before the ack but hasn't synced yet must not be hidden.
+			watermark := logic.LatestActivityTime(item)
+			if watermark.IsZero() {
+				// No activity timestamps at all, so there is nothing that could be hidden.
+				watermark = now
+			}
+			logic.SetAcked(loc, now, watermark)
 		},
 	)
 	if err != nil {

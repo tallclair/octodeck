@@ -18,6 +18,7 @@ import {
   DEFAULT_FILTER_STATE,
 } from '../types/filters';
 import { getProtoTimestampMs, getLatestNonNoiseActivityMs } from './timeline';
+import { getAckedActionMs } from './ackState';
 
 /**
  * Parses URL query parameters into a validated DashboardFilterState object.
@@ -340,7 +341,8 @@ export function applyFilters(
 
   const getItemTimestamp = (item: Item, option: SortOption): number => {
     if (option === 'acked') {
-      return getProtoTimestampMs(item.local?.ackedAt);
+      // When the item was acked, not its activity watermark.
+      return getAckedActionMs(item.local) ?? 0;
     }
     if (option === 'created') {
       const createdMs = getProtoTimestampMs(item.createdAt);

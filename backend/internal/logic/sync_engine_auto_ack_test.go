@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -92,8 +93,18 @@ func TestSyncEngine_AutoAck(t *testing.T) {
 	require.Len(t, items, 1)
 
 	// Last comment was from "me", so it should be auto-acked at the comment time (2024-01-02T00:00:00Z)
-	require.NotNil(t, items[0].GetLocal().GetAckedAt())
-	assert.Equal(t, "2024-01-02T00:00:00Z", items[0].GetLocal().GetAckedAt().AsTime().Format("2006-01-02T15:04:05Z"))
+	firstComment := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+	assertAckFields(t, items[0], firstComment, firstComment)
 	status := CalculateStatus(items[0], "me", nil)
 	assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, status)
+}
+
+func assertAckFields(t *testing.T, item *octodeckv1.Item, wantAction, wantWatermark time.Time) {
+	t.Helper()
+	local := item.GetLocal()
+	require.True(t, IsAcked(local))
+	assert.True(t, wantAction.Equal(local.GetAckedAt().AsTime()),
+		"acked_at: want %v, got %v", wantAction, local.GetAckedAt().AsTime())
+	assert.True(t, wantWatermark.Equal(local.GetAckedActivityAt().AsTime()),
+		"acked_activity_at: want %v, got %v", wantWatermark, local.GetAckedActivityAt().AsTime())
 }

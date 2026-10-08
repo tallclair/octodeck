@@ -1,6 +1,7 @@
 import { create } from '@bufbuild/protobuf';
 import { TimestampSchema } from '@bufbuild/protobuf/wkt';
 import { ItemLocalStateSchema, ItemStatus, SubscriptionState, type Item } from '../../api/octodeck/v1/resources_pb';
+import { isLocalAcked } from '../../logic/ackState';
 import type { ExtensionMessage, ExtensionResponse } from '../types';
 
 export const SIDEBAR_SELECTORS = [
@@ -53,7 +54,7 @@ export function isItemAcked(item: Item | null | undefined): boolean {
     return true;
   }
 
-  // If computedStatus is explicitly specified (and not ACKED), trust it over historical ackedAt.
+  // If computedStatus is explicitly specified (and not ACKED), trust it over historical ack fields.
   if (
     rawStatus !== undefined &&
     rawStatus !== null &&
@@ -66,21 +67,7 @@ export function isItemAcked(item: Item | null | undefined): boolean {
     return false;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ackedAt = (item.local as any).ackedAt;
-  if (ackedAt) {
-    if (typeof ackedAt === 'string' && ackedAt.trim() !== '') {
-      const parsed = Date.parse(ackedAt);
-      if (!isNaN(parsed) && parsed > 0) return true;
-    }
-    if (typeof ackedAt === 'object') {
-      if (ackedAt instanceof Date && ackedAt.getTime() > 0) return true;
-      if (ackedAt.seconds !== undefined && Number(ackedAt.seconds) > 0) return true;
-      if (ackedAt.nanos !== undefined && Number(ackedAt.nanos) > 0) return true;
-    }
-  }
-
-  return false;
+  return isLocalAcked(item.local);
 }
 
 export function findSidebar(container: HTMLElement = document.body): HTMLElement | null {
@@ -514,12 +501,17 @@ export class SidebarSection {
           } else {
             this.currentItem.local.computedStatus = nextAcked ? ItemStatus.ACKED : ItemStatus.IDLE;
             if (nextAcked) {
+              // Only the daemon knows the synced activity watermark. Leaving it unset makes
+              // readers fall back to ackedAt (now), placing the marker at the end until the
+              // daemon's response replaces the item.
               this.currentItem.local.ackedAt = create(TimestampSchema, {
                 seconds: BigInt(Math.floor(Date.now() / 1000)),
                 nanos: 0,
               });
+              this.currentItem.local.ackedActivityAt = undefined;
             } else {
               this.currentItem.local.ackedAt = undefined;
+              this.currentItem.local.ackedActivityAt = undefined;
             }
           }
         }

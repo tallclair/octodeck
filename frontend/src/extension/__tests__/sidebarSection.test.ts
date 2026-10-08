@@ -109,6 +109,11 @@ describe('SidebarSection', () => {
       expect(isItemAcked({ local: { ackedAt: { seconds: 1770800000n, nanos: 0 } } } as any)).toBe(true);
       expect(isItemAcked({ local: { ackedAt: { seconds: 0n, nanos: 0 } } } as any)).toBe(false);
     });
+
+    it('recognizes items with only ackedActivityAt set', () => {
+      expect(isItemAcked({ local: { ackedActivityAt: { seconds: 1770800000n, nanos: 0 } } } as any)).toBe(true);
+      expect(isItemAcked({ local: { ackedActivityAt: '2026-08-12T17:40:00Z' } } as any)).toBe(true);
+    });
   });
 
   it('injects at the top of the sidebar with header button, star button, and Tracked badge', async () => {
@@ -238,6 +243,42 @@ describe('SidebarSection', () => {
     );
     expect(ackBtn.textContent).toContain('Acked');
     expect(ackBtn.classList.contains('octodeck-gh-btn-acked')).toBe(true);
+
+    sidebarSection.destroy();
+  });
+
+  it('optimistically sets only ackedAt on ack and clears both ack fields on un-ack', async () => {
+    mockSendMessage.mockImplementation((msg: any, callback: any) => {
+      if (msg.type === 'GET_ITEM') {
+        callback({
+          ok: true,
+          data: {
+            id: 'kubernetes/kubernetes#12345',
+            local: {
+              computedStatus: 'ITEM_STATUS_NEW_ACTIVITY',
+              ackedAt: '2026-08-01T00:00:00Z',
+              ackedActivityAt: '2026-07-31T00:00:00Z',
+            },
+          },
+        });
+      }
+      // ACK_ITEM never responds, so the optimistic state stays visible.
+    });
+
+    const sidebarSection = new SidebarSection('kubernetes/kubernetes#12345');
+    await sidebarSection.init(container);
+    const local = () => (sidebarSection as any).currentItem.local;
+
+    const ackBtn = container.querySelector('.octodeck-gh-comment-ack-btn') as HTMLButtonElement;
+    const before = Date.now();
+    ackBtn.click();
+    expect(local().computedStatus).toBe(ItemStatus.ACKED);
+    expect(Number(local().ackedAt.seconds) * 1000).toBeGreaterThanOrEqual(Math.floor(before / 1000) * 1000);
+    expect(local().ackedActivityAt).toBeUndefined();
+
+    ackBtn.click();
+    expect(local().ackedAt).toBeUndefined();
+    expect(local().ackedActivityAt).toBeUndefined();
 
     sidebarSection.destroy();
   });

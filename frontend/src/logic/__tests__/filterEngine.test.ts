@@ -457,6 +457,29 @@ describe('filterEngine - applyFilters', () => {
     expect(asc.map(i => i.id)).toEqual(['UNACK_3', 'ACK_2', 'ACK_1']);
   });
 
+  it('sorts last acked by ack action time (ackedAt), not the activity watermark', () => {
+    // ACK_RECENT was acked most recently but has the older activity watermark.
+    const itemRecent = createMockItem({
+      id: 'ACK_RECENT',
+      local: {
+        computedStatus: ProtoItemStatus.ACKED,
+        ackedAt: { seconds: BigInt(1700000900), nanos: 0 },
+        ackedActivityAt: { seconds: BigInt(1700000100), nanos: 0 },
+      },
+    });
+    const itemOlder = createMockItem({
+      id: 'ACK_OLDER',
+      local: {
+        computedStatus: ProtoItemStatus.ACKED,
+        ackedAt: { seconds: BigInt(1700000800), nanos: 0 },
+        ackedActivityAt: { seconds: BigInt(1700000700), nanos: 0 },
+      },
+    });
+
+    const desc = applyFilters([itemOlder, itemRecent], { ...DEFAULT_FILTER_STATE, triage: 'all', state: 'all', sort: 'acked', order: 'desc' });
+    expect(desc.map(i => i.id)).toEqual(['ACK_RECENT', 'ACK_OLDER']);
+  });
+
   it('sorts by creation date (created) desc and asc', () => {
     const itemA = createMockItem({
       id: 'A',

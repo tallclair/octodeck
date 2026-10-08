@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
-  parseLocalTimestampMs,
   extractElementTimestamp,
   calculateTimelineMarkerIndices,
   createMarkerElement,
@@ -10,31 +9,6 @@ import {
 import type { Item } from '../../api/octodeck/v1/resources_pb';
 
 describe('TimelineMarkers', () => {
-  describe('parseLocalTimestampMs', () => {
-    it('parses numeric timestamps', () => {
-      expect(parseLocalTimestampMs(1700000000000)).toBe(1700000000000);
-      expect(parseLocalTimestampMs(0)).toBeNull();
-      expect(parseLocalTimestampMs(-100)).toBeNull();
-      expect(parseLocalTimestampMs(null)).toBeNull();
-    });
-
-    it('parses ISO date strings', () => {
-      const ms = Date.parse('2026-08-12T15:30:00.000Z');
-      expect(parseLocalTimestampMs('2026-08-12T15:30:00.000Z')).toBe(ms);
-      expect(parseLocalTimestampMs('invalid-date')).toBeNull();
-    });
-
-    it('parses Date instances', () => {
-      const d = new Date('2026-08-12T15:30:00.000Z');
-      expect(parseLocalTimestampMs(d)).toBe(d.getTime());
-    });
-
-    it('parses protobuf Timestamp objects', () => {
-      expect(parseLocalTimestampMs({ seconds: 1700000000n, nanos: 500000000 })).toBe(1700000000500);
-      expect(parseLocalTimestampMs({ seconds: 1700000000, nanos: 0 })).toBe(1700000000000);
-      expect(parseLocalTimestampMs({ seconds: 0, nanos: 0 })).toBeNull();
-    });
-  });
 
   describe('extractElementTimestamp', () => {
     it('extracts datetime from relative-time element', () => {
@@ -134,6 +108,17 @@ describe('TimelineMarkers', () => {
       const res = calculateTimelineMarkerIndices(items, 2500, null, { wasViewMarkerShown: false });
       expect(res.showViewIndex).toBe(-1);
       expect(res.showAckIndex).toBe(-1);
+    });
+
+    it('compares the ack watermark at second precision (DOM datetimes may carry milliseconds)', () => {
+      const wm = Date.parse('2026-08-12T15:00:00Z');
+      const entries = [
+        { timestamp: wm - 60_000 },
+        { timestamp: wm + 345 }, // the user's own comment, same second as the watermark
+        { timestamp: wm + 1000 },
+      ];
+      const res = calculateTimelineMarkerIndices(entries, null, wm);
+      expect(res.showAckIndex).toBe(2);
     });
   });
 
@@ -365,6 +350,54 @@ describe('TimelineMarkers', () => {
       expect(c2Idx).toBeLessThan(viewIdx);
       expect(viewIdx).toBeLessThan(c3Idx);
       expect(c3Idx).toBeLessThan(c4Idx);
+    });
+
+    it('places the Acknowledged marker by ackedActivityAt even when ackedAt is later', () => {
+      const markers = createMarkers(container);
+      const mockItem = {
+        id: 'kubernetes/kubernetes#123',
+        local: {
+          ackedAt: '2026-08-13T00:00:00Z', // after every comment
+          ackedActivityAt: '2026-08-10T11:00:00Z', // before issuecomment-2
+        },
+      } as unknown as Item;
+
+      markers.update(mockItem);
+
+      const ackMarker = container.querySelector('[data-testid="octodeck-timeline-marker-acked"]');
+      expect(ackMarker).not.toBeNull();
+      expect(ackMarker?.nextElementSibling?.id).toBe('issuecomment-2');
+    });
+
+    it('places own comment equal to the watermark before the marker', () => {
+      const markers = createMarkers(container);
+      const mockItem = {
+        id: 'kubernetes/kubernetes#123',
+        local: { ackedActivityAt: '2026-08-11T12:00:00Z' }, // == issuecomment-2
+      } as unknown as Item;
+
+      markers.update(mockItem);
+
+      const ackMarker = container.querySelector('[data-testid="octodeck-timeline-marker-acked"]');
+      expect(ackMarker?.nextElementSibling?.id).toBe('issuecomment-3');
+    });
+
+    it('re-renders when only ackedActivityAt changes', () => {
+      const markers = createMarkers(container);
+      const base = { id: 'kubernetes/kubernetes#123' };
+      markers.update({
+        ...base,
+        local: { ackedAt: '2026-08-13T00:00:00Z', ackedActivityAt: '2026-08-10T11:00:00Z' },
+      } as unknown as Item);
+      let ackMarker = container.querySelector('[data-testid="octodeck-timeline-marker-acked"]');
+      expect(ackMarker?.nextElementSibling?.id).toBe('issuecomment-2');
+
+      markers.update({
+        ...base,
+        local: { ackedAt: '2026-08-13T00:00:00Z', ackedActivityAt: '2026-08-11T12:00:00Z' },
+      } as unknown as Item);
+      ackMarker = container.querySelector('[data-testid="octodeck-timeline-marker-acked"]');
+      expect(ackMarker?.nextElementSibling?.id).toBe('issuecomment-3');
     });
 
     it('cleans up markers when update is called with null or cleanup is called', () => {

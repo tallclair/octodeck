@@ -1,31 +1,6 @@
 import type { Item } from '../../api/octodeck/v1/resources_pb';
+import { getAckedActivityMs, isAfterWatermark, parseLocalTimestampMs } from '../../logic/ackState';
 import { queryTimelineElements } from './noiseCollapser';
-
-export function parseLocalTimestampMs(timestamp: unknown): number | null {
-  if (!timestamp) return null;
-  if (typeof timestamp === 'object') {
-    if (timestamp instanceof Date) {
-      const ms = timestamp.getTime();
-      return isNaN(ms) ? null : ms;
-    }
-    const anyTs = timestamp as { seconds?: number | string | bigint; nanos?: number | string };
-    if (anyTs.seconds !== undefined) {
-      const sec = Number(anyTs.seconds);
-      const nanos = Number(anyTs.nanos || 0);
-      if (!isNaN(sec) && sec > 0) {
-        return sec * 1000 + Math.round(nanos / 1e6);
-      }
-    }
-  }
-  if (typeof timestamp === 'string') {
-    const ms = Date.parse(timestamp);
-    if (!isNaN(ms) && ms > 0) return ms;
-  }
-  if (typeof timestamp === 'number') {
-    return isNaN(timestamp) || timestamp <= 0 ? null : timestamp;
-  }
-  return null;
-}
 
 export function extractElementTimestamp(el: HTMLElement): number | null {
   const timeEl = el.querySelector<HTMLElement>('relative-time, time, time-ago, local-time, [datetime]');
@@ -47,7 +22,7 @@ export interface MarkerIndices {
 export function calculateTimelineMarkerIndices(
   items: Array<{ timestamp: number }>,
   lastViewedAtMs: number | null,
-  ackedAtMs: number | null,
+  ackedActivityMs: number | null,
   options?: { wasViewMarkerShown?: boolean }
 ): MarkerIndices {
   if (items.length === 0) {
@@ -59,18 +34,19 @@ export function calculateTimelineMarkerIndices(
       ? items.findIndex((item) => item.timestamp > lastViewedAtMs)
       : -1;
 
+  // The ack marker goes before the first entry newer than the activity watermark.
   const newAckIndex =
-    ackedAtMs && ackedAtMs > 0
-      ? items.findIndex((item) => item.timestamp > ackedAtMs)
+    ackedActivityMs && ackedActivityMs > 0
+      ? items.findIndex((item) => isAfterWatermark(item.timestamp, ackedActivityMs))
       : -1;
 
   // Suppress "Last Viewed" if:
   // 1. Both would appear at the exact same timeline position (newViewIndex === newAckIndex)
   // 2. Both are at the end (-1)
   const suppressLastViewed =
-    ackedAtMs !== null &&
-    ackedAtMs !== undefined &&
-    ackedAtMs > 0 &&
+    ackedActivityMs !== null &&
+    ackedActivityMs !== undefined &&
+    ackedActivityMs > 0 &&
     ((newViewIndex !== -1 && newViewIndex === newAckIndex) ||
       (newViewIndex === -1 && newAckIndex === -1));
 
@@ -141,9 +117,9 @@ export class TimelineMarkers {
 
   public update(item: Item | null): void {
     const prevView = parseLocalTimestampMs(this.currentItem?.local?.lastViewedAt);
-    const prevAck = parseLocalTimestampMs(this.currentItem?.local?.ackedAt);
+    const prevAck = getAckedActivityMs(this.currentItem?.local);
     const newView = parseLocalTimestampMs(item?.local?.lastViewedAt);
-    const newAck = parseLocalTimestampMs(item?.local?.ackedAt);
+    const newAck = getAckedActivityMs(item?.local);
 
     this.currentItem = item;
 
@@ -172,9 +148,9 @@ export class TimelineMarkers {
     }
 
     const lastViewedAtMs = this.initialLastViewedAtMs ?? currentItemViewMs;
-    const ackedAtMs = parseLocalTimestampMs(this.currentItem.local.ackedAt);
+    const ackedActivityMs = getAckedActivityMs(this.currentItem.local);
 
-    if ((!lastViewedAtMs || lastViewedAtMs <= 0) && (!ackedAtMs || ackedAtMs <= 0)) {
+    if ((!lastViewedAtMs || lastViewedAtMs <= 0) && (!ackedActivityMs || ackedActivityMs <= 0)) {
       this.ensureObserver();
       return;
     }
@@ -202,7 +178,7 @@ export class TimelineMarkers {
     const { showViewIndex, showAckIndex } = calculateTimelineMarkerIndices(
       itemEntries,
       lastViewedAtMs,
-      ackedAtMs,
+      ackedActivityMs,
       this.hasEvaluatedInitialView ? { wasViewMarkerShown: this.viewMarkerShown } : undefined
     );
 

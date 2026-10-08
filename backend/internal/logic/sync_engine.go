@@ -1326,7 +1326,8 @@ func (s *SyncEngine) calculateItemState(item *octodeckv1.Item) {
 		if status != octodeckv1.ItemStatus_ITEM_STATUS_ACKED {
 			if shouldAck, ackTime := ShouldAutoAck(item, currentUser, s.cfg.GetKnownBots()); shouldAck {
 				slog.Info("Auto-acking item (last action was me)", "id", item.GetId(), "ackTime", ackTime)
-				item.GetLocal().SetAckedAt(timestamppb.New(ackTime))
+				// The user's own GitHub event is both the ack action and the activity watermark.
+				SetAcked(item.GetLocal(), ackTime, ackTime)
 			}
 		}
 	}

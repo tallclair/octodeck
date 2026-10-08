@@ -484,6 +484,67 @@ describe('DetailsPane Component', () => {
             expect(screen.getByText('Last Viewed')).toBeDefined();
             expect(screen.getByText('Acknowledged')).toBeDefined();
         });
+
+        const renderAckDividerItem = (local: Record<string, unknown>) => {
+            const item: Partial<Item> = {
+                ...mockProtoItemWithBody,
+                comments: [
+                    {
+                        author: { login: 'alice', avatarUrl: '', type: 1 },
+                        bodyText: 'Earlier comment',
+                        createdAt: { seconds: BigInt(1700000100), nanos: 0 },
+                        commentId: BigInt(1),
+                        noiseType: CommentNoiseType.UNSPECIFIED,
+                    } as any,
+                    {
+                        author: { login: 'me', avatarUrl: '', type: 1 },
+                        bodyText: 'Own comment at the watermark',
+                        createdAt: { seconds: BigInt(1700000500), nanos: 0 },
+                        commentId: BigInt(2),
+                        noiseType: CommentNoiseType.UNSPECIFIED,
+                    } as any,
+                    {
+                        author: { login: 'bob', avatarUrl: '', type: 1 },
+                        bodyText: 'Later comment',
+                        createdAt: { seconds: BigInt(1700000900), nanos: 0 },
+                        commentId: BigInt(3),
+                        noiseType: CommentNoiseType.UNSPECIFIED,
+                    } as any,
+                ],
+                local: { ...mockProtoItemWithBody.local, ...local } as any,
+            };
+            render(
+                <DetailsPane
+                    item={item as Item}
+                    onAck={vi.fn()}
+                    onUnack={vi.fn()}
+                    onClose={vi.fn()}
+                />
+            );
+        };
+
+        // Whether the comment with the given text renders after the Acknowledged divider.
+        const isAfterAckDivider = (text: string): boolean => {
+            const label = screen.getByText('Acknowledged');
+            const comment = screen.getByText(text);
+            return Boolean(label.compareDocumentPosition(comment) & Node.DOCUMENT_POSITION_FOLLOWING);
+        };
+
+        it('places the Acknowledged divider by ackedActivityAt even when ackedAt is later', () => {
+            renderAckDividerItem({
+                ackedAt: { seconds: BigInt(1700001000), nanos: 0 },
+                ackedActivityAt: { seconds: BigInt(1700000500), nanos: 0 },
+            });
+            // The own comment equal to the watermark sits before the divider; the later one after it.
+            expect(isAfterAckDivider('Own comment at the watermark')).toBe(false);
+            expect(isAfterAckDivider('Later comment')).toBe(true);
+        });
+
+        it('places the Acknowledged divider by legacy ackedAt when ackedActivityAt is unset', () => {
+            renderAckDividerItem({ ackedAt: { seconds: BigInt(1700000100), nanos: 0 } });
+            expect(isAfterAckDivider('Earlier comment')).toBe(false);
+            expect(isAfterAckDivider('Own comment at the watermark')).toBe(true);
+        });
         it('condenses multiple commits to only show the most recent commit in timeline', () => {
             const itemWithCommits: Partial<Item> = {
                 ...mockProtoItemWithBody,

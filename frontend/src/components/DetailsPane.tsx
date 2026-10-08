@@ -19,6 +19,7 @@ import { formatFuzzyTime, formatExactDateTime } from '../utils/time';
 import { getLabelStyle } from '../utils/labels';
 import { stripHtmlComments } from '../utils/text';
 import { buildTimeline, getProtoTimestampMs, getLatestNonNoiseActivityMs, getCiFailureSummary, formatReviewCommentSummary, getFilesViewUrl, getThreadContext, GHOST_AVATAR_URL, UNKNOWN_LOGIN } from '../logic/timeline';
+import { getAckedActivityMs, isAfterWatermark } from '../logic/ackState';
 
 // CommentTimestamp renders a fuzzy timestamp that links to the comment on GitHub when a URL is known.
 function CommentTimestamp({ timestamp, url }: { timestamp?: string; url?: string }) {
@@ -93,7 +94,8 @@ export function DetailsPane({
     const updatedAtMs = getLatestNonNoiseActivityMs(item);
 
     const lastViewedAtMs = getProtoTimestampMs(item.local?.lastViewedAt) || null;
-    const ackedAtMs = getProtoTimestampMs(item.local?.ackedAt) || null;
+    // The Acknowledged divider follows the activity watermark, not the time of the ack.
+    const ackedActivityMs = getAckedActivityMs(item.local);
 
     const [prevItemKey, setPrevItemKey] = useState({ id: item.id, initialNotes });
     const [notes, setNotes] = useState(initialNotes);
@@ -365,20 +367,20 @@ export function DetailsPane({
                             })
                             : -1;
 
-                        const newAckIndex = ackedAtMs
+                        const newAckIndex = ackedActivityMs
                             ? timeline.findIndex(entry => {
                                 const t = new Date(entry.timestamp).getTime();
-                                return t > ackedAtMs;
+                                return isAfterWatermark(t, ackedActivityMs);
                             })
                             : -1;
 
-                        const suppressLastViewed = (ackedAtMs !== null && ackedAtMs > 0) && (
+                        const suppressLastViewed = (ackedActivityMs !== null && ackedActivityMs > 0) && (
                             (newViewIndex !== -1 && newViewIndex === newAckIndex) ||
                             (newViewIndex === -1 && newAckIndex === -1)
                         );
 
                         const showViewDividerIndex = suppressLastViewed ? -1 : newViewIndex;
-                        const showAckAtEnd = (ackedAtMs !== null && ackedAtMs > 0) && newAckIndex === -1;
+                        const showAckAtEnd = (ackedActivityMs !== null && ackedActivityMs > 0) && newAckIndex === -1;
 
                         const itemsMarkup = timeline.map((entry, idx) => {
                             const isNewView = idx === showViewDividerIndex;
@@ -774,8 +776,8 @@ export function DetailsPane({
                             ) : null;
 
                             if (isNewView || isNewAck) {
-                                const firstDivider = (ackedAtMs ?? 0) <= (lastViewedAtMs ?? 0) ? ackDivider : viewDivider;
-                                const secondDivider = (ackedAtMs ?? 0) <= (lastViewedAtMs ?? 0) ? viewDivider : ackDivider;
+                                const firstDivider = (ackedActivityMs ?? 0) <= (lastViewedAtMs ?? 0) ? ackDivider : viewDivider;
+                                const secondDivider = (ackedActivityMs ?? 0) <= (lastViewedAtMs ?? 0) ? viewDivider : ackDivider;
 
                                 return (
                                     <Fragment key={`fragment-${idx}`}>

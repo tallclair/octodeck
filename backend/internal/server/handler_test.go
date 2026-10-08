@@ -247,8 +247,11 @@ func TestOctoDeckHandler_Mutators(t *testing.T) {
 		t2 := time.Date(2026, 1, 1, 11, 0, 0, 0, time.UTC)
 		t3 := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 		t4 := time.Date(2026, 1, 1, 13, 0, 0, 0, time.UTC)
+		t5 := time.Date(2026, 1, 1, 14, 0, 0, 0, time.UTC)
+		t6 := time.Date(2026, 1, 1, 15, 0, 0, 0, time.UTC)
 
-		// Seed DB with UpdatedAt=t1, Comment=t2, Review=t3, StateEvent=t4
+		// Seed DB with UpdatedAt=t1, Comment=t2, Review=t3, StateEvent=t4, ReviewComment=t5, and a
+		// commit at t6 whose committer date is later than updated_at (clock skew).
 		item := octodeckv1.Item_builder{
 			Id:        config.Ptr("2"),
 			Title:     config.Ptr("To Ack"),
@@ -257,10 +260,18 @@ func TestOctoDeckHandler_Mutators(t *testing.T) {
 				octodeckv1.Comment_builder{CreatedAt: timestamppb.New(t2)}.Build(),
 			},
 			Reviews: []*octodeckv1.Review{
-				octodeckv1.Review_builder{SubmittedAt: timestamppb.New(t3)}.Build(),
+				octodeckv1.Review_builder{
+					SubmittedAt: timestamppb.New(t3),
+					Comments: []*octodeckv1.ReviewComment{
+						octodeckv1.ReviewComment_builder{CreatedAt: timestamppb.New(t5)}.Build(),
+					},
+				}.Build(),
 			},
 			StateEvents: []*octodeckv1.StateEvent{
 				octodeckv1.StateEvent_builder{CreatedAt: timestamppb.New(t4)}.Build(),
+			},
+			Commits: []*octodeckv1.Commit{
+				octodeckv1.Commit_builder{CommittedDate: timestamppb.New(t6)}.Build(),
 			},
 		}.Build()
 		err := db.SaveItems(t.Context(), []*octodeckv1.Item{item})
@@ -269,28 +280,80 @@ func TestOctoDeckHandler_Mutators(t *testing.T) {
 		req := connect.NewRequest(octodeckv1.AckItemRequest_builder{ItemId: config.Ptr("2")}.Build())
 		addHeaders(req)
 
+		beforeAck := time.Now().UTC()
 		resp, err := client.AckItem(t.Context(), req)
+		afterAck := time.Now().UTC()
 		require.NoError(t, err)
 
-		assert.NotNil(t, resp.Msg.GetItem().GetLocal().GetAckedAt())
-		assert.Equal(
-			t,
-			t4,
-			resp.Msg.GetItem().GetLocal().GetAckedAt().AsTime().UTC(),
-			"AckedAt should match latestActivityTimestamp (t4)",
-		)
-		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, resp.Msg.GetItem().GetLocal().GetComputedStatus())
+		local := resp.Msg.GetItem().GetLocal()
+		require.NotNil(t, local.GetAckedAt())
+		ackedAt := local.GetAckedAt().AsTime().UTC()
+		assert.False(t, ackedAt.Before(beforeAck), "AckedAt should be >= beforeAck")
+		assert.False(t, ackedAt.After(afterAck), "AckedAt should be <= afterAck")
+		require.NotNil(t, local.GetAckedActivityAt())
+		assert.Equal(t, t6, local.GetAckedActivityAt().AsTime().UTC(),
+			"AckedActivityAt should be the latest synced activity (commit t6)")
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, local.GetComputedStatus())
 
 		// Verify DB
 		updated, err := db.GetItem(t.Context(), "2")
 		require.NoError(t, err)
-		assert.NotNil(t, updated.GetLocal().GetAckedAt())
-		assert.Equal(t, t4, updated.GetLocal().GetAckedAt().AsTime().UTC())
+		require.NotNil(t, updated.GetLocal().GetAckedAt())
+		assert.Equal(t, ackedAt, updated.GetLocal().GetAckedAt().AsTime().UTC())
+		assert.Equal(t, t6, updated.GetLocal().GetAckedActivityAt().AsTime().UTC())
 
-		// Verify idempotency on repeated call
+		// Re-ack refreshes the action time and keeps the watermark at the latest activity.
 		resp2, err := client.AckItem(t.Context(), req)
 		require.NoError(t, err)
-		assert.Equal(t, t4, resp2.Msg.GetItem().GetLocal().GetAckedAt().AsTime().UTC())
+		reAckedAt := resp2.Msg.GetItem().GetLocal().GetAckedAt().AsTime().UTC()
+		assert.False(t, reAckedAt.Before(ackedAt), "re-ack AckedAt should not move backwards")
+		assert.Equal(t, t6, resp2.Msg.GetItem().GetLocal().GetAckedActivityAt().AsTime().UTC())
+
+		// Verify un-acking (acked: false) clears both fields
+		unackReq := connect.NewRequest(octodeckv1.AckItemRequest_builder{
+			ItemId: config.Ptr("2"),
+			Acked:  config.Ptr(false),
+		}.Build())
+		addHeaders(unackReq)
+		unackResp, err := client.AckItem(t.Context(), unackReq)
+		require.NoError(t, err)
+		assert.Nil(t, unackResp.Msg.GetItem().GetLocal().GetAckedAt())
+		assert.Nil(t, unackResp.Msg.GetItem().GetLocal().GetAckedActivityAt())
+		assert.NotEqual(
+			t,
+			octodeckv1.ItemStatus_ITEM_STATUS_ACKED,
+			unackResp.Msg.GetItem().GetLocal().GetComputedStatus(),
+		)
+
+		updatedAfterUnack, err := db.GetItem(t.Context(), "2")
+		require.NoError(t, err)
+		assert.Nil(t, updatedAfterUnack.GetLocal().GetAckedAt())
+		assert.Nil(t, updatedAfterUnack.GetLocal().GetAckedActivityAt())
+	})
+
+	t.Run("AckItem watermark includes review comment timestamps", func(t *testing.T) {
+		t1 := time.Date(2026, 2, 1, 10, 0, 0, 0, time.UTC)
+		t2 := time.Date(2026, 2, 1, 11, 0, 0, 0, time.UTC)
+		item := octodeckv1.Item_builder{
+			Id:        config.Ptr("ack-review-comment"),
+			UpdatedAt: timestamppb.New(t1),
+			Reviews: []*octodeckv1.Review{
+				octodeckv1.Review_builder{
+					SubmittedAt: timestamppb.New(t1),
+					Comments: []*octodeckv1.ReviewComment{
+						octodeckv1.ReviewComment_builder{CreatedAt: timestamppb.New(t2)}.Build(),
+					},
+				}.Build(),
+			},
+		}.Build()
+		require.NoError(t, db.SaveItems(t.Context(), []*octodeckv1.Item{item}))
+
+		req := connect.NewRequest(octodeckv1.AckItemRequest_builder{ItemId: config.Ptr("ack-review-comment")}.Build())
+		addHeaders(req)
+		resp, err := client.AckItem(t.Context(), req)
+		require.NoError(t, err)
+		assert.Equal(t, t2, resp.Msg.GetItem().GetLocal().GetAckedActivityAt().AsTime().UTC())
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, resp.Msg.GetItem().GetLocal().GetComputedStatus())
 	})
 
 	t.Run("ViewItem", func(t *testing.T) {
@@ -689,11 +752,13 @@ func TestOctoDeckHandler_UntrackedItems_Ack(t *testing.T) {
 	resp, err := client.AckItem(t.Context(), req)
 	require.NoError(t, err)
 	assert.NotNil(t, resp.Msg.GetItem().GetLocal().GetAckedAt())
+	assert.NotNil(t, resp.Msg.GetItem().GetLocal().GetAckedActivityAt())
 
 	// Verify in DB
 	saved, err := db.GetItem(t.Context(), "untracked-for-ack")
 	require.NoError(t, err)
 	assert.NotNil(t, saved.GetLocal().GetAckedAt())
+	assert.NotNil(t, saved.GetLocal().GetAckedActivityAt())
 }
 
 func TestOctoDeckHandler_UntrackedItems_SetNotes(t *testing.T) {
