@@ -100,6 +100,8 @@ func TestChallenger_StatusCalculation_AssignmentInterleaving(t *testing.T) {
 				Actor:     octodeckv1.User_builder{Login: config.Ptr("lead")}.Build(),
 			}.Build(),
 		})
+		// GitHub's updated_at is never older than the item's latest activity.
+		item.SetUpdatedAt(timestamppb.New(tEvent.Add(2 * time.Minute)))
 		res := CalculateStatus(item, currentUser, knownBots)
 		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY, res)
 	})

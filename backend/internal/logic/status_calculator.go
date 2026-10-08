@@ -30,24 +30,26 @@ func CalculateStatus(item *octodeckv1.Item, currentUser string, knownBots []stri
 		}
 	}
 
-	// 1. Never before seen => New Mention if explicitly mentioned, otherwise New (blue) unless
-	// authored by currentUser (creating the item is the user's own activity, not unviewed activity).
-	hasViewed := item.GetLocal().GetLastViewedAt() != nil && item.GetLocal().GetLastViewedAt().GetSeconds() > 0
+	// The user has seen everything up to their own latest activity (including authoring the item),
+	// so own activity always counts as viewed, whether or not auto-ack is enabled.
+	viewedAt := EffectiveLastViewedAt(item, currentUser)
+	hasViewed := !viewedAt.IsZero()
+
+	// 1. Never before seen => New Mention if explicitly mentioned, otherwise New (blue).
 	if !hasViewed && !hasAcked {
 		if hasNewMention(item, time.Time{}, currentUser) {
 			return octodeckv1.ItemStatus_ITEM_STATUS_NEW_MENTION
 		}
-		if !isSameUser(item.GetAuthor().GetLogin(), currentUser) {
-			return octodeckv1.ItemStatus_ITEM_STATUS_NEW
-		}
+		return octodeckv1.ItemStatus_ITEM_STATUS_NEW
 	}
 
 	// Determine baseline timestamp "since" for what constitutes new activity to the user.
-	// Activity preceding either last view or acknowledge has already been viewed or accepted.
-	since := baselineSince(item, hasViewed, hasAcked, ackedAt)
+	// Activity preceding either the effective last view or the acknowledgement has already been
+	// viewed or accepted. At least one of them is set here, so since is never zero.
+	since := baselineSince(viewedAt, hasAcked, ackedAt)
 
 	// If no updates since baseline
-	if !since.IsZero() && !updatedAt.After(since) {
+	if !updatedAt.After(since) {
 		return octodeckv1.ItemStatus_ITEM_STATUS_IDLE
 	}
 
@@ -96,12 +98,11 @@ func remainsAcked(
 		!hasValidNewCommits(item, ackedAt, currentUser)
 }
 
-func baselineSince(item *octodeckv1.Item, hasViewed, hasAcked bool, ackedAt time.Time) time.Time {
-	var since time.Time
-	if hasViewed {
-		since = item.GetLocal().GetLastViewedAt().AsTime()
-	}
-	if hasAcked && (since.IsZero() || ackedAt.After(since)) {
+// baselineSince returns the later of the effective last-viewed time and, if acked, the ack
+// watermark.
+func baselineSince(viewedAt time.Time, hasAcked bool, ackedAt time.Time) time.Time {
+	since := viewedAt
+	if hasAcked && ackedAt.After(since) {
 		since = ackedAt
 	}
 	return since

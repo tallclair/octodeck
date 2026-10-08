@@ -352,6 +352,44 @@ describe('DetailsPane Component', () => {
             expect(screen.queryByText('Acknowledged')).toBeNull();
         });
 
+        it('does not render Last Viewed before the user\'s own latest activity (computedLastViewedAt)', () => {
+            const item: Partial<Item> = {
+                ...mockProtoItemWithBody,
+                comments: [
+                    {
+                        author: { login: 'alice', avatarUrl: '', type: 1 },
+                        bodyText: 'Question from someone else',
+                        createdAt: { seconds: BigInt(1700000100), nanos: 0 },
+                        commentId: BigInt(1),
+                        noiseType: CommentNoiseType.UNSPECIFIED,
+                    } as any,
+                    {
+                        author: { login: 'me', avatarUrl: '', type: 1 },
+                        bodyText: 'My reply',
+                        createdAt: { seconds: BigInt(1700000900), nanos: 0 },
+                        commentId: BigInt(2),
+                        noiseType: CommentNoiseType.UNSPECIFIED,
+                    } as any,
+                ],
+                local: {
+                    ...mockProtoItemWithBody.local,
+                    lastViewedAt: { seconds: BigInt(1700000050), nanos: 0 },
+                    computedLastViewedAt: { seconds: BigInt(1700000900), nanos: 0 },
+                } as any,
+            };
+
+            render(
+                <DetailsPane
+                    item={item as Item}
+                    onAck={vi.fn()}
+                    onUnack={vi.fn()}
+                    onClose={vi.fn()}
+                />
+            );
+
+            expect(screen.queryByText('Last Viewed')).toBeNull();
+        });
+
         it('renders Acknowledged divider based on ackedAt', () => {
             const item: Partial<Item> = {
                 ...mockProtoItemWithBody,

@@ -35,3 +35,11 @@ export interface AckStateLike {
   /** Activity watermark (GitHub clock). Falls back to ackedAt when unset. */
   ackedActivityAt?: TimestampLike;
 }
+
+/** The last-viewed fields of ItemLocalState, in any of the shapes TimestampLike allows. */
+export interface ViewStateLike {
+  /** When the item was last viewed (wall clock), as recorded by ViewItem. */
+  lastViewedAt?: TimestampLike;
+  /** Server-computed max(lastViewedAt, the user's latest own activity on the item). */
+  computedLastViewedAt?: TimestampLike;
+}

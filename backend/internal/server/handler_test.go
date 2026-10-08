@@ -949,6 +949,61 @@ func TestOctoDeckHandler_CurrentUser(t *testing.T) {
 	})
 }
 
+func TestOctoDeckHandler_ComputedLastViewedAt(t *testing.T) {
+	mockGH := &mockGitHubClient{authenticated: true, login: "me"}
+	db, client, addHeaders, _ := setupTestHandlerWithGH(t, mockGH)
+
+	viewed := time.Date(2026, 4, 1, 9, 0, 0, 0, time.UTC)
+	ownComment := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
+	stale := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, db.SaveItems(t.Context(), []*octodeckv1.Item{
+		// Viewed, then commented on by the user. A stale computed value in storage is ignored.
+		octodeckv1.Item_builder{
+			Id:        config.Ptr("viewed/own-comment"),
+			UpdatedAt: timestamppb.New(ownComment),
+			Author:    octodeckv1.User_builder{Login: config.Ptr("someone")}.Build(),
+			Comments: []*octodeckv1.Comment{octodeckv1.Comment_builder{
+				CreatedAt: timestamppb.New(ownComment),
+				BodyText:  config.Ptr("My reply"),
+				Author:    octodeckv1.User_builder{Login: config.Ptr("me")}.Build(),
+			}.Build()},
+			Local: octodeckv1.ItemLocalState_builder{
+				LastViewedAt:         timestamppb.New(viewed),
+				ComputedLastViewedAt: timestamppb.New(stale),
+			}.Build(),
+		}.Build(),
+		// Never viewed, no own activity: the field is unset even if a stale value was stored.
+		octodeckv1.Item_builder{
+			Id:        config.Ptr("unviewed/other"),
+			UpdatedAt: timestamppb.New(ownComment),
+			Author:    octodeckv1.User_builder{Login: config.Ptr("someone")}.Build(),
+			Local: octodeckv1.ItemLocalState_builder{
+				ComputedLastViewedAt: timestamppb.New(stale),
+			}.Build(),
+		}.Build(),
+	}))
+
+	getLocal := func(t *testing.T, id string) *octodeckv1.ItemLocalState {
+		t.Helper()
+		req := connect.NewRequest(octodeckv1.GetItemRequest_builder{ItemId: config.Ptr(id)}.Build())
+		addHeaders(req)
+		resp, err := client.GetItem(t.Context(), req)
+		require.NoError(t, err)
+		return resp.Msg.GetItem().GetLocal()
+	}
+
+	local := getLocal(t, "viewed/own-comment")
+	require.True(t, local.HasComputedLastViewedAt())
+	assert.True(t, ownComment.Equal(local.GetComputedLastViewedAt().AsTime()),
+		"computed_last_viewed_at: want %v, got %v", ownComment, local.GetComputedLastViewedAt().AsTime())
+	assert.True(t, viewed.Equal(local.GetLastViewedAt().AsTime()), "last_viewed_at is unchanged")
+	assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_IDLE, local.GetComputedStatus())
+
+	local = getLocal(t, "unviewed/other")
+	assert.False(t, local.HasComputedLastViewedAt())
+	assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW, local.GetComputedStatus())
+}
+
 func TestOctoDeckHandler_DiscoveryAndTrackedQueriesConfig(t *testing.T) {
 	_, client, addHeaders, _ := setupTestHandler(t)
 

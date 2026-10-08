@@ -18,8 +18,9 @@ import { Markdown } from './Markdown';
 import { formatFuzzyTime, formatExactDateTime } from '../utils/time';
 import { getLabelStyle } from '../utils/labels';
 import { stripHtmlComments } from '../utils/text';
-import { buildTimeline, getProtoTimestampMs, getLatestNonNoiseActivityMs, getCiFailureSummary, formatReviewCommentSummary, getFilesViewUrl, getThreadContext, GHOST_AVATAR_URL, UNKNOWN_LOGIN } from '../logic/timeline';
+import { buildTimeline, getLatestNonNoiseActivityMs, getCiFailureSummary, formatReviewCommentSummary, getFilesViewUrl, getThreadContext, GHOST_AVATAR_URL, UNKNOWN_LOGIN } from '../logic/timeline';
 import { getAckedActivityMs, isAfterWatermark } from '../logic/ackState';
+import { getEffectiveLastViewedMs } from '../logic/viewState';
 
 // CommentTimestamp renders a fuzzy timestamp that links to the comment on GitHub when a URL is known.
 function CommentTimestamp({ timestamp, url }: { timestamp?: string; url?: string }) {
@@ -93,7 +94,8 @@ export function DetailsPane({
     const authorAvatar = item.author?.avatarUrl || GHOST_AVATAR_URL;
     const updatedAtMs = getLatestNonNoiseActivityMs(item);
 
-    const lastViewedAtMs = getProtoTimestampMs(item.local?.lastViewedAt) || null;
+    // The user's own activity counts as viewed, so the Last Viewed divider never sits before it.
+    const lastViewedAtMs = getEffectiveLastViewedMs(item.local);
     // The Acknowledged divider follows the activity watermark, not the time of the ack.
     const ackedActivityMs = getAckedActivityMs(item.local);
 

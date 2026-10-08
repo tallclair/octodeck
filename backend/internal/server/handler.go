@@ -251,6 +251,7 @@ func (h *octoDeckHandler) populateComputedStatus(items ...*octodeckv1.Item) {
 			item.SetLocal(octodeckv1.ItemLocalState_builder{}.Build())
 		}
 		item.GetLocal().SetComputedStatus(logic.CalculateStatus(item, currentUser, knownBots))
+		logic.SetComputedLastViewedAt(item, currentUser)
 	}
 }
 

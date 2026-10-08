@@ -25,7 +25,19 @@ func ShouldAutoAck(item *octodeckv1.Item, currentUser string, knownBots []string
 	// acknowledgement according to the status calculator. Sharing the predicates keeps the two in
 	// agreement: noise (bot comments, slash commands, bot reviews and review comments, bot state
 	// events) never blocks auto-acking the user's own action.
-	events := appendCommentEvents(nil, item, currentUser, knownBots)
+	var events []event
+
+	// Opening the item is its first event. An item the user opened is acknowledged at creation
+	// unless someone else has acted on it since; for items opened by others it is just an earlier
+	// event that the user's own later activity supersedes.
+	if validTimestamp(item.GetCreatedAt()) {
+		events = append(events, event{
+			timestamp: item.GetCreatedAt().AsTime(),
+			author:    item.GetAuthor().GetLogin(),
+		})
+	}
+
+	events = appendCommentEvents(events, item, currentUser, knownBots)
 
 	// Unsubmitted (pending) reviews are only visible to their author and are not activity yet.
 	for _, review := range item.GetReviews() {

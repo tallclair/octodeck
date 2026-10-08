@@ -248,3 +248,40 @@ func TestShouldAutoAck_BotStateEvents(t *testing.T) {
 		assert.False(t, shouldAck)
 	})
 }
+
+func TestShouldAutoAck_ItemCreation(t *testing.T) {
+	created := ackTestTime(-60) // ackTestItem's created_at
+
+	t.Run("item opened by the user with no other activity acks at creation", func(t *testing.T) {
+		shouldAck, ackTime := ShouldAutoAck(ackTestItem(ackTestUser), ackTestUser, ackTestBots())
+		assert.True(t, shouldAck)
+		assert.True(t, ackTime.Equal(created))
+	})
+
+	t.Run("item opened by someone else is not acked on creation", func(t *testing.T) {
+		shouldAck, _ := ShouldAutoAck(ackTestItem(ackTestOther), ackTestUser, ackTestBots())
+		assert.False(t, shouldAck)
+	})
+
+	t.Run("own comment on an item opened by someone else still wins", func(t *testing.T) {
+		item := ackTestItem(ackTestOther)
+		item.SetComments([]*octodeckv1.Comment{ackTestComment(ackTestUser, ackTestTime(5))})
+		shouldAck, ackTime := ShouldAutoAck(item, ackTestUser, ackTestBots())
+		assert.True(t, shouldAck)
+		assert.True(t, ackTime.Equal(ackTestTime(5)))
+	})
+
+	t.Run("simultaneous activity by someone else blocks acking an own item", func(t *testing.T) {
+		item := ackTestItem(ackTestUser)
+		item.SetComments([]*octodeckv1.Comment{ackTestComment(ackTestOther, created)})
+		shouldAck, _ := ShouldAutoAck(item, ackTestUser, ackTestBots())
+		assert.False(t, shouldAck)
+	})
+
+	t.Run("missing created_at adds no event", func(t *testing.T) {
+		item := ackTestItem(ackTestUser)
+		item.ClearCreatedAt()
+		shouldAck, _ := ShouldAutoAck(item, ackTestUser, ackTestBots())
+		assert.False(t, shouldAck)
+	})
+}

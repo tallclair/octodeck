@@ -144,6 +144,13 @@ message ItemLocalState {
   // on GitHub before the ack but hasn't synced yet is not hidden. If unset on an acked item,
   // readers fall back to acked_at (older rows stored the watermark there).
   google.protobuf.Timestamp acked_activity_at = 9;
+  // Effective last-viewed time, computed by the server on read (like computed_status): the later
+  // of last_viewed_at and the authenticated user's latest own activity on the item (authoring it,
+  // commenting, submitting reviews or review comments, pushing commits, or performing state
+  // events), since the user has necessarily seen everything up to their own latest action. Unset
+  // when neither exists. Not a source of truth and never meaningful when read from storage.
+  // Clients should prefer it over last_viewed_at when deciding what is new since the last view.
+  google.protobuf.Timestamp computed_last_viewed_at = 10;
 }
 
 message Item {

@@ -1,5 +1,6 @@
 import type { Item } from '../../api/octodeck/v1/resources_pb';
-import { getAckedActivityMs, isAfterWatermark, parseLocalTimestampMs } from '../../logic/ackState';
+import { getAckedActivityMs, isAfterWatermark } from '../../logic/ackState';
+import { getEffectiveLastViewedMs, getOwnActivityViewedMs } from '../../logic/viewState';
 import { queryTimelineElements } from './noiseCollapser';
 
 export function extractElementTimestamp(el: HTMLElement): number | null {
@@ -29,12 +30,14 @@ export function calculateTimelineMarkerIndices(
     return { showViewIndex: -1, showAckIndex: -1 };
   }
 
+  // Both markers go before the first entry newer than their timestamp, compared at whole-second
+  // precision: the effective last-viewed time may be the GitHub timestamp of the user's own
+  // activity, which must not be placed after its own (possibly millisecond-precision) DOM entry.
   const newViewIndex =
     lastViewedAtMs && lastViewedAtMs > 0
-      ? items.findIndex((item) => item.timestamp > lastViewedAtMs)
+      ? items.findIndex((item) => isAfterWatermark(item.timestamp, lastViewedAtMs))
       : -1;
 
-  // The ack marker goes before the first entry newer than the activity watermark.
   const newAckIndex =
     ackedActivityMs && ackedActivityMs > 0
       ? items.findIndex((item) => isAfterWatermark(item.timestamp, ackedActivityMs))
@@ -107,7 +110,13 @@ export class TimelineMarkers {
   private markers: HTMLElement[] = [];
   private domObserver: MutationObserver | null = null;
   private debounceTimer: number | null = null;
+  // The effective last-viewed time when the page was first shown. Held so that recording this
+  // visit (which moves last_viewed_at to now) doesn't hide what was new on arrival.
   private initialLastViewedAtMs: number | null = null;
+  // The latest own activity reported by the daemon while on the page. The user has seen
+  // everything up to their own latest action, so "Last Viewed" never sits before it, even though
+  // the initial view time is held.
+  private ownActivityViewedMs: number | null = null;
   private hasEvaluatedInitialView = false;
   private viewMarkerShown = false;
 
@@ -116,21 +125,39 @@ export class TimelineMarkers {
   }
 
   public update(item: Item | null): void {
-    const prevView = parseLocalTimestampMs(this.currentItem?.local?.lastViewedAt);
+    const prevView = getEffectiveLastViewedMs(this.currentItem?.local);
     const prevAck = getAckedActivityMs(this.currentItem?.local);
-    const newView = parseLocalTimestampMs(item?.local?.lastViewedAt);
+    const newView = getEffectiveLastViewedMs(item?.local);
     const newAck = getAckedActivityMs(item?.local);
 
     this.currentItem = item;
-
-    if (this.initialLastViewedAtMs === null && newView !== null && newView > 0) {
-      this.initialLastViewedAtMs = newView;
-    }
+    this.recordViewState();
 
     // Only re-render markers if the timestamps actually changed or markers were never placed
     if (prevView !== newView || prevAck !== newAck || (this.markers.length === 0 && (Boolean(newView) || Boolean(newAck)))) {
       this.render();
     }
+  }
+
+  /** Captures the initial view time and the latest own activity from the current item. */
+  private recordViewState(): void {
+    const local = this.currentItem?.local;
+    const view = getEffectiveLastViewedMs(local);
+    if (this.initialLastViewedAtMs === null && view !== null) {
+      this.initialLastViewedAtMs = view;
+    }
+    const own = getOwnActivityViewedMs(local);
+    if (own !== null && (this.ownActivityViewedMs === null || own > this.ownActivityViewedMs)) {
+      this.ownActivityViewedMs = own;
+    }
+  }
+
+  /** The time the "Last Viewed" marker follows: the held initial view, raised to own activity. */
+  private markerLastViewedMs(): number | null {
+    const view = this.initialLastViewedAtMs ?? getEffectiveLastViewedMs(this.currentItem?.local);
+    if (view === null) return this.ownActivityViewedMs;
+    if (this.ownActivityViewedMs === null) return view;
+    return Math.max(view, this.ownActivityViewedMs);
   }
 
   public render(): void {
@@ -142,12 +169,8 @@ export class TimelineMarkers {
       return;
     }
 
-    const currentItemViewMs = parseLocalTimestampMs(this.currentItem.local.lastViewedAt);
-    if (this.initialLastViewedAtMs === null && currentItemViewMs !== null && currentItemViewMs > 0) {
-      this.initialLastViewedAtMs = currentItemViewMs;
-    }
-
-    const lastViewedAtMs = this.initialLastViewedAtMs ?? currentItemViewMs;
+    this.recordViewState();
+    const lastViewedAtMs = this.markerLastViewedMs();
     const ackedActivityMs = getAckedActivityMs(this.currentItem.local);
 
     if ((!lastViewedAtMs || lastViewedAtMs <= 0) && (!ackedActivityMs || ackedActivityMs <= 0)) {
@@ -241,6 +264,7 @@ export class TimelineMarkers {
     this.hasEvaluatedInitialView = false;
     this.viewMarkerShown = false;
     this.initialLastViewedAtMs = null;
+    this.ownActivityViewedMs = null;
   }
 
   private ensureObserver(): void {

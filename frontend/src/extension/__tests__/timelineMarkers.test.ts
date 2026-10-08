@@ -400,6 +400,73 @@ describe('TimelineMarkers', () => {
       expect(ackMarker?.nextElementSibling?.id).toBe('issuecomment-3');
     });
 
+    it('places Last Viewed by computedLastViewedAt (own activity) over an older lastViewedAt', () => {
+      const markers = createMarkers(container);
+      markers.update({
+        id: 'kubernetes/kubernetes#123',
+        local: {
+          lastViewedAt: '2026-08-10T11:00:00Z', // before issuecomment-2
+          computedLastViewedAt: '2026-08-11T12:00:00Z', // own issuecomment-2
+        },
+      } as unknown as Item);
+
+      const viewMarker = container.querySelector('[data-testid="octodeck-timeline-marker-viewed"]');
+      expect(viewMarker?.nextElementSibling?.id).toBe('issuecomment-3');
+    });
+
+    it('never places Last Viewed before own activity whose DOM datetime carries milliseconds', () => {
+      container.querySelector('#issuecomment-2 relative-time')?.setAttribute('datetime', '2026-08-11T12:00:00.600Z');
+      const markers = createMarkers(container);
+      markers.update({
+        id: 'kubernetes/kubernetes#123',
+        local: { computedLastViewedAt: '2026-08-11T12:00:00Z' },
+      } as unknown as Item);
+
+      const viewMarker = container.querySelector('[data-testid="octodeck-timeline-marker-viewed"]');
+      expect(viewMarker?.nextElementSibling?.id).toBe('issuecomment-3');
+    });
+
+    it('holds the initial view across this visit being recorded', () => {
+      const markers = createMarkers(container);
+      const base = { id: 'kubernetes/kubernetes#123' };
+      markers.update({ ...base, local: { lastViewedAt: '2026-08-11T13:00:00Z' } } as unknown as Item);
+      // Recording the visit moves lastViewedAt (and so the computed value) to now.
+      markers.update({
+        ...base,
+        local: { lastViewedAt: '2026-08-14T00:00:00Z', computedLastViewedAt: '2026-08-14T00:00:00Z' },
+      } as unknown as Item);
+
+      const viewMarker = container.querySelector('[data-testid="octodeck-timeline-marker-viewed"]');
+      expect(viewMarker?.nextElementSibling?.id).toBe('issuecomment-3');
+    });
+
+    it('moves the held Last Viewed marker past own activity that follows the initial view', () => {
+      const markers = createMarkers(container);
+      const base = { id: 'kubernetes/kubernetes#123' };
+      markers.update({ ...base, local: { lastViewedAt: '2026-08-10T11:00:00Z' } } as unknown as Item);
+      let viewMarker = container.querySelector('[data-testid="octodeck-timeline-marker-viewed"]');
+      expect(viewMarker?.nextElementSibling?.id).toBe('issuecomment-2');
+
+      // The user replies on the page; the daemon reports the reply as the effective view time.
+      const reply = document.createElement('div');
+      reply.className = 'TimelineItem';
+      reply.id = 'issuecomment-4';
+      reply.innerHTML = `
+        <div class="timeline-comment-header">
+          <relative-time datetime="2026-08-13T10:00:00Z">Aug 13, 2026</relative-time>
+        </div>
+        <div class="comment-body">My reply</div>
+      `;
+      container.appendChild(reply);
+      markers.update({
+        ...base,
+        local: { lastViewedAt: '2026-08-12T20:00:00Z', computedLastViewedAt: '2026-08-13T10:00:00Z' },
+      } as unknown as Item);
+
+      viewMarker = container.querySelector('[data-testid="octodeck-timeline-marker-viewed"]');
+      expect(viewMarker).toBeNull();
+    });
+
     it('cleans up markers when update is called with null or cleanup is called', () => {
       const markers = createMarkers(container);
       const mockItem = {

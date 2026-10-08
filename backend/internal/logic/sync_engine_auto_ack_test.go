@@ -266,3 +266,156 @@ func TestCalculateItemState_AutoAck(t *testing.T) {
 		assert.False(t, IsAcked(item.GetLocal()))
 	})
 }
+
+func TestCalculateItemState_AutoAckOwnOpenedItems(t *testing.T) {
+	created := ackTestTime(-60) // ackTestItem's created_at
+
+	// ownItem returns a never-viewed, un-acked item opened by the user.
+	ownItem := func() *octodeckv1.Item {
+		item := ackTestItem(ackTestUser)
+		item.GetLocal().ClearLastViewedAt()
+		return item
+	}
+
+	t.Run("no activity: acked at creation", func(t *testing.T) {
+		item := ownItem()
+		newAutoAckTestEngine(true).calculateItemState(item)
+		assertAckFields(t, item, created, created)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, CalculateStatus(item, ackTestUser, ackTestBots()))
+	})
+
+	t.Run("body mentioning the user is irrelevant", func(t *testing.T) {
+		item := ownItem()
+		item.SetBody("Note to self @me")
+		newAutoAckTestEngine(true).calculateItemState(item)
+		assertAckFields(t, item, created, created)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, CalculateStatus(item, ackTestUser, ackTestBots()))
+	})
+
+	t.Run("own commits only: acked at creation and stays ACKED", func(t *testing.T) {
+		item := ownItem()
+		item.SetCommits([]*octodeckv1.Commit{
+			ackTestCommit(ackTestUser, ackTestTime(1)),
+			ackTestCommit(ackTestUser, ackTestTime(2)),
+		})
+		touch(item, ackTestTime(2))
+		newAutoAckTestEngine(true).calculateItemState(item)
+		assertAckFields(t, item, created, created)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, CalculateStatus(item, ackTestUser, ackTestBots()))
+	})
+
+	t.Run("bot noise afterwards: acked at creation and stays ACKED", func(t *testing.T) {
+		item := ownItem()
+		item.SetComments([]*octodeckv1.Comment{ackTestComment(ackTestBot, ackTestTime(1))})
+		item.SetReviews([]*octodeckv1.Review{ackTestBotReview(ackTestTime(2))})
+		item.SetStateEvents([]*octodeckv1.StateEvent{ackTestStateEvent(ackTestBot, ackTestTime(3))})
+		touch(item, ackTestTime(3))
+		newAutoAckTestEngine(true).calculateItemState(item)
+		assertAckFields(t, item, created, created)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, CalculateStatus(item, ackTestUser, ackTestBots()))
+	})
+
+	t.Run("later comment by someone else: not acked", func(t *testing.T) {
+		item := ownItem()
+		item.SetComments([]*octodeckv1.Comment{ackTestComment(ackTestOther, ackTestTime(1))})
+		touch(item, ackTestTime(1))
+		newAutoAckTestEngine(true).calculateItemState(item)
+		assert.False(t, IsAcked(item.GetLocal()))
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY,
+			CalculateStatus(item, ackTestUser, ackTestBots()))
+	})
+
+	t.Run("later commit by someone else: acked at creation but surfaces NEW_CODE", func(t *testing.T) {
+		// Commits are not auto-ack events, so the creation is still the latest significant event,
+		// but someone else's commit after the watermark supersedes the ack.
+		item := ownItem()
+		item.SetCommits([]*octodeckv1.Commit{ackTestCommit(ackTestOther, ackTestTime(1))})
+		touch(item, ackTestTime(1))
+		newAutoAckTestEngine(true).calculateItemState(item)
+		assertAckFields(t, item, created, created)
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_NEW_CODE, CalculateStatus(item, ackTestUser, ackTestBots()))
+	})
+
+	t.Run("item opened by someone else is not acked", func(t *testing.T) {
+		item := ackTestItem(ackTestOther)
+		newAutoAckTestEngine(true).calculateItemState(item)
+		assert.False(t, IsAcked(item.GetLocal()))
+	})
+
+	t.Run("does not move an existing later watermark backwards", func(t *testing.T) {
+		item := ownItem()
+		SetAcked(item.GetLocal(), ackTestTime(100), ackTestTime(10))
+		newAutoAckTestEngine(true).calculateItemState(item)
+		assertAckFields(t, item, ackTestTime(100), ackTestTime(10))
+	})
+
+	t.Run("disabled: not acked, but IDLE because own activity counts as viewed", func(t *testing.T) {
+		item := ownItem()
+		item.SetCommits([]*octodeckv1.Commit{ackTestCommit(ackTestUser, ackTestTime(1))})
+		touch(item, ackTestTime(1))
+		newAutoAckTestEngine(false).calculateItemState(item)
+		assert.False(t, IsAcked(item.GetLocal()))
+		assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_IDLE, CalculateStatus(item, ackTestUser, ackTestBots()))
+	})
+}
+
+// TestSyncEngine_AutoAckOwnOpenedItem verifies that an item the user opened is auto-acked at its
+// creation time when it is first hydrated by an inventory sync.
+func TestSyncEngine_AutoAckOwnOpenedItem(t *testing.T) {
+	const currentUser = "me"
+
+	db := setupTestDB(t)
+	defer func() { require.NoError(t, db.Close()) }()
+
+	mockREST := &mockRESTClient{}
+	mockREST.doFunc = func(_ context.Context, _ string, path string, _ io.Reader, response any) error {
+		if path == "user" {
+			return json.Unmarshal(fmt.Appendf(nil, `{"login": "%s"}`, currentUser), response)
+		}
+		return nil
+	}
+	mockGQL := &mockGraphQLClient{}
+	mockGQL.queryFunc = func(_ context.Context, name string, q any, _ map[string]any) error {
+		if name != inventoryQueryName {
+			return nil
+		}
+		jsonData := fmt.Sprintf(`{
+			"search": {
+				"nodes": [{
+					"__typename": "PullRequest",
+					"pullRequest": {
+						"id": "PR_OWN",
+						"repository": { "nameWithOwner": "owner/repo" },
+						"number": 2,
+						"state": "OPEN",
+						"createdAt": "2024-01-01T00:00:00Z",
+						"updatedAt": "2024-01-02T00:00:00Z",
+						"title": "My PR",
+						"url": "http://test",
+						"author": { "login": "%s" },
+						"comments": { "nodes": [] },
+						"assignees": { "nodes": [] },
+						"commits": { "nodes": [] },
+						"reviews": { "nodes": [] }
+					}
+				}],
+				"pageInfo": { "hasNextPage": false, "endCursor": "cursor" }
+			}
+		}`, currentUser)
+		return json.Unmarshal([]byte(jsonData), q)
+	}
+
+	cfg := config.NewForTest(octodeckv1.Config_builder{
+		KnownBots:          []string{},
+		AutoAckOwnActivity: config.Ptr(true),
+	}.Build())
+	engine := NewSyncEngine(db, &github.Client{RestClient: mockREST, GraphQLClient: mockGQL}, cfg)
+	require.NoError(t, engine.RunInventorySync(t.Context()))
+
+	items, err := db.GetItems(t.Context(), nil)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	created := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	assertAckFields(t, items[0], created, created)
+	assert.Equal(t, octodeckv1.ItemStatus_ITEM_STATUS_ACKED, CalculateStatus(items[0], currentUser, nil))
+}

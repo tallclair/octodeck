@@ -1811,6 +1811,7 @@ type ItemLocalState struct {
 	xxx_hidden_SyncError            *string                `protobuf:"bytes,7,opt,name=sync_error,json=syncError"`
 	xxx_hidden_ReviewBackfillBefore *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=review_backfill_before,json=reviewBackfillBefore"`
 	xxx_hidden_AckedActivityAt      *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=acked_activity_at,json=ackedActivityAt"`
+	xxx_hidden_ComputedLastViewedAt *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=computed_last_viewed_at,json=computedLastViewedAt"`
 	XXX_raceDetectHookData          protoimpl.RaceDetectHookData
 	XXX_presence                    [1]uint32
 	unknownFields                   protoimpl.UnknownFields
@@ -1906,9 +1907,16 @@ func (x *ItemLocalState) GetAckedActivityAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *ItemLocalState) GetComputedLastViewedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.xxx_hidden_ComputedLastViewedAt
+	}
+	return nil
+}
+
 func (x *ItemLocalState) SetComputedStatus(v ItemStatus) {
 	x.xxx_hidden_ComputedStatus = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 8)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 9)
 }
 
 func (x *ItemLocalState) SetLastViewedAt(v *timestamppb.Timestamp) {
@@ -1921,17 +1929,17 @@ func (x *ItemLocalState) SetAckedAt(v *timestamppb.Timestamp) {
 
 func (x *ItemLocalState) SetPrivateNotes(v string) {
 	x.xxx_hidden_PrivateNotes = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 8)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 9)
 }
 
 func (x *ItemLocalState) SetStarred(v bool) {
 	x.xxx_hidden_Starred = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 4, 8)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 4, 9)
 }
 
 func (x *ItemLocalState) SetSyncError(v string) {
 	x.xxx_hidden_SyncError = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 8)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 9)
 }
 
 func (x *ItemLocalState) SetReviewBackfillBefore(v *timestamppb.Timestamp) {
@@ -1940,6 +1948,10 @@ func (x *ItemLocalState) SetReviewBackfillBefore(v *timestamppb.Timestamp) {
 
 func (x *ItemLocalState) SetAckedActivityAt(v *timestamppb.Timestamp) {
 	x.xxx_hidden_AckedActivityAt = v
+}
+
+func (x *ItemLocalState) SetComputedLastViewedAt(v *timestamppb.Timestamp) {
+	x.xxx_hidden_ComputedLastViewedAt = v
 }
 
 func (x *ItemLocalState) HasComputedStatus() bool {
@@ -1998,6 +2010,13 @@ func (x *ItemLocalState) HasAckedActivityAt() bool {
 	return x.xxx_hidden_AckedActivityAt != nil
 }
 
+func (x *ItemLocalState) HasComputedLastViewedAt() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_ComputedLastViewedAt != nil
+}
+
 func (x *ItemLocalState) ClearComputedStatus() {
 	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
 	x.xxx_hidden_ComputedStatus = ItemStatus_ITEM_STATUS_UNSPECIFIED
@@ -2034,6 +2053,10 @@ func (x *ItemLocalState) ClearAckedActivityAt() {
 	x.xxx_hidden_AckedActivityAt = nil
 }
 
+func (x *ItemLocalState) ClearComputedLastViewedAt() {
+	x.xxx_hidden_ComputedLastViewedAt = nil
+}
+
 type ItemLocalState_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -2055,6 +2078,13 @@ type ItemLocalState_builder struct {
 	// on GitHub before the ack but hasn't synced yet is not hidden. If unset on an acked item,
 	// readers fall back to acked_at (older rows stored the watermark there).
 	AckedActivityAt *timestamppb.Timestamp
+	// Effective last-viewed time, computed by the server on read (like computed_status): the later
+	// of last_viewed_at and the authenticated user's latest own activity on the item (authoring it,
+	// commenting, submitting reviews or review comments, pushing commits, or performing state
+	// events), since the user has necessarily seen everything up to their own latest action. Unset
+	// when neither exists. Not a source of truth and never meaningful when read from storage.
+	// Clients should prefer it over last_viewed_at when deciding what is new since the last view.
+	ComputedLastViewedAt *timestamppb.Timestamp
 }
 
 func (b0 ItemLocalState_builder) Build() *ItemLocalState {
@@ -2062,25 +2092,26 @@ func (b0 ItemLocalState_builder) Build() *ItemLocalState {
 	b, x := &b0, m0
 	_, _ = b, x
 	if b.ComputedStatus != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 8)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 9)
 		x.xxx_hidden_ComputedStatus = *b.ComputedStatus
 	}
 	x.xxx_hidden_LastViewedAt = b.LastViewedAt
 	x.xxx_hidden_AckedAt = b.AckedAt
 	if b.PrivateNotes != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 8)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 9)
 		x.xxx_hidden_PrivateNotes = b.PrivateNotes
 	}
 	if b.Starred != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 4, 8)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 4, 9)
 		x.xxx_hidden_Starred = *b.Starred
 	}
 	if b.SyncError != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 8)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 9)
 		x.xxx_hidden_SyncError = b.SyncError
 	}
 	x.xxx_hidden_ReviewBackfillBefore = b.ReviewBackfillBefore
 	x.xxx_hidden_AckedActivityAt = b.AckedActivityAt
+	x.xxx_hidden_ComputedLastViewedAt = b.ComputedLastViewedAt
 	return m0
 }
 
@@ -3218,7 +3249,7 @@ const file_octodeck_v1_resources_proto_rawDesc = "" +
 	"\x05Label\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05color\x18\x02 \x01(\tR\x05color\x12 \n" +
-	"\vdescription\x18\x03 \x01(\tR\vdescription\"\xc9\x03\n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\"\x9c\x04\n" +
 	"\x0eItemLocalState\x12@\n" +
 	"\x0fcomputed_status\x18\x01 \x01(\x0e2\x17.octodeck.v1.ItemStatusR\x0ecomputedStatus\x12@\n" +
 	"\x0elast_viewed_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\flastViewedAt\x125\n" +
@@ -3228,7 +3259,9 @@ const file_octodeck_v1_resources_proto_rawDesc = "" +
 	"\n" +
 	"sync_error\x18\a \x01(\tR\tsyncError\x12P\n" +
 	"\x16review_backfill_before\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\x14reviewBackfillBefore\x12F\n" +
-	"\x11acked_activity_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\x0fackedActivityAtJ\x04\b\x04\x10\x05\"\xb8\a\n" +
+	"\x11acked_activity_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\x0fackedActivityAt\x12Q\n" +
+	"\x17computed_last_viewed_at\x18\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\x14computedLastViewedAtJ\x04\b\x04\x10\x05\"\xb8\a\n" +
 	"\x04Item\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04repo\x18\x02 \x01(\tR\x04repo\x12\x16\n" +
@@ -3358,27 +3391,28 @@ var file_octodeck_v1_resources_proto_depIdxs = []int32{
 	18, // 15: octodeck.v1.ItemLocalState.acked_at:type_name -> google.protobuf.Timestamp
 	18, // 16: octodeck.v1.ItemLocalState.review_backfill_before:type_name -> google.protobuf.Timestamp
 	18, // 17: octodeck.v1.ItemLocalState.acked_activity_at:type_name -> google.protobuf.Timestamp
-	0,  // 18: octodeck.v1.Item.type:type_name -> octodeck.v1.ItemType
-	1,  // 19: octodeck.v1.Item.state:type_name -> octodeck.v1.ItemState
-	18, // 20: octodeck.v1.Item.updated_at:type_name -> google.protobuf.Timestamp
-	18, // 21: octodeck.v1.Item.last_synced_at:type_name -> google.protobuf.Timestamp
-	7,  // 22: octodeck.v1.Item.author:type_name -> octodeck.v1.User
-	11, // 23: octodeck.v1.Item.commits:type_name -> octodeck.v1.Commit
-	8,  // 24: octodeck.v1.Item.comments:type_name -> octodeck.v1.Comment
-	10, // 25: octodeck.v1.Item.reviews:type_name -> octodeck.v1.Review
-	7,  // 26: octodeck.v1.Item.assignees:type_name -> octodeck.v1.User
-	15, // 27: octodeck.v1.Item.local:type_name -> octodeck.v1.ItemLocalState
-	18, // 28: octodeck.v1.Item.created_at:type_name -> google.protobuf.Timestamp
-	12, // 29: octodeck.v1.Item.milestone:type_name -> octodeck.v1.Milestone
-	14, // 30: octodeck.v1.Item.labels:type_name -> octodeck.v1.Label
-	13, // 31: octodeck.v1.Item.state_events:type_name -> octodeck.v1.StateEvent
-	6,  // 32: octodeck.v1.Item.viewer_subscription:type_name -> octodeck.v1.SubscriptionState
-	18, // 33: octodeck.v1.SyncTrace.created_at:type_name -> google.protobuf.Timestamp
-	34, // [34:34] is the sub-list for method output_type
-	34, // [34:34] is the sub-list for method input_type
-	34, // [34:34] is the sub-list for extension type_name
-	34, // [34:34] is the sub-list for extension extendee
-	0,  // [0:34] is the sub-list for field type_name
+	18, // 18: octodeck.v1.ItemLocalState.computed_last_viewed_at:type_name -> google.protobuf.Timestamp
+	0,  // 19: octodeck.v1.Item.type:type_name -> octodeck.v1.ItemType
+	1,  // 20: octodeck.v1.Item.state:type_name -> octodeck.v1.ItemState
+	18, // 21: octodeck.v1.Item.updated_at:type_name -> google.protobuf.Timestamp
+	18, // 22: octodeck.v1.Item.last_synced_at:type_name -> google.protobuf.Timestamp
+	7,  // 23: octodeck.v1.Item.author:type_name -> octodeck.v1.User
+	11, // 24: octodeck.v1.Item.commits:type_name -> octodeck.v1.Commit
+	8,  // 25: octodeck.v1.Item.comments:type_name -> octodeck.v1.Comment
+	10, // 26: octodeck.v1.Item.reviews:type_name -> octodeck.v1.Review
+	7,  // 27: octodeck.v1.Item.assignees:type_name -> octodeck.v1.User
+	15, // 28: octodeck.v1.Item.local:type_name -> octodeck.v1.ItemLocalState
+	18, // 29: octodeck.v1.Item.created_at:type_name -> google.protobuf.Timestamp
+	12, // 30: octodeck.v1.Item.milestone:type_name -> octodeck.v1.Milestone
+	14, // 31: octodeck.v1.Item.labels:type_name -> octodeck.v1.Label
+	13, // 32: octodeck.v1.Item.state_events:type_name -> octodeck.v1.StateEvent
+	6,  // 33: octodeck.v1.Item.viewer_subscription:type_name -> octodeck.v1.SubscriptionState
+	18, // 34: octodeck.v1.SyncTrace.created_at:type_name -> google.protobuf.Timestamp
+	35, // [35:35] is the sub-list for method output_type
+	35, // [35:35] is the sub-list for method input_type
+	35, // [35:35] is the sub-list for extension type_name
+	35, // [35:35] is the sub-list for extension extendee
+	0,  // [0:35] is the sub-list for field type_name
 }
 
 func init() { file_octodeck_v1_resources_proto_init() }

@@ -229,6 +229,7 @@ var debugItemCmd = &cobra.Command{
 		}
 		status := logic.CalculateStatus(item, currentUser, cfg.GetKnownBots())
 		item.GetLocal().SetComputedStatus(status)
+		logic.SetComputedLastViewedAt(item, currentUser)
 
 		if asJSON {
 			marshaller := protojson.MarshalOptions{
@@ -246,6 +247,10 @@ var debugItemCmd = &cobra.Command{
 			fmt.Printf("Title: %s\n", item.GetTitle())
 			fmt.Printf("State: %s\n", item.GetState())
 			fmt.Printf("Status: %s\n", item.GetLocal().GetComputedStatus())
+			if item.GetLocal().HasComputedLastViewedAt() {
+				fmt.Printf("Last Viewed (effective): %s\n",
+					item.GetLocal().GetComputedLastViewedAt().AsTime().Format(time.RFC3339))
+			}
 		}
 		return nil
 	},
