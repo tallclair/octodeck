@@ -16,67 +16,12 @@ var (
 	blockquoteLineRegex  = regexp.MustCompile(`(?m)^\s*>.*$`)
 )
 
-// CalculateStatus derives the status of an item based on its history and user interaction.
+// CalculateStatus derives the status of an item based on its history and user interaction. It is
+// the highest-priority flag of ComputeActivity: ACKED, then New Mention (explicit @mention of the
+// user), New for never-seen items, New Activity (non-noise comments, reviews or state events), New
+// Code (commits), Noise, and finally Idle.
 func CalculateStatus(item *octodeckv1.Item, currentUser string, knownBots []string) octodeckv1.ItemStatus {
-	hasAcked := IsAcked(item.GetLocal())
-	// ackedAt is the activity watermark (GitHub clock), not the time the ack happened.
-	var ackedAt time.Time
-	updatedAt := item.GetUpdatedAt().AsTime()
-
-	if hasAcked {
-		ackedAt = AckedActivityAt(item.GetLocal())
-		if remainsAcked(item, ackedAt, updatedAt, currentUser, knownBots) {
-			return octodeckv1.ItemStatus_ITEM_STATUS_ACKED
-		}
-	}
-
-	// The user has seen everything up to their own latest activity (including authoring the item),
-	// so own activity always counts as viewed, whether or not auto-ack is enabled.
-	viewedAt := EffectiveLastViewedAt(item, currentUser)
-	hasViewed := !viewedAt.IsZero()
-
-	// 1. Never before seen => New Mention if explicitly mentioned, otherwise New (blue).
-	if !hasViewed && !hasAcked {
-		if hasNewMention(item, time.Time{}, currentUser) {
-			return octodeckv1.ItemStatus_ITEM_STATUS_NEW_MENTION
-		}
-		return octodeckv1.ItemStatus_ITEM_STATUS_NEW
-	}
-
-	// Determine baseline timestamp "since" for what constitutes new activity to the user.
-	// Activity preceding either the effective last view or the acknowledgement has already been
-	// viewed or accepted. At least one of them is set here, so since is never zero.
-	since := baselineSince(viewedAt, hasAcked, ackedAt)
-
-	// If no updates since baseline
-	if !updatedAt.After(since) {
-		return octodeckv1.ItemStatus_ITEM_STATUS_IDLE
-	}
-
-	// 2. Explicit @mention of the authenticated user in new comments or reviews => New Mention (highest priority)
-	if hasNewMention(item, since, currentUser) {
-		return octodeckv1.ItemStatus_ITEM_STATUS_NEW_MENTION
-	}
-
-	// 3. New non-noise comments, PR reviews, OR state events => New Activity (yellow/orange)
-	if hasValidNewComments(item, since, currentUser, knownBots) ||
-		hasValidNewReviews(item, since, currentUser, knownBots) ||
-		hasValidNewStateEvents(item, since, currentUser, knownBots) {
-		return octodeckv1.ItemStatus_ITEM_STATUS_NEW_ACTIVITY
-	}
-
-	// 4. New commit pushed => New Commit (green)
-	if hasValidNewCommits(item, since, currentUser) {
-		return octodeckv1.ItemStatus_ITEM_STATUS_NEW_CODE
-	}
-
-	// 5. New noise comments => Noise (grey, faded)
-	if hasNoiseActivity(item, since, currentUser, knownBots) {
-		return octodeckv1.ItemStatus_ITEM_STATUS_NOISE
-	}
-
-	// 6. Idle (no display)
-	return octodeckv1.ItemStatus_ITEM_STATUS_IDLE
+	return ComputeActivity(item, currentUser, knownBots).Status()
 }
 
 func remainsAcked(
