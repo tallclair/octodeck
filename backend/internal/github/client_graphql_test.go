@@ -1507,6 +1507,38 @@ func TestFetchItemsByIDs(t *testing.T) {
 	require.Len(t, items, 2)
 }
 
+func TestFetchItemsByIDs_NodesLengthMismatch(t *testing.T) {
+	// testdata/items_response.json contains two nodes, for the first two IDs below.
+	response := loadTestResponse(t, "testdata/items_response.json")
+	client := &Client{GraphQLClient: &mockGraphQLClient{
+		queryFunc: func(_ context.Context, _ string, q any, _ map[string]any) error {
+			bytes, err := json.Marshal(response)
+			if err != nil {
+				return err
+			}
+			return json.Unmarshal(bytes, q)
+		},
+	}}
+
+	t.Run("short response marks the remaining IDs missing", func(t *testing.T) {
+		items, _, missing, err := client.FetchItemsByIDs(t.Context(), []string{
+			"PR_kwDOAToIks6zimkN",
+			"I_kwDOAToIks7gNKvx",
+			"PR_not_returned",
+		})
+		require.NoError(t, err)
+		assert.Len(t, items, 2)
+		assert.Equal(t, []string{"PR_not_returned"}, missing)
+	})
+
+	t.Run("long response ignores extra nodes", func(t *testing.T) {
+		items, _, missing, err := client.FetchItemsByIDs(t.Context(), []string{"PR_kwDOAToIks6zimkN"})
+		require.NoError(t, err)
+		assert.Len(t, items, 1)
+		assert.Empty(t, missing)
+	})
+}
+
 func TestGraphQLQueryConstruction_NoUnionSelectionErrors(t *testing.T) {
 	var recordedQueries []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

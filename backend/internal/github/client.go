@@ -1656,8 +1656,19 @@ func (c *Client) fetchNodesBatch(
 	var missingIDs []string
 	currentUser := c.CurrentLogin()
 
-	for i, node := range query.Nodes {
-		requestedID := ids[i]
+	if len(query.Nodes) != len(ids) {
+		slog.WarnContext(ctx, "GraphQL nodes response length mismatch",
+			"requested", len(ids), "returned", len(query.Nodes))
+	}
+
+	// nodes(ids:) returns one entry per requested ID, in order (null for IDs that can't be
+	// resolved). Iterate over the requested IDs so a short response marks the remainder as
+	// missing instead of indexing out of range.
+	for i, requestedID := range ids {
+		var node *gqlSearchResultNode
+		if i < len(query.Nodes) {
+			node = query.Nodes[i]
+		}
 		if node == nil {
 			missingIDs = append(missingIDs, requestedID)
 			continue
