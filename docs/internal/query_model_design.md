@@ -25,7 +25,10 @@ Today [`DashboardFilterState`](../../frontend/src/types/filters.ts) is a flat se
 
 **Decision:** build one shared foundation (the query model) first, then ship the features as separate, small changes on top of it.
 
-### 1.1 Current state of the code
+### 1.1 State of the code before Phase 0
+
+Phase 0 replaced this with backend filtering (§7); the section is kept to explain the motivation.
+
 
 - **All filtering is client-side.** `Dashboard` calls `GetItems({})` every 3 seconds and runs `applyFilters` over the full item list. The extension background worker and the DataBrowser also fetch unfiltered.
 - **The backend `Filter` message is partially implemented and unused.** Some fields become SQL in `database.go`; status, milestone and labels are filtered after the query in `handler.go`. It has already drifted from the client: the backend's `query` field only matches the repo name, while the client's free text matches title, body, repo, author, milestone, labels and `#number`.
@@ -151,7 +154,7 @@ The problems with `is:` are about meaning; the problems with dimension keys are 
 | `starred` | `true`, `false` | `is:starred` |
 | `new` | `item`, `mention`, `comment`, `code`, `noise`, `any` | `is:new` = `new:any` |
 | `repo` / `org` | `owner/name` / `owner` | |
-| `author` / `assignee` | login, or `@me` | |
+| `author` / `assignee` | login (a leading `@` is accepted and stripped by the parser), or `@me` | |
 | `milestone`, `label` | name | |
 | `no` | `assignee`, `label`, `milestone` | |
 | `in` | `title`, `body` (narrows free text) | |
@@ -193,11 +196,11 @@ Today the whole query is one substring that must appear in any of title, body, r
 
 ### 4.6 Triage scope
 
-The Inbox / Activity / Acked / All tabs are currently a separate `triage` field, but they are filters on computed status (Inbox = not ACKED; Activity = not ACKED, IDLE or NOISE; Acked = ACKED). That overlaps with the activity filters, so triage becomes part of the query.
+Before Phase 0 the Inbox / New / Acked / All tabs were a separate `triage` field, but they are filters on computed status (Inbox = not ACKED; New = not ACKED, IDLE or NOISE; Acked = ACKED). That overlaps with the activity filters, so triage becomes part of the query.
 
 - **The backend adds `triage:inbox`** when the `Expr` contains no `triage` predicate anywhere in the tree. An empty query means "inbox". The same query therefore means the same thing in the dashboard, the API and saved searches.
 - Including acked items requires an explicit `triage:acked`; `triage:all` expands to `triage:inbox,acked`.
-- The "Activity" tab becomes inbox + `is:new`.
+- The "New" tab (`TriageFilter` value `'activity'`) becomes inbox + `new:any`.
 - A saved search that omits `triage:` runs within whichever triage tab is active.
 - **Callers that need every item must send `triage:all`**. Today that is only the DataBrowser. The extension background worker does not call `GetItems` at all (badge and notification decisions run in the daemon), and a guard test keeps it that way; any future caller there would also need `triage:all`.
 
@@ -244,7 +247,7 @@ Two designs keep the chips while allowing free-form editing:
 - Opening a chip while the draft holds unfinished text commits the draft.
 - Keyboard (Backspace into a chip, arrows, Home/End, Delete), IME and screen-reader accessibility need explicit design and tests.
 
-The interaction design is specified in [Phase 2 plan §6](query_model_phase2_query_input.md#6-tokenized-input-u1). The prototype was throwaway code and is deleted in Phase 2.
+The interaction design is specified in [Phase 2 plan §6](query_model_phase2_query_input.md#6-tokenized-input-u1). The prototype was throwaway code; Phase 1 records it in git history (commit 1.0) and deletes it (commit 1.1).
 
 ### 7.2 URLs after Phase 2
 
@@ -272,4 +275,4 @@ None. All Phase 1–3 questions are decided; see [query_model_plan_overview.md �
 - Closed-value sets are validated strings in `Predicate.values`, documented on each `Field` enum value in `query.proto`, rather than per-field enums. This keeps `Predicate` uniform across open and closed fields.
 - Phase 2 input design: tokenized chips (§7.1).
 - Saved searches store the user's original query text, in `config.json`, as their only form; there is no stored `Expr` (§3.3; [Phase 3 plan §3](query_model_phase3_saved_searches.md#3-storage-configjson-with-the-query-text-as-the-source-of-truth-u13)).
-- Saved-search badges depend on the saved query's triage scope; all-items searches show the inbox badge, or the acked style when no match is in the inbox ([Phase 3 plan §6.1](query_model_phase3_saved_searches.md#61-badge-semantics-by-triage-scope-u12-u14-p21)).
+- Saved-search badges depend on the saved query's triage scope; all-items searches show the inbox badge, or the acked style when no match is in the inbox ([Phase 3 plan §6.3](query_model_phase3_saved_searches.md#63-badge-semantics-by-triage-scope-u12-u14-p21)).

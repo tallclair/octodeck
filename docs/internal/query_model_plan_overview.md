@@ -34,19 +34,19 @@ Each phase document is self-contained for the agent implementing that phase: pre
 | # | Decision | Implemented in |
 |---|---|---|
 | U1 | Phase 2 input is **option 1, tokenized chips** (Gmail/Linear style), chosen after hands-on testing of a side-by-side prototype. | Phase 2 §6 |
-| U2 | The prototype (`frontend/prototype/query-input.html`, `frontend/src/prototypes/queryInput/`) is throwaway reference code. It is deleted during Phase 2 and is never imported by production code. | Phase 2 §11 |
+| U2 | The prototype (`frontend/prototype/query-input.html`, `frontend/src/prototypes/queryInput/`) is throwaway reference code. Phase 1 commit 1.0 records it in git history and commit 1.1 deletes it (its tests and lint would otherwise run on every commit); it is never imported by production code. Phase 2 reads it from git history (commit 1.0) and keeps its lessons list. | Phase 1 §9 (commits 1.0–1.1), Phase 2 §11 |
 | U3 | `in:comments` is **out of scope** (no demand). | all |
 | U4 | **No Go parser and no ParseQuery RPC.** TypeScript owns syntax, Go owns semantics; the wire format stays a structured `Expr` (parent §3.2–3.3). | all |
 | U5 | After Phase 2 the dashboard **writes** a single `?q=` (text syntax), with `sort`, `order` and `item` kept as separate parameters. It **reads** the legacy structured parameters forever, converts them with `formatQuery`, ANDs them with any `?q=`, and rewrites the URL with `history.replaceState`. It never writes both formats. | Phase 2 §8 |
-| U6 | Saved searches keep the user's original text (resolves the parent's open item), because option 1 chips display raw text. U13 makes the text the only stored form. | Phase 3 §3 |
+| U6 | Saved searches keep the user's original text, because option 1 chips display raw text. U13 makes the text the only stored form. | Phase 3 §3 |
 | U7 | The Phase 2 query input moves from the top nav into the list header, full width; the Phase 1 chips row is removed (chips live in the input). | Phase 2 §9 |
 | U8 | The input's clear (×) button clears the **whole** query, including tab chips such as `triage:acked` or `new:any`. | Phase 2 §5.3 |
 | U9 | Unknown keys are **errors** (`lable:bug` is an error chip), not free text. Quote to search literally: `"foo:bar"`. Error chips must be visually distinct from negated chips (`-label:kind/bug`), and **neither uses strikethrough**. | Phase 1 §3.5, Phase 2 §3, §6.3, §7 |
 | U10 | Updating a saved search's query in place is **deferred** (non-goal for Phase 3). | Phase 3 §2 |
 | U11 | **Everything is multi-select except fields with a clear binary state.** Multi-select: repo, org, author, assignee, milestone, label, activity (`new:`). Binary fields stay single-select toggles or segmented controls: type (PR/Issue), tracking, draft, starred. State (open/closed/merged) is single-select because merged is a subset of closed. Triage stays as tabs. | Phase 1 §2–§3 |
-| U12 | Saved-search badges depend on the saved query's **triage scope**: inbox searches show the count, orange if any match has new activity; new-activity searches show the count, always orange; acked searches show a faded count with no bubble. | Phase 3 §6.1 |
+| U12 | Saved-search badges depend on the saved query's **triage scope**: inbox searches show the count, orange if any match has new activity; new-activity searches show the count, always orange; acked searches show a faded count with no bubble. | Phase 3 §6.3 |
 | U13 | **Saved searches live in `config.json`**, as a repeated `Config` field `{id, name, query, sort}` in display order, with the **query text, exactly as typed, as the source of truth**. The daemon stores and returns the text and never parses it; there is no stored `Expr` and no SQLite table. The frontend parses saved text with `parseQuery` when opening a search and when building badge requests, and sends the resulting `Expr` as today, so **the structured wire format does not change**. Reasons: every consumer is in the browser, which already parses text; text keeps exactly what the user typed; it is human-readable, hand-editable and backed up with `config.json`. Cost: the daemon cannot evaluate saved searches by itself (a Go parser is added if a Go-side text consumer appears, parent §3.3). This supersedes the parent's earlier "saved searches are stored as `Expr`" statement. | Phase 3 §3–§5 |
-| U14 | An **all-items** saved search (`triage:all`, or `inbox,acked`) shows exactly the inbox badge (count of matching inbox items, orange if any has new activity); if no matching item is in the inbox, it shows the acked style (faded count of all matching items, no bubble). | Phase 3 §6.1 |
+| U14 | An **all-items** saved search (`triage:all`, or `inbox,acked`) shows exactly the inbox badge (count of matching inbox items, orange if any has new activity); if no matching item is in the inbox, it shows the acked style (faded count of all matching items, no bubble). | Phase 3 §6.3 |
 
 ### 2.2 Plan decisions (P*)
 
@@ -115,7 +115,7 @@ frontend/src/
     savedSearches.ts
 ```
 
-Deleted along the way: `ActiveFilterChips.tsx` (Phase 2), `textTerms.ts` (Phase 2), the prototype directories (Phase 2).
+Deleted along the way: `ActiveFilterChips.tsx` (Phase 2), `textTerms.ts` (Phase 2), the prototype directories (Phase 1, commit 1.1; preserved in history by commit 1.0).
 
 Backend additions: `backend/internal/config/{saved_searches,migrate}.go` (Phase 3), `backend/internal/server/saved_searches.go` (Phase 3), `backend/internal/query/count.go` (Phase 3). No database migrations.
 

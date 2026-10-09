@@ -11,13 +11,13 @@ This document is self-contained for the agent implementing Phase 2. Read the [ov
 ## 1. Prerequisites
 
 - **Phase 1 merged** ([query_model_phase1_multiselect.md](query_model_phase1_multiselect.md)). Phase 2 relies on:
-  - the extracted components in `frontend/src/components/dashboard/` (`FilterToolbar`, `MultiSelectMenu`, `TriageTitleMenu`, `SortMenu`, `DashboardSidebar`, `ActiveFilterChips`) and `useMenuGroup`;
+  - the extracted components in `frontend/src/components/dashboard/` (`FilterToolbar`, `TriageTitleMenu`, `SortMenu`, `DashboardSidebar`, `ActiveFilterChips`), the new `MultiSelectMenu` (which owns its `showAll` and builds options from raw facet values), and `useMenuGroup` (instantiated once in `Dashboard`);
   - `FilterControls` with array values (`repo`, `org`, `author`, `assignee`, `milestone`, `label`, `activity`) and the single-select `state` with `merged`;
   - `projectControls` returning **owner indices** and controls that edit only the predicate they display (Phase 1 P2). Phase 2 reuses the same algorithm over parsed clauses;
-  - the Activity/New-tab rules ([Phase 1 §3.4](query_model_phase1_multiselect.md)) and the org/repo rule (Phase 1 P3);
+  - the Activity/New-tab rules and the **two tab entry points** (title menu = in-place tab switch; sidebar Workflow rows = reset text and sort to the tab alone), stated once in [Phase 1 §3.4](query_model_phase1_multiselect.md#34-activity-menu-and-the-new-tab-p4), and the org/repo rule (Phase 1 P3);
   - `Field.ASSIGNEE` and `Field.NEW` in `SELECTOR_FIELDS` (autocomplete reuses those facets);
   - the muted "NOT" marker style for negated chips ([Phase 1 §3.5](query_model_phase1_multiselect.md)).
-- The prototype in `frontend/prototype/` and `frontend/src/prototypes/queryInput/` (untracked) is a behavioural reference only; it is deleted in this phase (§11).
+- The throwaway prototype was recorded in git history by Phase 1 commit 1.0 and deleted in commit 1.1 (U2). Read it there (`git show <commit 1.0>:frontend/src/prototypes/queryInput/TokenizedInput.tsx`, likewise `useSuggestions.ts` and `parser.ts`) as a behavioural reference only (§11).
 - User decisions that apply here: U1, U2, U4, U5, U7, U8, U9 ([overview](query_model_plan_overview.md#21-decided-by-the-user)).
 
 ## 2. Goals and non-goals
@@ -49,18 +49,19 @@ key        = [A-Za-z_]+                ; case-insensitive; must start the body (
 valuelist  = value ( "," value )*      ; commas are OR
 value      = quoted | bare
 bare       = 1*( any char except whitespace, "," and '"' )
-quoted     = '"' *( qchar | "\\" '"' | "\\" "\\" ) '"'
+quoted     = '"' *( qchar | escape ) '"'
 qchar      = any char except '"' and "\"
+escape     = "\" any-char             ; consumed as a pair; see the scanning rule
 term       = quoted | word
 word       = 1*( any char except whitespace and '"' )   ; may contain ":" and "," if it does not start with key ":"
 ```
 
-Scanning rule for clause boundaries (this is what makes chips stable while typing): a clause runs from a non-whitespace character to the next whitespace character **that is outside a quoted string**. A `"` toggles "inside quotes" unless it is escaped with `\` while inside quotes. An unterminated quote runs to the end of the text.
+Scanning rule for clause boundaries (this is what makes chips stable while typing): a clause runs from a non-whitespace character to the next whitespace character **that is outside a quoted string**. Outside quotes, a `"` opens a quoted string. **Inside quotes, the scanner consumes `\` together with the next character as one unit** (so `\\` is one escaped backslash and a following `"` closes the string; never decide by looking at the previous character only), and an unescaped `"` closes the string. `\"` means `"`, `\\` means `\`, and `\` followed by any other character `x` means the two characters `\x` literally (total and forgiving). An unterminated quote runs to the end of the text. Backslashes outside quotes are ordinary characters.
 
 Interpretation of one clause:
 1. Negation: the clause is negated if it starts with `-` and is longer than one character. A lone `-` is `incomplete`.
 2. Qualifier: if the body (after `-`) matches `^[A-Za-z_]+:` the clause is a qualifier with that key (lower-cased). Otherwise it is a term.
-3. Values: the text after `:` is split on commas outside quotes. Each part is a value. Quoted values are unescaped (`\"` → `"`, `\\` → `\`). A quoted value must be the whole part (`label:"a"b` is an error); a bare value must not contain `"`.
+3. Values: the text after `:` is split on commas outside quotes. Each part is a value. Quoted values are unescaped as above. A quoted value must be the whole part (`label:"a"b` is an error); a bare value must not contain `"`. A quoted empty value (`label:""`) is an `empty-value` clause, exactly like `label:a,,b` (the daemon rejects empty values).
 4. Terms: a quoted term is a phrase (unescaped); a word is taken verbatim. A word containing `"` is an error ("Quotes must surround the whole term").
 
 ### 3.2 Keys and values
@@ -78,15 +79,15 @@ Keys come from one table (see §10, vocabulary consolidation). Closed sets mirro
 | `new` | `NEW` | `item`, `mention`, `comment`, `code`, `noise`, `any` |
 | `repo` | `REPO` | open (`owner/name`) |
 | `org` | `ORG` | open |
-| `author` | `AUTHOR` | open (login, `@login`, or `@me`) |
-| `assignee` | `ASSIGNEE` | open (login, `@login`, or `@me`) |
+| `author` | `AUTHOR` | open (login, `@login`, or `@me`; one leading `@` is stripped except for `@me`) |
+| `assignee` | `ASSIGNEE` | open (login, `@login`, or `@me`; one leading `@` is stripped except for `@me`) |
 | `milestone` | `MILESTONE` | open |
 | `label` | `LABEL` | open |
 | `no` | `NO` | `assignee`, `label`, `milestone` |
 | `in` | `IN` | `title`, `body` (must not be negated) |
 | *(term)* | `TEXT` | one value per term |
 
-Closed values are matched case-insensitively and **stored lower-cased** in the predicate. Open values are stored exactly as written (after unquoting); the daemon trims and case-folds.
+Closed values are matched case-insensitively and **stored lower-cased** in the predicate. Open values are stored exactly as written (after unquoting); the daemon trims and case-folds. The one exception: for `author` and `assignee` the parser strips **one** leading `@` from every value other than `@me` (case-insensitive), so `author:@alice` and `author:alice` produce the same predicate `author:alice`; `formatValue` never writes `@` except for `@me`. (Users see `@alice` in the Author menu rows and will type it.)
 
 ### 3.3 `is:` shorthand
 
@@ -119,7 +120,7 @@ Each clause gets a `status`: `ok`, `incomplete`, or `error`. Only `ok` clauses p
 | Code | Status | Example | Span |
 |---|---|---|---|
 | `missing-value` | incomplete | `label:` | after the colon (zero-width at end) |
-| `empty-value` | incomplete | `label:a,` / `label:a,,b` | the empty value position |
+| `empty-value` | incomplete | `label:a,` / `label:a,,b` / `label:""` | the empty value position |
 | `unterminated-quote` | incomplete | `label:"good first` | from the opening quote to the end |
 | `lone-dash` | incomplete | `-` | the clause |
 | `unknown-key` | error | `lable:bug` | the key |
@@ -127,9 +128,9 @@ Each clause gets a `status`: `ok`, `incomplete`, or `error`. Only `ok` clauses p
 | `mixed-is` | error | `is:open,pr` | the values |
 | `negated-in` | error | `-in:title` | the `-` |
 | `bad-quote` | error | `label:"a"b`, `fla"ky` | the clause |
-| `empty-term` | error | `""` | the clause |
+| `empty-term` | error | `""`, `-""` | the clause |
 
-Messages are human-readable and name the allowed values for closed fields ("state must be open, closed or merged"). `triage:all` is `ok` with an informational note "= inbox,acked"; `#123`/`123` terms get the note "Also matches item number 123".
+Messages are human-readable and name the allowed values for closed fields ("state must be open, closed or merged"). The `unknown-key` message suggests quoting: "*key* is not a filter. Quote it to search for the text: \"…\"". Any word of the shape `[A-Za-z_]+:…` is a qualifier, so free text such as a pasted URL (`https://github.com/…`) or `TODO:` becomes an `unknown-key` error (U9); the user guide documents the quoting workaround. `- "x"` (with a space) is two clauses: a `lone-dash` and a term. `triage:all` is `ok` with an informational note "= inbox,acked"; `#123`/`123` terms get the note "Also matches item number 123".
 
 The parser does **not** check semantics owned by Go beyond the closed sets and `in` negation (e.g. it does not know whether a repo exists). Server validation still runs (§7).
 
@@ -154,7 +155,7 @@ export interface Clause extends Span {
   readonly raw: string;                   // text.slice(start, end)
   readonly negated: boolean;
   readonly kind: 'qualifier' | 'term';
-  readonly key?: Span & { readonly text: string }; // lower-cased as typed, e.g. 'is', 'label'
+  readonly key?: Span & { readonly text: string }; // text is the key lower-cased, e.g. 'is', 'label'; the original spelling is in raw
   readonly values: readonly ValueNode[];  // terms have exactly one
   readonly status: ClauseStatus;
   readonly predicate: FilterPredicate | null; // set iff status === 'ok'
@@ -186,6 +187,7 @@ export function segmentClause(clause: Clause): Segment[]; // for chip rendering 
 ### 3.6 Formatter
 
 - `formatPredicate`: `(negated ? '-' : '') + key + ':' + values.map(formatValue).join(',')`, key from the vocabulary table. `TEXT` predicates: `(negated ? '-' : '') + formatTerm(value)`.
+- Formatter domain: non-empty values only; `author`/`assignee` values never start with `@` except `@me` (the parser strips it, §3.2); a negated `in` predicate cannot occur (the parser flags it and the legacy reader drops it), and `formatQuery` throws `QueryFormatError` if given one.
 - `formatValue(v)`: bare if `/^[^\s,"]+$/.test(v)`, otherwise `"` + `v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')` + `"`. Closed values are always bare.
 - `formatTerm(v)`: bare if `/^[^\s"]+$/.test(v)` and `v` does not start with `-` and does not match `/^[A-Za-z_]+:/`; otherwise quoted as above.
 - `formatPredicates`: predicates joined by single spaces, in order.
@@ -222,7 +224,9 @@ text ──parseQuery──▶ ParsedQuery ──projectControls──▶ { cont
                          └──toExpr──▶ Expr (only ok clauses) ──▶ GetItems / GetFacets
 ```
 
-`projectControls` keeps the Phase 1 algorithm but runs over the ok clauses' predicates and returns **clause indices** in `owners`. The New tab is derived exactly as in Phase 1.
+`projectClauses(parsed)` (added in commit 2.3, next to the Phase 1 `projectControls`, which 2.4 then deletes) runs the Phase 1 algorithm over the ok clauses' predicates and returns **clause indices** in `owners`. The New tab is derived exactly as in Phase 1.
+
+**Invariant:** `state.text` always has single-space separators between clauses and no leading or trailing whitespace (`toText(fromText(text)) === text`). Every writer of `state.text` maintains it: `parseDashboardUrl` normalises with `scan(text).map(c => c.raw).join(' ')` (§8.2), the input emits `toText(...)` (§6.1), and the splices in §5 keep single spaces.
 
 ### 4.1 `useDashboardFilters` API (rewritten)
 
@@ -239,16 +243,35 @@ export function useDashboardFilters(): {
   setSort(sort: SortOption): void;
   setOrder(order: SortOrder): void;
   selectItem(id: string | null): void;
-  applyWorkflowShortcut(tab: TriageFilter): void; // Inbox -> '', New -> 'new:any', Acked -> 'triage:acked'
+  applyWorkflowShortcut(tab: TriageFilter): void; // text -> '' / 'new:any' / 'triage:acked'; sort, order default; item cleared
   toggleRepo(repo: string): void;
-  clearQuery(): void;                              // text -> '' (U8)
-  openSavedSearch(s: SavedSearchView): void;       // Phase 3
+  clearQuery(): void;                              // text -> ''; sort, order, item unchanged (U8)
   isDefault: boolean;
   activeCount: number;                              // clauses + non-default sort
 };
 ```
 
-`requestText` replaces the current `useDebouncedValue(query.q, SEARCH_DEBOUNCE_MS)` in `useDashboardData`: keep the last edit kind in state and debounce only `typing` edits.
+`requestText` replaces the current `useDebouncedValue(query.q, SEARCH_DEBOUNCE_MS)` in `useDashboardData`. The state keeps the kind of the last edit, and every entry point has a fixed kind:
+
+| Entry point | Kind | History |
+|---|---|---|
+| Keystrokes, paste, cut in the input; draft commits by space, Enter, Escape or blur | `typing` | `replaceState` |
+| Dropdown/control edits, title-menu tab switch, sidebar Workflow rows, sidebar repo rows, saved-search open (Phase 3), chip ×, clear button, undo/redo in the input | `edit` | `pushState` |
+| Initial load, `popstate` | `edit` | none (URL already current; legacy URLs rewritten with `replaceState`, §8.2) |
+
+The request text is derived by one effect keyed on `(text, kind)`, so a dropdown click arriving while a typing debounce is pending is applied immediately and the stale timer cannot overwrite it:
+
+```ts
+useEffect(() => {
+  if (kind === 'edit') { setRequestText(text); return; }
+  const t = setTimeout(() => setRequestText(text), SEARCH_DEBOUNCE_MS);
+  return () => clearTimeout(t);
+}, [text, kind]);
+```
+
+All text-editing setters (`setControl`, `setTriageTab`, `toggleRepo`, `clearQuery`, and Phase 3's saved-search open) compute from the **latest** state inside the updater: `setState(prev => ({ ...prev, text: setControlInText(prev.text, parseQuery(prev.text), key, value), kind: 'edit' }))`. Owners and spans are never taken from render scope: a pointer-down on a dropdown first blurs the input (committing the draft) and then clicks, which are two state updates in one tick.
+
+`openSavedSearch` is not part of Phase 2; Phase 3 adds it ([Phase 3 §7](query_model_phase3_saved_searches.md#7-opening-a-saved-search-and-the-triage-tabs-p16)).
 
 ## 5. Keeping input, dropdowns and tabs in sync (P7)
 
@@ -261,19 +284,19 @@ Module: `frontend/src/logic/query/textEdit.ts` (pure). Every non-typing edit is 
 | `insertClause(text, parsed, raw, rank)` | inserts before the first ok qualifier clause whose rank (`rankOf`) is greater than `rank`; free-text terms rank after every qualifier; a single space separates; empty text becomes `raw` |
 
 Built on these:
-- `setControlInText(text, parsed, owners, key, value)`: the control's displayed clause (by `owners[key]`) is replaced with `formatPredicate(next)`, removed when `next` is empty, or a new clause is inserted at its canonical rank. This is the Phase 2 `setControl`.
-- `setTriageTabInText`: removes every clause whose predicate is `triage`, and the activity clause only if it is exactly `new:any` ([Phase 1 §3.4](query_model_phase1_multiselect.md)), then inserts `triage:acked`/`triage:all`/`new:any` at rank 0.
-- `toggleRepoInText`: the Phase 1 `toggleRepo` rules ([Phase 1 §3.6](query_model_phase1_multiselect.md)) applied to the repo/org clauses. There is no text version of `clearSecondary`: the clear button empties the text (§5.3).
+- `setControlInText(text, parsed, key, value)`: computes `projectClauses(parsed)` itself; the control's displayed clause (by `owners[key]`) is replaced with `formatPredicate(next)`, removed when `next` is empty, or a new clause is inserted at its canonical rank. This is the Phase 2 `setControl`.
+- `setTriageTabInText`: removes every clause whose predicate is `triage`, negated ones included (the same explicit exception to P2 as in Phase 1), and the activity clause only if it is exactly `new:any` ([Phase 1 §3.4](query_model_phase1_multiselect.md#34-activity-menu-and-the-new-tab-p4)), then inserts `triage:acked`/`triage:all`/`new:any` at rank 0.
+- `toggleRepoInText`: the Phase 1 `toggleRepo` rules ([Phase 1 §3.6](query_model_phase1_multiselect.md)) applied to the repo/org clauses. There is no text version of `clearSecondary`: the clear button empties the text (§5.3), and `clearSecondary`, `clearSecondaryFilters` and the chips row's "Clear filters" button are deleted in commit 2.6.
 
 Consequences the implementer must preserve:
-- A dropdown change rewrites **only** its clause: `is:open label:"good first issue" flaky` + tick `bug` in Label → `is:open label:"good first issue",bug flaky`. `is:open` is not canonicalised.
+- A dropdown change rewrites **only** its clause: `is:open label:"good first issue" flaky` + tick `bug` in Label → `is:open label:"good first issue",bug flaky`. `is:open` is not canonicalised. The edited clause itself is reformatted from its new predicate (`label:"Bug"` + tick `ui` → `label:Bug,ui`).
 - A clause written with `is:` is a normal predicate for projection: `is:open` displays as State = Open; choosing "Closed" in the State menu replaces it with `state:closed`.
 - Error and incomplete clauses are invisible to controls (they have no predicate) and are never touched by control edits.
-- `owners` are clause indices into the **current** parse; recompute after every edit (never cache across renders).
+- `owners` are clause indices into the **current** parse; recompute after every edit, inside the state updater (§4.1).
 
 ### 5.1 Triage tabs in text
 
-Triage tabs are now visible as chips: the New tab is a `new:any` chip and the Acked tab is a `triage:acked` chip. The title menu and sidebar Workflows still work and simply edit those chips. The title ("Inbox"/"New"/"Acked"/"All Items") is derived as in Phase 1.
+Triage tabs are now visible as chips: the New tab is a `new:any` chip and the Acked tab is a `triage:acked` chip. The two entry points keep their Phase 1 meaning ([Phase 1 §3.4](query_model_phase1_multiselect.md#34-activity-menu-and-the-new-tab-p4)): the **title menu** edits those chips in place (`setTriageTabInText`); the **sidebar Workflow rows** reset the query to the tab alone (`applyWorkflowShortcut`: text `''` / `new:any` / `triage:acked`, sort and order back to defaults, selected item cleared, `pushState`). The title ("Inbox"/"New"/"Acked"/"All Items") is derived as in Phase 1.
 
 ### 5.2 Free text
 
@@ -281,7 +304,7 @@ Bare words and quoted phrases are clauses like any other; there is no separate s
 
 ### 5.3 Clearing
 
-The input's clear (×) button sets the text to `''`, including tab chips such as `triage:acked` and `new:any` (U8). It is undoable with Ctrl/Cmd+Z while the input has focus (§6.5). Browser Back also restores the previous URL.
+The input's clear (×) button sets the text to `''`, including tab chips such as `triage:acked` and `new:any` (U8); sort, order and the selected item are unchanged. It is the only clear control (the Phase 1 "Clear filters" button and `clearSecondary` are removed). It is undoable with Ctrl/Cmd+Z while the input has focus (§6.5). Browser Back also restores the previous URL.
 
 ### 5.4 `@me`
 
@@ -296,7 +319,7 @@ Files:
 - `frontend/src/components/query/SuggestionList.tsx`: the autocomplete listbox.
 - `frontend/src/hooks/useQuerySuggestions.ts`: suggestion state (§6.7).
 
-Use the prototype (`frontend/src/prototypes/queryInput/TokenizedInput.tsx`, `useSuggestions.ts`, `parser.ts`) as a behavioural reference only. Do not copy its parser (it uses string field names and has no escapes, spans for issues or `Field` enums).
+Use the prototype (`frontend/src/prototypes/queryInput/TokenizedInput.tsx`, `useSuggestions.ts`, `parser.ts`, read from git history at Phase 1 commit 1.0, §11) as a behavioural reference only. Do not copy its parser (it uses string field names and has no escapes, spans for issues or `Field` enums).
 
 ### 6.1 Editor model
 
@@ -321,7 +344,7 @@ Transitions (pure functions returning a new state):
 
 Text of record: `toText(state)`. Whitespace between clauses is normalised to single spaces; the raw text of each clause is preserved exactly.
 
-Controlled component contract: `QueryInput` receives `value` (the text of record) and calls `onChange(text, kind)`. It keeps `EditorState` locally. When `value` changes and differs from `toText(local)` (a dropdown edit, a sidebar click, popstate), it re-initialises with `fromText(value)` and resets the undo history (§6.5). Because pointer-down on a dropdown blurs the input first, the draft is always committed before an external edit arrives.
+Controlled component contract: `QueryInput` receives `value` (the text of record, which always satisfies the §4 invariant, so `toText(fromText(value)) === value` from the first render) and calls `onChange(text, kind)`. It keeps `EditorState` locally. **The external value always wins:** whenever `value` changes and differs from `toText(local)` (a dropdown edit, a sidebar click, Back/Forward), it re-initialises with `fromText(value)` and resets the undo history (§6.5), even while focused and even if a draft was open. The only concession to focus: if the input is focused, it keeps focus and puts the caret in an empty draft at the end. (Keeping the old draft would make the next keystroke emit the old text and silently undo the navigation.) In practice a pointer-down on a dropdown blurs the input first, so the draft has already been committed.
 
 ### 6.2 Keyboard
 
@@ -343,14 +366,14 @@ Controlled component contract: `QueryInput` receives `value` (the text of record
 | Escape | otherwise | `commitDraft`, keep focus |
 | Ctrl/Cmd+A | | select-all (§6.4) |
 | Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl+Y | | undo / redo (§6.5) |
-| `/` | focus is not in a text field | focus the query input (added to [`useKeyboardNavigation.ts`](../../frontend/src/hooks/useKeyboardNavigation.ts) and the shortcuts modal) |
+| `/` | focus is not in a text field | `preventDefault()` (Firefox quick-find) and focus the query input (added to [`useKeyboardNavigation.ts`](../../frontend/src/hooks/useKeyboardNavigation.ts), which already returns early when an input is focused, and to the shortcuts modal) |
 
 Modifier combinations other than those listed fall through to the browser. Shift+Arrow selection is limited to the draft (no cross-chip selection); select-all covers the common "select everything" case.
 
 ### 6.3 Chips and click-to-caret
 
 - Each chip renders its **exact raw text**, split into segments by `segmentClause` (`neg`, `key`, `colon`, `value`, `badvalue`, `badkey`, `comma`, `text`). Every segment span carries `data-off={segment.start}`.
-- Pointer-down on a chip calls `preventDefault()` (so the input does not blur), maps the pointer to a character offset with `document.caretPositionFromPoint` (Firefox, Chrome 128+) or `document.caretRangeFromPoint` (Safari, older Chrome), adds the segment's `data-off`, and calls `openChip(i, offset)`. If neither API returns a text node inside the chip, the caret goes to the end of the chip. This only works because chips show raw text; never render a canonical or prettified form.
+- Pointer-down on a chip calls `preventDefault()` (so the input does not blur), maps the pointer to a character offset with `document.caretPositionFromPoint` (Firefox, Chrome 128+) or `document.caretRangeFromPoint` (Safari, older Chrome), adds the segment's `data-off`, and calls `openChip(i, offset)`. If neither API returns a text node inside the chip, the caret goes to the end of the chip. jsdom implements neither API: tests stub `document.caretPositionFromPoint` to return the **real rendered** segment text node (so `parentElement.dataset.off` is exercised) and also test the fallback; jsdom does not move focus on mousedown, so tests assert `event.defaultPrevented` rather than an absent blur (real-browser behaviour is a manual check). This only works because chips show raw text; never render a canonical or prettified form.
 - Styles: see the chip style table below. Terms render as plain text with a hover background (negated terms get the same minus marker as negated qualifiers; error terms get the error style).
 
 Chip style table (U9: error and negated chips must be distinguishable, and **neither uses strikethrough**; the prototype struck through illegal values, which read like negation):
@@ -371,7 +394,7 @@ Chip style table (U9: error and negated chips must be distinguishable, and **nei
 ### 6.4 Selection and clipboard
 
 Native selection cannot span chips, so:
-- **Select-all:** the first Ctrl/Cmd+A selects the draft text natively if the draft is non-empty and not already fully selected. Otherwise it enters `allSelected` mode: every chip gets the selected style (`aria-selected="true"`). In this mode Backspace/Delete clears the query, a printable key replaces the query with that character, paste replaces the query, and Escape, arrows or a click leave the mode.
+- **Select-all:** the first Ctrl/Cmd+A selects the draft text natively if the draft is non-empty and not already fully selected. Otherwise it enters `allSelected` mode: every chip gets the selected style via `data-selected="true"` (chips have no ARIA role, so `aria-selected` would be invalid) and the live region announces "All selected". In this mode Backspace/Delete clears the query, a printable key replaces the query with that character, paste replaces the query, and Escape, arrows or a click leave the mode.
 - **Copy/cut:** an `onCopy`/`onCut` handler on the container writes `toText(state)` to `clipboardData` (`text/plain`) when in `allSelected` mode; cut then clears. Within the draft the browser's native copy applies.
 - **Paste:** handled by the draft's change event plus normalisation; in `allSelected` mode paste replaces everything.
 
@@ -406,7 +429,7 @@ Two sources, one presentation:
 
 Negated clauses are never errors because of their negation (except `-in:`, which is `negated-in`); they keep the negated style, which differs from the error style in colour (blue vs. red), icon (none vs. warning), marker (muted minus) and ARIA (`aria-description="Excludes…"` vs. `aria-invalid="true"` + `"Error: …"`).
 
-Below the input, a single muted line summarises: "1 part of the query is ignored: lable is not a known filter" (first issue; count if more), prefixed by the same `AlertTriangle` icon. The existing "invalid query" inline report in `Dashboard.tsx` is replaced by this line. Invalid-query responses must still never show the "Disconnected" banner (existing `isConnectivityError` rule).
+Below the input, a single muted line summarises: "1 part of the query is ignored: lable is not a known filter" (first issue; count if more), prefixed by the same `AlertTriangle` icon. While the input is focused, the clause under the caret (the draft) is excluded from the summary line and the live region, so typing `label:` does not flicker an error; it is excluded from the `Expr` anyway. The existing "invalid query" inline report in `Dashboard.tsx` is replaced by this line. Invalid-query responses must still never show the "Disconnected" banner (existing `isConnectivityError` rule).
 
 ## 8. URL scheme (U5)
 
@@ -424,8 +447,8 @@ The dashboard keeps **reading** legacy structured parameters indefinitely so old
 `parseDashboardUrl(search): { state: DashboardQueryState; canonicalSearch: string }`
 
 1. `legacy = parseLegacyParams(params)`: today's `parseQueryParams` predicate logic, unchanged, ignoring `q`, `sort`, `order`, `item` (grouping per field and sign, `-key=` negation, `triage=activity` → `new:any`, `assigned=me` → `assignee:@me`, `triage=inbox` dropped, `org` dropped when `repo` is present, `author=@x` → `x`, `tracking=tracked|untracked` → `true|false`, invalid values and unknown keys dropped).
-2. `q = params.get('q')?.trim() ?? ''`.
-3. `text = [formatPredicates(legacy), q].filter(Boolean).join(' ')` (legacy predicates first, then `q`, ANDed by juxtaposition).
+2. `q = params.get('q') ?? ''`.
+3. `joined = [formatPredicates(legacy), q].join(' ')` (legacy predicates first, then `q`, ANDed by juxtaposition), then `text = scan(joined).map(c => c.raw).join(' ')`: clause whitespace is normalised (runs of spaces collapse, ends trimmed), establishing the §4 invariant. `?q=is:open%20%20%20label:bug` therefore loads as `is:open label:bug` and the URL is rewritten.
 4. `sort`, `order`, `item` as today.
 5. `canonicalSearch = serializeDashboardUrl(state)`.
 
@@ -441,6 +464,7 @@ Examples (golden tests):
 | `?tracking=untracked&q=flaky+test` | `?q=tracking:false+flaky+test` |
 | `?label=good%20first%20issue` | `?q=label:%22good+first+issue%22` |
 | `?triage=inbox&sort=created&item=k/k%2312` | `?sort=created&item=k/k%2312` |
+| `?q=is:open+++label:bug` | `?q=is:open+label:bug` |
 
 ### 8.3 Writing
 
@@ -455,7 +479,7 @@ Examples (golden tests):
 - `parseQueryParams` moves to a new `frontend/src/logic/query/legacyUrl.ts` as `parseLegacyParams(params): FilterPredicate[]`. All of its current tests in [`urlCodec.test.ts`](../../frontend/src/logic/query/__tests__/urlCodec.test.ts) (`describe('parseQueryParams')`) move to `legacyUrl.test.ts` and assert predicates; the `q`/`sort`/`order`/`item` assertions move to the new reader tests.
 - `serializeQueryParams` is deleted, and so are its round-trip tests (`serialize(parse(s)) === s` for structured URLs): nothing writes structured URLs any more.
 - `urlCodec.ts` keeps its name and now exports `parseDashboardUrl` and `serializeDashboardUrl`. New tests: the legacy conversion golden table (every legacy key and sign, legacy + `q` combination); exact round trip `serializeDashboardUrl(parseDashboardUrl(s).state) === s` for canonical `?q=` URLs; idempotence of normalisation for arbitrary inputs.
-- `requestKey` in `useDashboardData` switches to `serializeDashboardUrl({ ...state, text: requestText, item: null })`.
+- `requestKey` in `useDashboardData` switches to `formatPredicates(parseQuery(requestText).predicates)` plus sort and order, so editing only an error clause (which does not change the request) does not advance `settledKey` and reset scroll anchoring.
 - [`textTerms.ts`](../../frontend/src/logic/query/textTerms.ts) and its tests are deleted; equivalent cases (words, phrases, `#123`) move to the parser tests, with the unterminated-quote case updated to the new behaviour.
 - The extension and daemon only generate `?item=` deep links, which are unaffected. Verify that `Notification.url` in the daemon still only uses `item`.
 
@@ -487,9 +511,17 @@ export const IS_SHORTHAND: Readonly<Record<string, { field: Field; value: string
 
 `URL_FIELDS`/`UrlFieldSpec` are replaced by `FIELD_SPECS`; `legacyUrl.ts`, the parser, the formatter, chips and suggestions all read it.
 
-## 11. Deleting the prototype (U2)
+## 11. The prototype: reference in git history (U2)
 
-`frontend/prototype/` and `frontend/src/prototypes/` are **untracked** working-tree files, so deleting them does not show up in any commit. Their tests and lint run in `./verify.sh` while they exist. Read them before starting Phase 2, then delete both directories (`rm -rf frontend/prototype frontend/src/prototypes`) in the commit that wires the production input into the dashboard (commit 2.6 in §13). After Phase 2, `git status` must not show them, and nothing may import from `prototypes/`.
+The throwaway prototype (`frontend/prototype/query-input.html`, `frontend/src/prototypes/queryInput/`) was recorded by Phase 1 commit 1.0 (`chore(frontend): record the throwaway query input prototype`) and deleted by commit 1.1. Read it from git history (`git show <1.0>:frontend/src/prototypes/queryInput/TokenizedInput.tsx`, and likewise `useSuggestions.ts`, `parser.ts`, `TokenizedInput.test.tsx`) for interaction behaviour only. Never restore it into the tree or import from it.
+
+Lessons from the prototype that this design addresses (also recorded in parent §7.1):
+- A comma adds another value (`key:a,b` is OR) instead of finishing a token; space and Enter finish a token; quoted values may contain spaces (§6.1, §6.2).
+- Click-to-caret inside a chip relies on `caretPositionFromPoint`/`caretRangeFromPoint` and on chips rendering their exact raw text, so chips show what the user typed, not a canonical form (§6.3).
+- Native select-all, copy across chips and Ctrl+Z do not work with chips and need explicit handling: a custom undo stack and a copy handler that serializes the whole query (§6.4, §6.5).
+- Opening a chip while the draft holds unfinished text commits the draft (§6.1 `openChip`).
+- Keyboard (Backspace into a chip, arrows, Home/End, Delete), IME and screen-reader accessibility need explicit design and tests (§6.2, §6.6).
+- The prototype struck through illegal values, which reads like negation; error and negated chips must look different and neither uses strikethrough (§6.3, U9).
 
 ---
 
@@ -500,7 +532,7 @@ User decisions (U*) are listed in the [overview](query_model_plan_overview.md#21
 | # | Decision | Short reason | Where |
 |---|---|---|---|
 | P6 | The state of record is the **query text**; predicates, `Expr`, control projections and chips are derived from it. | Option 1 chips and `?q=` both need the exact text; one source of truth. | §4 |
-| P7 | Dropdowns, triage tabs and sidebar shortcuts edit the text by **splicing clauses** (replace/remove/insert one clause by source span), never by reformatting the whole query. | Preserves the user's text for every clause they didn't touch. | §5 |
+| P7 | Dropdowns, triage tabs and sidebar shortcuts edit the text by **splicing clauses** (replace/remove/insert one clause by source span), never by reformatting the whole query. The preserved unit is the clause: whitespace between clauses is not part of the preserved text, and the input collapses it to single spaces. | Preserves the user's text for every clause they didn't touch. | §5 |
 | P9 | Clauses with errors (or still incomplete) are **left out of the request** and highlighted; the rest of the query still runs. | The list keeps updating while the user types; nothing is silently reinterpreted. | §7 |
 | P10 | Quoted values support `\"` and `\\` escapes. | Label and milestone names may contain quotes; the formatter must be total over real values. | §3 |
 
@@ -517,28 +549,35 @@ Each commit must leave `./verify.sh` green (never `--force`). Commit subjects fo
 
 **2.2 `feat(frontend): add a query text parser and formatter`**
 - Files: `logic/query/syntax/{scan,parse,format,types,index}.ts`.
-- Tests: `syntax/__tests__/parse.test.ts` (grammar cases, every issue code with exact spans, escapes, surrogate pairs), `format.test.ts` (quoting rules, `QueryFormatError` paths), `roundTrip.test.ts` (P-struct, P-canon, P-spans with a seeded generator), `isShorthand.test.ts` (golden table §3.3).
+- Tests: `syntax/__tests__/parse.test.ts` (grammar cases, every issue code with exact spans, escapes including a value ending in `\` (`label:"a b\\"` round-trips) and `\x` kept literally, `label:""` is `empty-value`, `author:@alice` and `author:alice` give the same predicate while `author:@me` keeps `@me`, surrogate pairs), `format.test.ts` (quoting rules, `QueryFormatError` paths), `roundTrip.test.ts` (P-struct, P-canon, P-spans with a seeded generator), `isShorthand.test.ts` (golden table §3.3).
 - AC: not wired into the UI.
 
 **2.3 `feat(frontend): add clause-level query text edits`**
-- Files: `logic/query/textEdit.ts`, `logic/query/predicates.ts` (projection over `ParsedQuery` returning clause owners).
-- Tests: `textEdit.test.ts`: replace/remove/insert; whitespace handling at start/middle/end; canonical insert positions; `is:open` replaced by the State control; error clauses untouched; P-edit property over generated texts.
+- Files: `logic/query/textEdit.ts`, `logic/query/predicates.ts` (add a **new** `projectClauses(parsed): Projection` returning clause owners; the Phase 1 `projectControls(state)` stays unchanged until 2.4b, so `useDashboardFilters` and `predicates.test.ts` keep compiling).
+- Tests: `textEdit.test.ts`: replace/remove/insert; whitespace handling at start/middle/end; canonical insert positions; `is:open` replaced by the State control; error clauses untouched; `setTriageTabInText` removes `-triage:acked`; P-edit property over generated texts. `predicates.test.ts`: `projectClauses` agrees with `projectControls` on equivalent inputs.
 - AC: not wired into the UI.
 
-**2.4 `feat(dashboard): keep the query as text and write it to the q URL parameter`**
-- Files: `types/filters.ts` (`DashboardQueryState.text`), `logic/query/legacyUrl.ts` (new), `logic/query/urlCodec.ts` (rewritten), `logic/query/expr.ts` (`toExpr(parsed)`), delete `logic/query/textTerms.ts`, `hooks/useDashboardFilters.ts` (§4.1), `hooks/useDashboardData.ts` (`requestText`, `requestKey`), `Dashboard.tsx` and `components/dashboard/*` (controls call the text edits; the existing nav `<input>` now edits the whole text as plain text; the chips row still renders from the projection), error summary line (§7).
-- Tests: `legacyUrl.test.ts` (moved cases), `urlCodec.test.ts` (golden conversion table §8.2, canonical round trip, idempotence), `useDashboardFilters.test.ts` (legacy URL rewritten with `replaceState` on load and on popstate; typing uses `replaceState`, control edits `pushState`; debounce only for typing), RPC tests updated: URL assertions become `?q=…`; legacy example URL still sends the same structured query; `?q=flaky` still sends one TEXT predicate; an invalid clause is excluded from the request and reported; a server `ExprError` path maps to the right clause.
+Commit 2.4 is split in two so each half is reviewable and green.
+
+**2.4a `feat(dashboard): keep the query as text and write it to the q URL parameter`**
+- Files: `types/filters.ts` (`DashboardQueryState.text`, `FilterControls.q` removed), `logic/query/legacyUrl.ts` (new), `logic/query/urlCodec.ts` (rewritten), `logic/query/expr.ts` (`toExpr(parsed)`), `logic/query/predicates.ts` (state-level helpers `isDefaultQuery`, `activeQueryCount`, `workflowState` retargeted to text; the predicate-list editors `setControl`, `setTriageTab`, `toggleRepo`, `removePredicate`, `clearSecondary` become unused here and are deleted in 2.4b), delete `logic/query/textTerms.ts` and its test, `hooks/useDashboardFilters.ts` (§4.1: edit kinds, debounce effect, updater-based setters), `hooks/useDashboardData.ts` (`requestText`, `requestKey`), `Dashboard.tsx` and `components/dashboard/*` (controls call the text edits; the existing nav `<input>` now edits the whole text as plain text; the chips row renders from `projectClauses`), error summary line (§7), and the tests that operate on the removed `predicates`/`q` state: `__tests__/expr.test.ts`, `__tests__/predicates.test.ts` (state-level cases), `__tests__/urlCodec.test.ts`, `hooks/__tests__/useDashboardFilters.test.ts`.
+- Tests: `legacyUrl.test.ts` (moved cases), `urlCodec.test.ts` (golden conversion table §8.2 including whitespace normalisation, canonical round trip, idempotence), `useDashboardFilters.test.ts` (legacy URL rewritten with `replaceState` on load and on popstate; typing uses `replaceState`, control edits `pushState`; debounce only for typing; **race**: type, then make a dropdown edit within 200 ms → the request uses the dropdown edit immediately and the pending debounce never overwrites it; **stale splice**: type `label:bu` without committing, click a State option → the request is `state:closed` plus the committed draft), RPC tests updated: URL assertions become `?q=…`; for every control edit the written `location.search` contains none of the legacy keys (`repo`, `org`, `author`, `assignee`, `assigned`, `label`, `milestone`, `state`, `type`, `tracking`, `triage`, `new`, or any `-key`); legacy example URL still sends the same structured query; `?q=flaky` still sends one TEXT predicate; an invalid clause is excluded from the request and reported; a server `ExprError` path maps to the right clause; editing only an error clause does not reset scroll anchoring.
 - AC: every existing behaviour reachable; URLs written only as `?q=`; old links work.
+
+**2.4b `refactor(frontend): remove the predicate-list editors`**
+- Files: `logic/query/predicates.ts` (delete `projectControls(state)`, `setControl`, `setTriageTab`, `applyControls`, `toggleRepo`, `removePredicate`, `clearSecondary`; keep `formatPredicateChip`, `projectClauses` and the projection helpers), `__tests__/predicates.test.ts` (remove the predicate-list cases; their behaviour is covered by `textEdit.test.ts`).
+- Tests: as listed; no behaviour change.
+- AC: no dead predicate-list code remains.
 
 **2.5 `feat(dashboard): add the tokenized query input component`**
 - Files: `logic/query/editor.ts`, `components/query/{QueryInput,QueryChip,SuggestionList}.tsx`, `hooks/useQuerySuggestions.ts`.
-- Tests: `editor.test.ts` (every transition; normalisation: space finishes, comma does not, quotes keep spaces, paste splits; `openChip` commits the draft; select-all; undo coalescing), `QueryInput.test.tsx` (the full keyboard table in §6.2, click-to-caret with stubbed caret APIs and the fallback, copy/cut/paste in select-all mode, undo/redo, IME composition, combobox ARIA, live-region messages, external `value` change resets state and history; **chip styles**: `lable:bug` renders `data-status="error"`, `aria-invalid="true"`, the `chip-error-icon` and an `aria-description` starting "Error:", while `-label:kind/bug` renders `data-status="ok"`, `data-negated="true"`, the muted minus marker, an `aria-description` starting "Excludes" and no `aria-invalid`; the two chips have different container classes; no rendered chip has a `line-through` class), `useQuerySuggestions.test.ts` (key context, value context for closed/open fields, `is:`, ranking, exclusion of used values, quoting on insert).
+- Tests: `editor.test.ts` (every transition; normalisation: space finishes, comma does not, quotes keep spaces, paste splits; `openChip` commits the draft; select-all; undo coalescing), `QueryInput.test.tsx` (the full keyboard table in §6.2, click-to-caret with stubbed caret APIs and the fallback, copy/cut/paste in select-all mode (`data-selected` on chips, "All selected" announced), undo/redo, IME composition, combobox ARIA, live-region messages, external `value` change resets state and history even while focused with an open draft; **chip styles**: `lable:bug` renders `data-status="error"`, `aria-invalid="true"`, the `chip-error-icon` and an `aria-description` starting "Error:", while `-label:kind/bug` renders `data-status="ok"`, `data-negated="true"`, the muted minus marker, an `aria-description` starting "Excludes" and no `aria-invalid`; the two chips have different container classes; no rendered chip has a `line-through` class), `useQuerySuggestions.test.ts` (key context, value context for closed/open fields, `is:`, ranking, exclusion of used values, quoting on insert).
 - AC: component works standalone with a static vocabulary and injected facet values; not yet in the dashboard; error and negated chips are distinguishable by colour, icon and ARIA, and neither uses strikethrough (U9).
 
 **2.6 `feat(dashboard): replace the search box and chips row with the query input`**
-- Files: `Dashboard.tsx` (input moves into the list header, U7), delete `components/dashboard/ActiveFilterChips.tsx`, `components/dashboard/FilterToolbar.tsx` (selection count badges), `hooks/useKeyboardNavigation.ts` and `components/KeyboardShortcutsModal.tsx` (`/` shortcut), author "you" row writes `author:@me`; delete the untracked prototype directories (§11).
-- Tests: RPC tests: typing `is:open label:bug` sends `state:open label:bug`; ticking a label in the menu edits only that clause and the chip text updates; Backspace into a chip and edit; clear button empties the query; triage tab shows/edits a `triage:acked` chip; `/` focuses the input; existing chip tests rewritten against the input. `Dashboard.test.tsx` updated where it referenced the old search box placeholder or chips.
-- AC: no `frontend/src/prototypes` or `frontend/prototype` on disk; the dashboard has one query input.
+- Files: `Dashboard.tsx` (input moves into the list header, U7), delete `components/dashboard/ActiveFilterChips.tsx` together with the "Clear filters" button and `clearSecondaryFilters` in `useDashboardFilters.ts`, `components/dashboard/FilterToolbar.tsx` (selection count badges), `hooks/useKeyboardNavigation.ts` and `components/KeyboardShortcutsModal.tsx` (`/` shortcut), author "you" row writes `author:@me`.
+- Tests: RPC tests: typing `is:open label:bug` sends `state:open label:bug`; ticking a label in the menu edits only that clause and the chip text updates; Backspace into a chip and edit; **clear (U8)**: on the Acked tab with text `triage:acked label:bug` and `sort=created`, clicking × gives text `''`, title "Inbox", a URL without `q` but still with `sort=created`, and the next `GetItems` has no `triage` and no `label` predicate; the title menu edits a `triage:acked` chip in place while the sidebar Workflow rows reset text and sort to the tab alone (Phase 1 §3.4); `/` focuses the input and its default is prevented; existing chip tests rewritten against the input. `Dashboard.test.tsx` updated where it referenced the old search box placeholder, chips or "Clear filters".
+- AC: the dashboard has one query input and one clear control (×).
 
 **2.7 `feat(dashboard): autocomplete query keys and values`**
 - Files: `hooks/useQuerySuggestions.ts` (facet wiring), `hooks/useDashboardData.ts` (expose selector facets), `components/query/QueryInput.tsx`, `spec.md`, `docs/user_guide.md` (query syntax section with the `is:` table and examples).
@@ -554,7 +593,8 @@ Each commit must leave `./verify.sh` green (never `--force`). Commit subjects fo
 | Controlled `<input>` inside a tokenized editor loses the caret on re-render. | Restore focus and selection in `useLayoutEffect` from `EditorState.caret` (prototype pattern); test caret position after every transition. |
 | `caretPositionFromPoint`/`caretRangeFromPoint` differ by browser or return a node outside the chip. | Feature-detect both; accept only text nodes whose parent has `data-off` inside the clicked chip; otherwise caret at the chip end. |
 | The 3 s poll re-renders while typing. | Editor state is local and only re-initialised when `value` differs from `toText(local)`; polling never changes the text. |
-| Popstate or a sidebar click arrives while a draft is open. | External value wins; draft is discarded only if the input is not focused (pointer-down on a control blurs and commits first). Test both. |
+| Popstate or a sidebar click arrives while a draft is open. | The external value always wins, focused or not (§6.1); a focused input keeps focus with an empty draft at the end. Pointer-down on a control blurs and commits first. Test both. |
+| Hand-written `?q=` with runs of spaces. | `parseDashboardUrl` normalises clause whitespace and rewrites the URL (§8.2), so the §4 invariant holds from the first render. |
 | Legacy URL plus `?q=` with conflicting predicates (`?repo=a/b&q=repo:c/d`). | ANDed as specified (matches nothing), consistent with the rule; no special case. |
 | Old `?q=` values change meaning (§8.4). | Accepted and documented. |
 | URL length with very long queries. | Browsers handle several KB; no cap. |
