@@ -28,6 +28,7 @@ Goals: replace the "Pinned" sidebar section with saved searches (#14): a pin but
 Non-goals:
 - Editing a saved search's query in place (deferred, U10).
 - Evaluating saved searches in the daemon on its own (per-search notifications, a CLI). The daemon stores text and never parses it (U13); a Go parser is added if a Go-side text consumer ever appears (parent §3.3).
+- Reducing polling (change-driven refresh, caching item views per sync generation). Deferred by the user; see the [overview](query_model_plan_overview.md#3-scope-and-ordering). The sidebar keeps the fixed 3 s poll, now as one `GetFacets` call (§6.2).
 - Import/export beyond what `config.json` already gives (it is the export).
 
 ### 2.1 Pin button
@@ -50,8 +51,8 @@ Non-goals:
 
 Order: Workflows (Inbox, New, Acked) → **Saved searches** → Repositories.
 - Header "SAVED SEARCHES" with a pin icon and a pencil button (`aria-label="Edit saved searches"`) that toggles edit mode ("Done" while editing).
-- Rows use `SidebarRow`: name, a badge styled by the saved query's triage scope (§6.1), and the active highlight.
-- **Invalid text** (parse issues, e.g. after a hand edit of `config.json`, or a server `CountResult.error`): the row shows an error badge instead of a count: lucide `AlertTriangle` (12 px, `text-red-600`) with the first issue message as `title`, and the row gets `aria-description="Error: <message>"`. The row still opens the search on click, so the user sees the error chips in the input. It never throws or hides the row.
+- Rows use `SidebarRow`: name, a badge styled by the saved query's triage scope (§6.3), and the active highlight.
+- **Invalid text** (parse issues, e.g. after a hand edit of `config.json`, or a server `CountResult.error` from `GetFacets`): the row shows an error badge instead of a count: lucide `AlertTriangle` (12 px, `text-red-600`) with the first issue message as `title`, and the row gets `aria-description="Error: <message>"`. The row still opens the search on click, so the user sees the error chips in the input. It never throws or hides the row.
 - Empty state: one muted line, "Pin a search with the pin button next to the query".
 - The "Repositories" section lists every repo (there is no pinned subset any more), keeping the 30-day "More" split from `buildSidebar`.
 
@@ -75,7 +76,7 @@ Reasons (recorded for future readers):
 - Every consumer of saved searches is in the browser (sidebar, badges, opening a search), and the browser already parses text locally with `parseQuery`.
 - Text keeps exactly what the user typed, which option 1 chips need (they render raw clauses).
 - It is human-readable and hand-editable, and backup/export come free with `config.json`.
-- **The wire format does not change:** the frontend parses the stored text and sends the resulting structured `Expr` to `GetItems`/`GetFacets`/`CountItems`, exactly as for typed queries (parent §3.2).
+- **The wire format does not change:** the frontend parses the stored text and sends the resulting structured `Expr` to `GetItems`/`GetFacets`, exactly as for typed queries (parent §3.2).
 - Cost, accepted: the daemon cannot evaluate a saved search by itself (e.g. future per-search notifications or a CLI). Parent §3.3 already says to add a Go parser if a Go-side text consumer appears.
 
 This supersedes the parent design's earlier statement (§3.3) that saved searches are stored as `Expr` and evaluated by Go without parsing.
@@ -133,8 +134,6 @@ RPCs (`OctoDeckService`). Saved searches are **read** through `GetConfig` (`conf
   rpc UpdateSavedSearch(UpdateSavedSearchRequest) returns (UpdateSavedSearchResponse);
   rpc DeleteSavedSearch(DeleteSavedSearchRequest) returns (DeleteSavedSearchResponse);
   rpc ReorderSavedSearches(ReorderSavedSearchesRequest) returns (ReorderSavedSearchesResponse);
-  // Match counts for several queries in one evaluation pass (saved-search badges).
-  rpc CountItems(CountItemsRequest) returns (CountItemsResponse);
 
 // Appended at the end of the list. id is ignored.
 message CreateSavedSearchRequest { SavedSearch saved_search = 1; }
@@ -159,34 +158,55 @@ message ReorderSavedSearchesRequest {
   repeated string ids = 1;
 }
 message ReorderSavedSearchesResponse { repeated SavedSearch saved_searches = 1; }
+```
 
-message CountItemsRequest {
-  // At most 100 queries.
-  repeated Expr queries = 1;
+There is **no separate count RPC**. Saved-search badge counts are an extension of `GetFacets` (P13), so every sidebar number comes from one call (§6). `GetFacetsRequest`/`GetFacetsResponse` in `service.proto` gain:
+
+```proto
+message GetFacetsRequest {
+  Expr query = 1;                 // unchanged
+  repeated Field fields = 2;      // unchanged; may be empty when only queries are wanted
+  // Additional independent queries to count (saved-search badges), each validated and scoped
+  // exactly like GetItemsRequest.query. At most 100. Not affected by `query`.
+  repeated Expr queries = 3;
 }
-message CountItemsResponse {
-  // One result per query, in request order.
-  repeated CountResult results = 1;
+
+message GetFacetsResponse {
+  repeated Facet facets = 1;      // unchanged
+  // One result per entry of GetFacetsRequest.queries, in request order.
+  repeated CountResult counts = 2;
 }
 ```
 
-`api/octodeck/v1/query.proto`:
+`api/octodeck/v1/query.proto`. Facet values and query results carry the same three numbers under the same field names (P24). `FacetValue` keeps `count = 2` (existing clients rely on it), so a shared sub-message would be a breaking rename; identical field names plus one shared Go struct (`query.Counts`, §6) give the same uniformity without breaking anything:
 
 ```proto
-// Result of one CountItems query.
+message FacetValue {
+  string value = 1;                                  // unchanged
+  // Number of matching items with this value. May be 0. (Unchanged meaning.)
+  int32 count = 2;
+  string color = 3;                                  // unchanged
+  google.protobuf.Timestamp latest_activity_at = 4;  // unchanged
+  // Of those, items matching new:any (always inbox items: acked items have no flags).
+  int32 new_count = 5;
+  // Of those, items in the inbox (computed status is not ACKED).
+  int32 inbox_count = 6;
+}
+
+// Counts for one GetFacetsRequest.queries entry. Same numbers as FacetValue.
 message CountResult {
   // Items matching the query (with the implicit triage scope, exactly as GetItems).
   int32 count = 1;
-  // Of those, items matching new:any. These are always inbox items (acked items have no flags).
+  // Of those, items matching new:any.
   int32 new_count = 2;
-  // Of those, items in the inbox (computed status is not ACKED).
+  // Of those, items in the inbox.
   int32 inbox_count = 3;
   // Set when the query is invalid; the counts are then 0.
   ExprError error = 4;
 }
 ```
 
-The handler (`octoDeckHandler` in [`handler.go`](../../backend/internal/server/handler.go)) does not embed the generated `Unimplemented…Handler`, so the proto commit adds stub methods returning `connect.CodeUnimplemented` for every new RPC.
+The handler (`octoDeckHandler` in [`handler.go`](../../backend/internal/server/handler.go)) does not embed the generated `Unimplemented…Handler`, so the proto commit adds stub methods returning `connect.CodeUnimplemented` for the four saved-search RPCs. Until `queries` is implemented, `GetFacets` returns `Unimplemented` when `queries` is non-empty (an empty list behaves as today).
 
 ---
 
@@ -249,24 +269,40 @@ If normalisation changed anything during `Load`, the config is written back once
 
 ---
 
-## 6. `CountItems` and badges (P13, P24)
+## 6. Sidebar counts: one `GetFacets` call (P13, P24)
 
-Server:
+### 6.1 Server
 
-```go
-func (h *octoDeckHandler) CountItems(ctx context.Context,
-    req *connect.Request[octodeckv1.CountItemsRequest]) (*connect.Response[octodeckv1.CountItemsResponse], error)
+`GetFacets` ([`items.go`](../../backend/internal/server/items.go), [`facets.go`](../../backend/internal/query/facets.go)) gains two things, all computed over the **one** item load (`h.db.GetItems(ctx, nil)`) and **one** view build (`h.queryViews`) it already does:
+- **Per facet value**, besides `count`: `new_count` (matching items with `new:any`) and `inbox_count` (matching items whose computed status is not ACKED). The accumulation loop in `query.Facets` increments all three per matched view (`matchNew(valueAny, v)`, `matchTriage(valueInbox, v)` from [`eval.go`](../../backend/internal/query/eval.go)). The flags are computed once per view, so the extra cost is two boolean checks per (view, value).
+- **`queries`**: for each entry, `h.compileQuery` semantics but **per-query errors** (put `ValidationError.Proto()` in `CountResult.error` rather than failing the request), so one stale saved search cannot blank every badge; then `query.Count(q, views) Counts`. More than 100 queries → `InvalidArgument`. Errors in the main `query` or `fields` still fail the whole request, as today.
+- One shared Go type in `backend/internal/query/count.go`: `type Counts struct{ Count, NewCount, InboxCount int32 }` with `func (c *Counts) add(v *View)`, used by both the facet accumulation and `Count`, so the three numbers have one definition.
+
+### 6.2 Client: one sidebar call per poll
+
+The sidebar makes **one** `GetFacets` call per poll (in `useDashboardData`, replacing `SIDEBAR_REQUEST` and `UNREAD_REQUEST` in [`useDashboardData.ts`](../../frontend/src/hooks/useDashboardData.ts)):
+
+```ts
+{ query: {} /* implicit inbox */, fields: [Field.REPO, Field.TRIAGE], queries: savedSearchExprs }
 ```
-- More than 100 queries: `InvalidArgument`. No queries: empty response without touching the database.
-- Load every item once (`h.db.GetItems(ctx, nil)`) and build views once (`h.queryViews`), exactly as `GetFacets` does in [`items.go`](../../backend/internal/server/items.go).
-- For each query: `h.compileQuery` semantics but **per-query errors** (put `ValidationError.Proto()` in `CountResult.error` rather than failing the request), so one stale saved search cannot blank every badge.
-- New `query.Count(q *Query, views []*View) (count, newCount, inboxCount int32)` in `backend/internal/query/count.go`: one pass, `q.Match(v)`, then `matchNew(valueAny, v)` and `matchTriage(valueInbox, v)` from [`eval.go`](../../backend/internal/query/eval.go).
 
-Client (`useSavedSearches`, §9.1): for each saved search, `parseQuery(search.query)`; searches whose text has issues are **left out of the request** and shown in the error state (§2.3). The request contains `toExpr(parsed)` for the rest, in list order, with an index map back to the rows. No derived queries are sent: `count`, `new_count` and `inbox_count` cover every badge (P24). Polled with the existing `POLL` (3 s, `staleTime` 1 s), `placeholderData: keepPreviousData`, disabled when no valid search exists, and included in `refreshAll` so it refreshes after syncs and mutations.
+| Sidebar number | Source |
+|---|---|
+| Per-repo inbox count | repo facet value `count` |
+| Per-repo orange dot | repo facet value `new_count > 0` |
+| Inbox / Acked totals | triage facet values `inbox` / `acked` `count` (own-field exclusion turns the implicit scope into `triage:all`) |
+| New total | triage facet value `inbox` → `new_count` (acked items have no `new:` flags) |
+| Saved-search badges | `counts[i]` (§6.3) |
 
-Cost: one full item load and one view build per poll, the same as one `GetFacets` call (the dashboard already makes three `GetFacets` calls and one `GetItems` per poll), plus `O(queries × items)` in-memory evaluations. With the 50-search cap and a few thousand items this is a few milliseconds. If it ever matters, cache views per sync generation for all list/facet/count handlers (out of scope).
+`savedSearchExprs` comes from `useSavedSearches` (§9.1): each saved search's text is parsed with `parseQuery`; searches with issues are **left out** and shown in the error state (§2.3); the rest are sent as `toExpr(parsed)` in list order, with an index map back to the rows. No derived queries are sent: `count`, `new_count` and `inbox_count` cover every badge (P24). The call uses the existing `POLL` (3 s, `staleTime` 1 s) and `placeholderData: keepPreviousData` (so editing saved searches, which changes the request, does not flash the numbers), and it stays in `refreshAll`.
 
-### 6.1 Badge semantics by triage scope (U12, U14, P21)
+The **selector** `GetFacets` (dropdown options for the current query, `SELECTOR_FIELDS`) stays a separate call: it is keyed on the current filter and refetches on every filter change; merging it would refetch the sidebar numbers too.
+
+Cost per poll after Phase 3: `GetItems` + selector `GetFacets` + sidebar `GetFacets` (+ the `GetItem` fallback when the selected item is outside the result). Before this change it would have been `GetItems` + three `GetFacets` (selector, sidebar, unread) + `CountItems`: two fewer full item loads and view builds per poll. Saved-search evaluation adds `O(queries × items)` in-memory predicate checks (a few milliseconds with the 50-search cap and a few thousand items). Further reductions (change-driven refresh instead of fixed polling, caching views per sync generation) are a deferred enhancement ([overview §3](query_model_plan_overview.md#3-scope-and-ordering)).
+
+The `GetFacets` change for facet-value counts and the single sidebar call are useful without saved searches, so they land first, as a prep commit (§11, commit 3.1).
+
+### 6.3 Badge semantics by triage scope (U12, U14, P21)
 
 The badge depends on the saved query's **triage scope**, classified client-side by a pure function in `frontend/src/logic/savedSearches.ts`:
 
@@ -310,7 +346,7 @@ Opening first parses the saved text. Text with issues is still opened (the input
 - **No triage predicate:** opening it keeps the active tab's clauses (every `triage` clause, and the `new:any` clause when it is the New tab's) and replaces everything else with the saved text: `insertClause` the tab clauses at rank 0 into the saved text. Example: on the Acked tab, opening "k8s" (`repo:kubernetes/kubernetes`) gives `triage:acked repo:kubernetes/kubernetes`. This preserves the current pinned-repo behaviour (clicking a pinned repo keeps the tab, because `toggleRepo` only changes repo/org).
 - **Active highlight:** a row is active when `canonicalQuery(current text minus tab clauses) === canonicalQuery(saved text)` (for searches without a triage predicate) or `canonicalQuery(current) === canonicalQuery(saved)` (with one). Sort is ignored. Rows with parse issues are never highlighted.
 - **Clicking the active row** returns to the current tab's workflow (text = tab clauses only), mirroring how clicking the selected pinned repo cleared it.
-- **Badges** count the saved query with its own meaning, independent of the active tab, and are styled by its own triage scope (§6.1). Opening a search on another tab does not change its badge.
+- **Badges** count the saved query with its own meaning, independent of the active tab, and are styled by its own triage scope (§6.3). Opening a search on another tab does not change its badge.
 - **Pin matching** (§2.1) compares the full canonical text, tab clauses included, so pinning on the Acked tab saves `triage:acked …` explicitly.
 
 ---
@@ -348,7 +384,7 @@ export interface SavedSearchView {
   parsed: ParsedQuery;   // parseQuery(text)
   canonical: string;     // canonicalQuery(text); '' when the text has issues
   hasTriage: boolean;
-  scope: BadgeScope;     // badgeScope(parsed), §6.1
+  scope: BadgeScope;     // badgeScope(parsed), §6.3
   sort: SortOption;
   order: SortOrder;
   count: number | null;  // null until counts arrive (or when invalid)
@@ -358,24 +394,25 @@ export interface SavedSearchView {
 }
 
 export function useSavedSearches(): {
-  searches: SavedSearchView[];
+  searches: SavedSearchView[];   // counts not yet attached (count: null)
+  countRequest: { queries: ExprInit[]; rowIndex: number[] }; // buildCountRequest(searches)
   isLoading: boolean;
   create(input: { name: string; text: string; sort: SortOption; order: SortOrder }): Promise<SavedSearchView>;
   update(id: string, patch: { name?: string; sort?: SortOption; order?: SortOrder }): Promise<void>;
   remove(id: string): Promise<void>;
   reorder(ids: string[]): Promise<void>; // optimistic, rolls back on error
-  refetchCounts(): Promise<unknown>;
 };
 ```
-- The list comes from the existing `GetConfig` query (`config.savedSearches`); mutations write the returned list into that query's cache and invalidate it.
+- The list comes from the existing `GetConfig` query (`config.savedSearches`); mutations write the returned list into that query's cache and invalidate it. The hook makes **no count call of its own**.
+- `Dashboard` passes `countRequest.queries` to `useDashboardData({ ..., savedSearchQueries })`, which puts them in the single sidebar `GetFacets` request (§6.2) and returns `savedSearchCounts` (the response's `counts`). `attachCounts(searches, countRequest.rowIndex, savedSearchCounts)` (pure) produces the views the sidebar renders.
 - `create` refuses (throws) if `parseQuery(text)` has issues (the pin button is disabled in that case anyway).
-- Pure helpers in `frontend/src/logic/savedSearches.ts` (unit-tested): `toView`, `badgeScope`, `buildCountRequest(views)` (returns the Exprs plus the index map), `matchesExactly(state, view)`, `isActive(parsed, view)`, `openSavedSearchText(currentParsed, view)`, `suggestName(parsed)`, `moveItem(ids, from, to)`.
+- Pure helpers in `frontend/src/logic/savedSearches.ts` (unit-tested): `toView`, `badgeScope`, `buildCountRequest(views)` (the Exprs of valid searches plus the index map), `attachCounts`, `matchesExactly(state, view)`, `isActive(parsed, view)`, `openSavedSearchText(currentParsed, view)`, `suggestName(parsed)`, `moveItem(ids, from, to)`.
 - `useDashboardFilters.openSavedSearch(view)` applies `openSavedSearchText` (§7).
 
 ### 9.2 Components (`frontend/src/components/savedSearches/`)
 
 - `PinButton.tsx`, `SaveSearchModal.tsx`, `SavedSearchList.tsx` (normal and edit mode), `SavedSearchEditRow.tsx`.
-- `DashboardSidebar` renders `SavedSearchList` in place of the pinned section; `SidebarRow` gains the badge variants of §6.1.
+- `DashboardSidebar` renders `SavedSearchList` in place of the pinned section; `SidebarRow` gains the badge variants of §6.3.
 
 ### 9.3 Removals
 
@@ -397,14 +434,14 @@ User decisions (U*) are listed in the [overview](query_model_plan_overview.md#21
 
 | # | Decision | Short reason | Where |
 |---|---|---|---|
-| P13 | Badges use a generic `CountItems(Expr[])` RPC with per-query errors; the client builds the Exprs from the stored text. | One evaluation pass for all badges; one stale search cannot blank the others; reusable beyond saved searches. | §6 |
+| P13 | There is no separate count RPC: `GetFacets` gains `queries` (saved searches, per-query errors) and per-value `new_count`/`inbox_count`, and the sidebar makes **one** `GetFacets` call per poll for every number it shows. The selector `GetFacets` stays separate. The client builds the Exprs from the stored text. | One item load and view build for all sidebar numbers; replaces two sidebar calls plus a would-be count RPC; the selector call changes with the filter and must not drag the sidebar along. | §6 |
 | P16 | Opening a saved search without a triage predicate keeps the active tab's predicate (parent §4.6). | Preserves today's pinned-repo behaviour. | §7 |
-| P17 | At most 50 saved searches; names 1–80 characters, unique case-insensitively; queries up to 1000 characters on one line. All validated server-side. | Bounds `CountItems` cost and keeps the sidebar unambiguous. | §5.3 |
+| P17 | At most 50 saved searches (at most 100 `queries` per `GetFacets`); names 1–80 characters, unique case-insensitively; queries up to 1000 characters on one line. All validated server-side. | Bounds the sidebar call's cost and keeps the sidebar unambiguous. | §5.3 |
 | P18 | Reorder uses native HTML5 drag and drop on a handle plus ArrowUp/ArrowDown on the focused handle. | No new dependency; accessible. | §9.4 |
-| P21 | Badge scope is classified from top-level predicates only; anything ambiguous uses inbox behaviour; `new:noise` alone is not new activity. | Deterministic and cheap; noise is never "worth looking at" (parent §4.4). | §6.1 |
+| P21 | Badge scope is classified from top-level predicates only; anything ambiguous uses inbox behaviour; `new:noise` alone is not new activity. | Deterministic and cheap; noise is never "worth looking at" (parent §4.4). | §6.3 |
 | P22 | Dedicated saved-search RPCs doing a by-id read-modify-write under the config lock; reads go through `GetConfig`; `UpdateConfig` never changes the list. | No lost updates between tabs or with the Settings modal, without an etag. | §5.1 |
 | P23 | `pinned_repos` is converted server-side on config load/update, then cleared; a one-time backup of the original file is written. | Atomic and idempotent in one file write, no marker; follows the existing load-normalisation pattern. | §8 |
-| P24 | `CountResult` gains `inbox_count` instead of the client sending derived inbox-scoped queries. | All-items badges (U14) need it; computing it in the same pass is cheaper and keeps the client from rewriting Exprs. | §6 |
+| P24 | `FacetValue` and `CountResult` both carry `count`, `new_count` and `inbox_count` (same names; one Go `query.Counts` type), instead of the client sending derived inbox- or new-scoped queries. `FacetValue.count` keeps its field number and meaning. | All-items badges (U14), the New total and the repo dots need them; computing them in the same pass is cheaper and keeps the client from rewriting Exprs; a shared proto sub-message would break `FacetValue.count`. | §4, §6.1 |
 
 ---
 
@@ -412,49 +449,54 @@ User decisions (U*) are listed in the [overview](query_model_plan_overview.md#21
 
 Each commit must leave `./verify.sh` green (never `--force`). Commit subjects follow Conventional Commits with no backticks. Generated code is regenerated by the existing tooling when a proto changes.
 
-**3.1 `feat(api): add saved searches to the config and a CountItems RPC`**
-- Files: `api/octodeck/v1/service.proto` (`SavedSearch`, `Config.saved_searches`, the four saved-search RPCs, `CountItems`, `pinned_repos` comment), `api/octodeck/v1/query.proto` (`CountResult`), regenerated Go/TS, `backend/internal/server/saved_searches.go` with `CodeUnimplemented` stubs, `CountItems` stub in `items.go`.
-- Tests: none beyond build and lint (stubs).
+**3.1 `perf(dashboard): get every sidebar count from one GetFacets call`** (prep commit; useful without saved searches)
+- Files: `api/octodeck/v1/query.proto` (`FacetValue.new_count`, `FacetValue.inbox_count`), regenerated Go/TS, `backend/internal/query/count.go` (`Counts` type and `add`), `backend/internal/query/facets.go` (accumulate all three per value), `frontend/src/hooks/useDashboardData.ts` (one `SIDEBAR_REQUEST` with `fields: [REPO, TRIAGE]`; `repoHasUnread` from repo `new_count > 0`; `totals.new` from the triage `inbox` value's `new_count`; remove `UNREAD_REQUEST` and the unread query from `refreshAll`), `frontend/src/logic/query/expr.ts` (drop `NEW_ANY_EXPR` if unused), `frontend/src/logic/query/facets.ts` (helpers reading `newCount`).
+- Tests: Go `facets_test.go`: for every conformance vector in `fixtures_test.go` and every facetable field, each value's `new_count` equals the count of its matches that match `new:any`, and `inbox_count` the count that match `triage:inbox`; the triage facet's `inbox` value `new_count` equals the old `GetFacets(new:any, [triage])` inbox count. Frontend `Dashboard.rpc.test.tsx`: the sidebar issues exactly **one** `GetFacets` per poll without a `query` (plus the selector call), and no `new:any` request; Inbox/New/Acked totals, repo counts and orange dots are unchanged for the existing fixtures (update the "sidebar counts come from GetFacets" tests, which currently stub two calls).
+- AC: identical sidebar rendering with one fewer RPC per poll.
+
+**3.2 `feat(api): add saved searches to the config and saved-search counts to GetFacets`**
+- Files: `api/octodeck/v1/service.proto` (`SavedSearch`, `Config.saved_searches`, `pinned_repos` comment, the four saved-search RPCs, `GetFacetsRequest.queries`, `GetFacetsResponse.counts`), `api/octodeck/v1/query.proto` (`CountResult`), regenerated Go/TS, `backend/internal/server/saved_searches.go` with `CodeUnimplemented` stubs, `items.go` (`GetFacets` returns `Unimplemented` for non-empty `queries`).
+- Tests: a server test that non-empty `queries` returns `Unimplemented` and empty `queries` behaves as before.
 - AC: `./verify.sh` green; no behaviour change.
 
-**3.2 `feat(backend): store saved searches in the config file`**
+**3.3 `feat(backend): store saved searches in the config file`**
 - Files: `backend/internal/config/saved_searches.go` (`GetSavedSearches`, `UpdateSavedSearches`, `ValidateSavedSearchName`, `ValidateSavedSearchQuery`, `NormalizeSavedSearches`), `backend/internal/config/config.go` (normalise on `Load`/`UpdateProto`; `UpdateProto` preserves `saved_searches` on full updates; atomic `saveLocked`), `backend/internal/server/handler.go` (`UpdateConfig` rejects masks with `saved_searches`).
 - Tests (`config_test.go`, `saved_searches_test.go`, `handler_test.go`): protojson round trip of `savedSearches`; normalisation table (missing/duplicate ids, empty query dropped, empty/long names, duplicates and >50 kept); `Load` of a hand-edited file never fails; `UpdateProto` with an empty mask keeps the list; `UpdateConfig` with `saved_searches` in the mask → `InvalidArgument`; `UpdateSavedSearches` restores the previous list when the write fails; atomic write leaves no partial file.
 - AC: saved searches persist across daemon restarts.
 
-**3.3 `feat(backend): serve the saved search RPCs`**
+**3.4 `feat(backend): serve the saved search RPCs`**
 - Files: `backend/internal/server/saved_searches.go`.
 - Tests (`server/saved_searches_test.go`, through the real Connect client as in `items_test.go`): every row of the §5.3 table; the query is stored and returned byte-for-byte (including odd spacing and characters the daemon cannot interpret); list order after create/delete/reorder; concurrent creates from several goroutines all persist; reorder with a stale id set → `FailedPrecondition`; results visible through `GetConfig`.
 - AC: CRUD and reorder usable via the Connect client.
 
-**3.4 `feat(backend): count items for several queries in one call`**
-- Files: `backend/internal/query/count.go`, `backend/internal/server/items.go`.
-- Tests: `query/count_test.go` using the fixtures in `fixtures_test.go` (`count` equals `len(q.Filter(views))`, `newCount` equals the `new:any` subset, `inboxCount` equals the `triage:inbox` subset, for every conformance vector); `server/items_test.go` (`CountItems` with valid, invalid and `@me` queries; implicit inbox; 100-query limit; empty request).
-- AC: per-query errors never fail the request.
+**3.5 `feat(backend): count saved-search queries in GetFacets`**
+- Files: `backend/internal/query/count.go` (`Count(q, views) Counts`), `backend/internal/server/items.go` (compile each `queries` entry with per-query errors; 100-query limit).
+- Tests: `query/count_test.go` using the fixtures in `fixtures_test.go` (`Count` equals `len(q.Filter(views))`, with `NewCount`/`InboxCount` equal to the `new:any`/`triage:inbox` subsets, for every conformance vector); `server/items_test.go` (`GetFacets` with valid, invalid and `@me` queries; implicit inbox per query; `counts` in request order; an invalid query sets only its own `error`; 101 queries → `InvalidArgument`; `queries` with empty `fields`; an invalid main `query` still fails the request).
+- AC: per-query errors never fail the request; one item load per call.
 
-**3.5 `feat(backend): add the pinned repository conversion`**
-- Files: `backend/internal/config/migrate.go` (`MigratePinnedRepos`, backup helper). **Not wired into `Load`/`UpdateProto` yet**, so existing pins keep showing in the old sidebar until 3.8.
+**3.6 `feat(backend): add the pinned repository conversion`**
+- Files: `backend/internal/config/migrate.go` (`MigratePinnedRepos`, backup helper). **Not wired into `Load`/`UpdateProto` yet**, so existing pins keep showing in the old sidebar until 3.9.
 - Tests (`migrate_test.go`): converts valid repos to `repo:owner/name`; skips invalid entries and names that already exist; de-duplicates case-insensitively; clears `pinned_repos`; running it twice is a no-op; no limit applied; backup written once and never overwritten.
 - AC: pure, tested conversion available.
 
-**3.6 `feat(frontend): add the saved searches hook`**
-- Files: `frontend/src/logic/savedSearches.ts`, `frontend/src/hooks/useSavedSearches.ts`, `frontend/src/hooks/useDashboardData.ts` (`refreshAll` includes counts), `Dashboard.test.tsx` `useQuery` stubs (empty `CountItems` responses, `savedSearches` in `GetConfig`).
-- Tests: `savedSearches.test.ts` (`toView` for valid and invalid text; `badgeScope` table covering every example in §6.1; `buildCountRequest` skips invalid searches and maps results back; all-items badge picks inbox vs. acked style from `inbox_count`; `isActive` with and without triage; `openSavedSearchText` tab preservation; `suggestName`; `moveItem`); `useSavedSearches` RPC-level tests (`CountItems` request contains the parsed Exprs of valid searches in list order; invalid text yields an error view and no request entry; polling; optimistic reorder and rollback on `FailedPrecondition`).
+**3.7 `feat(frontend): add the saved searches hook`**
+- Files: `frontend/src/logic/savedSearches.ts`, `frontend/src/hooks/useSavedSearches.ts`, `frontend/src/hooks/useDashboardData.ts` (`savedSearchQueries` option added to the sidebar `GetFacets` request; returns `savedSearchCounts`), `Dashboard.test.tsx` `useQuery` stubs (`counts` in the sidebar `GetFacets` response, `savedSearches` in `GetConfig`).
+- Tests: `savedSearches.test.ts` (`toView` for valid and invalid text; `badgeScope` table covering every example in §6.3; `buildCountRequest` skips invalid searches; `attachCounts` maps `counts` back to rows; all-items badge picks inbox vs. acked style from `inbox_count`; `isActive` with and without triage; `openSavedSearchText` tab preservation; `suggestName`; `moveItem`); RPC-level tests (the sidebar still issues exactly one `GetFacets` per poll, now with `queries` = the parsed Exprs of valid searches in list order; invalid text yields an error view and no request entry; optimistic reorder and rollback on `FailedPrecondition`).
 - AC: no UI yet.
 
-**3.7 `feat(dashboard): save the current query with a pin button`**
+**3.8 `feat(dashboard): save the current query with a pin button`**
 - Files: `components/savedSearches/{PinButton,SaveSearchModal}.tsx`, `Dashboard.tsx` (pin next to the input).
 - Tests: component tests (suggested names, validation messages, Enter/Escape, focus); RPC tests: pin → modal → `CreateSavedSearch` with name, the exact query text and sort; pin is filled for a matching query and opens edit mode (`UpdateSavedSearch` mask `name,sort`, Delete); disabled for empty or invalid queries; `AlreadyExists` and `ResourceExhausted` shown inline.
 - AC: searches can be created, renamed and deleted via the modal.
 
-**3.8 `feat!: replace pinned repositories with saved searches`**
+**3.9 `feat!: replace pinned repositories with saved searches`**
 - Files: `backend/internal/config/config.go` (wire `MigratePinnedRepos` and the backup into `Load`/`UpdateProto`; remove `GetPinnedRepos`), `components/savedSearches/SavedSearchList.tsx`, `components/dashboard/DashboardSidebar.tsx`, `components/dashboard/SidebarRow.tsx` (badge variants), `logic/query/facets.ts` (drop pinned parameters), `hooks/useDashboardData.ts`, `Dashboard.tsx`, `Settings.tsx` (remove Pinned repositories), and tests that reference `pinnedRepos` (`config_test.go`, `notifications_test.go` field lists, `Settings.test.tsx`, `Dashboard.rpc.test.tsx` "lists pinned repos first…", `DataBrowser.test.tsx` fixtures, `rpcTestUtils.tsx`).
 - Body must explain the breaking change: pinned repositories are converted into saved searches on first start (backup at `config.json.bak-pinned-repos`); the Settings field is gone; downgrading drops saved searches from the config.
-- Tests: Go: loading a config with `pinnedRepos` writes `savedSearches`, clears `pinnedRepos` and creates the backup; a second load changes nothing. RPC tests: badges per scope from `CountItems` (inbox: slate bubble, orange when `new_count > 0`; new: always orange; acked: faded count without a bubble; all: inbox badge from `inbox_count` when > 0, otherwise faded `count`; zero hidden; `data-scope` and `aria-label` per §6.1); an invalid saved text shows the error badge and still opens; the badge does not change when the active tab changes; clicking a search without triage on the Acked tab sends `triage:acked repo:…`; clicking a search with triage replaces the query and applies its sort; clicking the active row returns to the tab; empty state hint; repositories section lists every repo. `facets.test.ts` updated.
+- Tests: Go: loading a config with `pinnedRepos` writes `savedSearches`, clears `pinnedRepos` and creates the backup; a second load changes nothing. RPC tests: badges per scope from the sidebar `GetFacets` `counts` (inbox: slate bubble, orange when `new_count > 0`; new: always orange; acked: faded count without a bubble; all: inbox badge from `inbox_count` when > 0, otherwise faded `count`; zero hidden; `data-scope` and `aria-label` per §6.3); still exactly one sidebar `GetFacets` per poll; an invalid saved text shows the error badge and still opens; the badge does not change when the active tab changes; clicking a search without triage on the Acked tab sends `triage:acked repo:…`; clicking a search with triage replaces the query and applies its sort; clicking the active row returns to the tab; empty state hint; repositories section lists every repo. `facets.test.ts` updated.
 - AC: issue #14 sidebar behaviour except edit mode; existing pins appear as saved searches.
 
-**3.9 `feat(dashboard): edit, reorder and delete saved searches in the sidebar`**
-- Files: `components/savedSearches/{SavedSearchList,SavedSearchEditRow}.tsx`, `spec.md` (saved searches in `config.json`, `CountItems`, the pinned-repo conversion; replace `pinned_repos` with `saved_searches` in the Configuration Model list), `docs/user_guide.md` (saved searches, hand-editing `config.json` with the daemon stopped).
+**3.10 `feat(dashboard): edit, reorder and delete saved searches in the sidebar`**
+- Files: `components/savedSearches/{SavedSearchList,SavedSearchEditRow}.tsx`, `spec.md` (saved searches in `config.json`, saved-search counts and per-value `new_count`/`inbox_count` in `GetFacets`, the pinned-repo conversion; replace `pinned_repos` with `saved_searches` in the Configuration Model list; the dashboard's polling now makes `GetItems` plus two `GetFacets` calls), `docs/user_guide.md` (saved searches, hand-editing `config.json` with the daemon stopped).
 - Tests: edit-mode component tests: rename (Enter, blur, Escape, duplicate, too long), delete with confirm, drag reorder with `fireEvent` drag events, keyboard reorder, live-region text; RPC tests for `UpdateSavedSearch` (mask `name`), `DeleteSavedSearch`, `ReorderSavedSearches` and rollback on `FailedPrecondition`.
 - AC: issue #14 complete; `spec.md` updated (Phase 3 milestone).
 
@@ -464,15 +506,17 @@ Each commit must leave `./verify.sh` green (never `--force`). Commit subjects fo
 
 | Risk / edge case | Handling |
 |---|---|
-| Hand-edited text that does not parse, or uses a value the daemon rejects. | Error badge and description on the row (§2.3); left out of `CountItems`; still opens, showing error chips. Server-side rejections arrive as `CountResult.error`. |
+| Hand-edited text that does not parse, or uses a value the daemon rejects. | Error badge and description on the row (§2.3); left out of the sidebar `GetFacets` `queries`; still opens, showing error chips. Server-side rejections arrive as that query's `CountResult.error`. |
 | Hand-edited file with missing ids, duplicates or too many entries. | `NormalizeSavedSearches` repairs ids and keeps the rest; `Load` never fails (§5.4). |
 | A hand edit made while the daemon runs. | Overwritten by the daemon's next config write, as for every config field; documented in the user guide. |
 | Concurrent edits from several tabs and the Settings modal. | By-id read-modify-write under `Config.mu`; Settings never writes `saved_searches`; reorder checks the id set (§5.1). |
 | `config.json` write fails. | `Internal`; the in-memory list is restored; atomic `saveLocked` never leaves a truncated file. |
+| Editing saved searches changes the sidebar request key. | `placeholderData: keepPreviousData` keeps the old numbers until the new response arrives (§6.2). |
+| An invalid main `query` in the sidebar call would blank every sidebar number. | The sidebar's main query is the constant `{}`; only `queries` entries can be invalid, and they fail individually. |
 | A future grammar change makes previously valid saved text invalid or change meaning. | The grammar must stay backward compatible for valid text; otherwise rows show errors. Add parser golden tests for any saved-search examples in the user guide. |
-| Downgrade to a pre-Phase-3 daemon. | Pins gone (already converted) and `savedSearches` dropped on its next write; one-time backup file; release notes (§8). |
+| Downgrade to a pre-Phase-3 daemon. | Pins gone (already converted) and `savedSearches` dropped on its next write; one-time backup file; release notes (§8). An old frontend against a new daemon ignores the new `FacetValue` fields. |
 | `golangci-lint` SA1019 on `pinned_repos`. | Do not mark it deprecated (§4). |
 | Pinned repos that are not valid `owner/name`. | Dropped with a warning; kept in the backup file. |
 | The daemon cannot evaluate saved searches (future notifications, CLI). | Accepted cost of U13; add a Go parser when such a consumer appears (parent §3.3). |
 | Unicode names: `strings.EqualFold` uses simple Unicode case folding. | Accepted; "Straße" and "STRASSE" are different names. |
-| `Dashboard.test.tsx` stubs `useQuery` per RPC; `CountItems` returns undefined there. | Components tolerate `undefined`; stubs updated in commit 3.6. |
+| `Dashboard.test.tsx` stubs `useQuery` per RPC and expects two sidebar facet calls today. | Update the stubs in commit 3.1 (one sidebar call) and 3.7 (`counts`); components tolerate missing `counts`. |

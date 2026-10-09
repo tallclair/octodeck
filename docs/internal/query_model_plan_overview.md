@@ -69,20 +69,26 @@ None.
 |---|---|---|
 | 1 | Multi-select repo, org, author, assignee, milestone, label and activity (`new:`); Merged in the State menu; component extraction from `Dashboard.tsx`. | Checkboxes in menus; multi-value chips; activity filtering; a new Assignee menu. URLs unchanged in format. |
 | 2 | `parseQuery`/`formatQuery`; text as state of record; tokenized chip input with autocomplete; `?q=` URLs. | One query box with chips you can click into and edit; dropdowns stay and edit the text; URLs become `?q=is:open+label:bug`. |
-| 3 | Saved searches in `config.json` (text), saved-search RPCs, `CountItems`, conversion of `pinned_repos`; pin button, naming modal, sidebar edit mode. | "Pinned" sidebar section becomes "Saved searches" with scope-dependent badges; pin any query. |
+| 3 | Saved searches in `config.json` (text), saved-search RPCs, saved-search and per-value new/inbox counts in `GetFacets` (one sidebar call per poll), conversion of `pinned_repos`; pin button, naming modal, sidebar edit mode. | "Pinned" sidebar section becomes "Saved searches" with scope-dependent badges; pin any query. |
 
 ```mermaid
 flowchart LR
   P0["Phase 0 (merged): Expr API, Go evaluator, GetFacets"] --> P1["Phase 1: multi-select, activity, component extraction"]
   P1 --> P2["Phase 2: parser/formatter, chip input, ?q= URLs"]
-  P2 --> P3["Phase 3: saved searches (text in config.json), CountItems"]
+  P2 --> P3["Phase 3: saved searches (text in config.json), sidebar counts in one GetFacets"]
 ```
 
 Dependencies, in short (details in each phase's §1):
 - Phase 2 needs Phase 1's extracted components, array-valued controls and owner-index projection.
 - Phase 3 needs Phase 2's parser (saved searches are stored as text and parsed in the browser), the text state of record and clause splices, and the query input row for the pin button.
 
-Non-goals for all three phases: `in:comments` (U3); a Go parser or `ParseQuery` RPC (U4); grouping, explicit `OR` or `NOT (...)` in the text syntax; sort in the query text (parent §4.7); per-saved-search notifications or extension badges; updating a saved search's query in place (U10).
+Non-goals for all three phases: `in:comments` (U3); a Go parser or `ParseQuery` RPC (U4); grouping, explicit `OR` or `NOT (...)` in the text syntax; sort in the query text (parent §4.7); per-saved-search notifications or extension badges; updating a saved search's query in place (U10); reducing polling (§3.1).
+
+### 3.1 Deferred enhancement: reduce polling
+
+Out of scope for Phases 1–3, by the user's decision, to keep the current changes simple. After Phase 3 the dashboard still polls every 3 s, with `GetItems`, the selector `GetFacets` and one sidebar `GetFacets` per poll (Phase 3 §6.2), each loading every item and recomputing item views. Possible follow-ups:
+- **Change-driven refresh** instead of fixed polling: refetch when the daemon reports a sync or local-state change. The frontend already refetches when a sync completes, and the daemon already has a push stream (`WatchNotifications`) for the extension that could carry a "data changed" event for the dashboard.
+- **Cache computed item views per sync generation** in the daemon, shared by `GetItems` and `GetFacets`, so repeated polls between syncs skip the item load and activity computation.
 
 ---
 
@@ -120,8 +126,8 @@ Backend additions: `backend/internal/config/{saved_searches,migrate}.go` (Phase 
 | Layer | Tests |
 |---|---|
 | Go config | `config/saved_searches_test.go`, `migrate_test.go`, `config_test.go`: protojson round trip of `savedSearches`, normalisation of hand-edited files, validation limits, `UpdateProto` preserving the list, atomic writes, pinned-repo conversion (idempotence, backup). |
-| Go query | `query/count_test.go` using the fixtures in `fixtures_test.go`: `count`, `newCount`, `inboxCount` agree with `q.Filter` for every conformance vector. |
-| Go server | `server/saved_searches_test.go` and `items_test.go` additions through the real Connect client: every saved-search error code, concurrent writers, `CountItems` per-query errors and limits. |
+| Go query | `query/count_test.go` and `facets_test.go` using the fixtures in `fixtures_test.go`: `count`, `new_count`, `inbox_count` (per query and per facet value) agree with `q.Filter` and the `new:any`/`triage:inbox` subsets for every conformance vector. |
+| Go server | `server/saved_searches_test.go` and `items_test.go` additions through the real Connect client: every saved-search error code, concurrent writers, `GetFacets` `queries` with per-query errors and limits. |
 | TS pure logic | Vitest unit tests for predicates (projection, owners, activity and org/repo rules), facets, syntax (round-trip properties, golden tables, issue codes and spans), textEdit (edit locality), editor transitions, legacy URL conversion, urlCodec round trip, savedSearches helpers (`badgeScope`, count requests). |
 | TS components | RTL tests for `MultiSelectMenu`, `QueryInput` (keyboard table, click-to-caret with stubbed caret APIs, select-all, clipboard, undo/redo, IME, ARIA, live region, error vs. negated chip styles), `SaveSearchModal`, `SavedSearchList` (edit mode). |
-| RPC-level | `Dashboard.rpc.test.tsx` additions per commit (exact `GetItems`/`GetFacets`/`CountItems` requests and URL assertions). |
+| RPC-level | `Dashboard.rpc.test.tsx` additions per commit (exact `GetItems`/`GetFacets` requests, including exactly one sidebar `GetFacets` per poll, and URL assertions). |
