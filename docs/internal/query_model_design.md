@@ -1,6 +1,6 @@
 # Design: Dashboard Query Model
 
-**Status:** Proposed (Phase 0 not started)
+**Status:** Phase 0 implemented. Phases 1–3 not started.
 **Tracking:** [#14 Saved searches](https://github.com/tallclair/octodeck/issues/14), [#15 Selector multi-select](https://github.com/tallclair/octodeck/issues/15)
 
 ## 1. Motivation
@@ -197,7 +197,7 @@ The Inbox / Activity / Acked / All tabs are currently a separate `triage` field,
 - Including acked items requires an explicit `triage:acked`; `triage:all` expands to `triage:inbox,acked`.
 - The "Activity" tab becomes inbox + `is:new`.
 - A saved search that omits `triage:` runs within whichever triage tab is active.
-- **Callers that need every item must send `triage:all`**: the extension background worker (both `GetItems({})` calls) and the DataBrowser. Without this the extension's notifications would quietly skip acked items.
+- **Callers that need every item must send `triage:all`**. Today that is only the DataBrowser. The extension background worker does not call `GetItems` at all (badge and notification decisions run in the daemon), and a guard test keeps it that way; any future caller there would also need `triage:all`.
 
 An intermediate decision applied the implicit scope only in the dashboard UI, with an empty API query meaning "everything". It was reverted so that a query has one meaning everywhere.
 
@@ -244,6 +244,8 @@ Option 1 is preferred for familiarity; option 2 is the fallback if cursor handli
 
 ## 9. Open items
 
-- Exact proto representation of closed-value sets (enums vs. validated strings) in `Predicate.values`.
 - Whether saved searches also keep the user's original text for display (Phase 3).
 - `in:comments` support for free text.
+- Phase 2 input design: tokenized chips vs. highlighted overlay (§7.1).
+
+**Resolved:** closed-value sets are validated strings in `Predicate.values`, documented on each `Field` enum value in `query.proto`, rather than per-field enums. This keeps `Predicate` uniform across open and closed fields.
