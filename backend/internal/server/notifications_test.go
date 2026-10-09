@@ -446,3 +446,72 @@ func TestUpdateConfig_MaskedDashboardSavePreservesNotificationSettings(t *testin
 	assert.False(t, got.GetNotificationSettings().GetEnabled(), "notification settings are preserved")
 	assert.Equal(t, []string{"kubernetes/*"}, got.GetNotificationSettings().GetRepoIncludes())
 }
+
+// TestComputeBadge_UnscopedSeesAckedItems shows that the implicit triage:inbox scope is applied
+// only by the GetItems RPC: internal readers such as the badge load every stored item, including
+// acked ones, and decide for themselves (an acked item with newer activity is back in the inbox).
+func TestComputeBadge_UnscopedSeesAckedItems(t *testing.T) {
+	env := setupNotificationTest(t)
+	seedInboxItem(t, env.db, "I_INBOX")
+
+	ackAt := time.Now().Add(-2 * time.Hour)
+	acked := func(id string, commentAt time.Time) *octodeckv1.Item {
+		b := octodeckv1.Item_builder{
+			Id:        config.Ptr(id),
+			Repo:      config.Ptr("owner/repo"),
+			Number:    config.Ptr(int32(2)),
+			Type:      config.Ptr(octodeckv1.ItemType_ITEM_TYPE_ISSUE),
+			Title:     config.Ptr(id),
+			State:     config.Ptr(octodeckv1.ItemState_ITEM_STATE_OPEN),
+			CreatedAt: timestamppb.New(ackAt.Add(-time.Hour)),
+			UpdatedAt: timestamppb.New(ackAt.Add(-time.Hour)),
+			Author:    octodeckv1.User_builder{Login: config.Ptr("someone")}.Build(),
+			Local: octodeckv1.ItemLocalState_builder{
+				AckedAt:         timestamppb.New(ackAt),
+				AckedActivityAt: timestamppb.New(ackAt),
+			}.Build(),
+		}
+		if !commentAt.IsZero() {
+			b.UpdatedAt = timestamppb.New(commentAt)
+			b.Comments = []*octodeckv1.Comment{octodeckv1.Comment_builder{
+				CommentId: config.Ptr(int64(1)),
+				Author:    octodeckv1.User_builder{Login: config.Ptr("someone")}.Build(),
+				BodyText:  config.Ptr("new information"),
+				CreatedAt: timestamppb.New(commentAt),
+			}.Build()}
+		}
+		return b.Build()
+	}
+	require.NoError(t, env.db.SaveItems(t.Context(), []*octodeckv1.Item{
+		acked("I_SUPERSEDED", ackAt.Add(time.Hour)), // acked, then new activity: back in the inbox
+		acked("I_ACKED", time.Time{}),               // acked after its last activity
+	}))
+
+	stored, err := env.db.GetItems(t.Context(), nil)
+	require.NoError(t, err)
+	var storedIDs []string
+	for _, it := range stored {
+		storedIDs = append(storedIDs, it.GetId())
+	}
+	assert.ElementsMatch(t, []string{"I_INBOX", "I_SUPERSEDED", "I_ACKED"}, storedIDs,
+		"the internal read path is unscoped")
+
+	first := receiveMsg(t, env.watch(t, time.Time{}))
+	require.True(t, first.HasBadge())
+	assert.Equal(t, int32(2), first.GetBadge().GetCount(),
+		"the badge counts the inbox item and the superseded ack (back in the inbox), but not the acked item")
+
+	getIDs := func(q *octodeckv1.Expr) []string {
+		req := connect.NewRequest(octodeckv1.GetItemsRequest_builder{Query: q}.Build())
+		env.addHeaders(req)
+		resp, err := env.client.GetItems(t.Context(), req)
+		require.NoError(t, err)
+		var ids []string
+		for _, it := range resp.Msg.GetItems() {
+			ids = append(ids, it.GetId())
+		}
+		return ids
+	}
+	assert.ElementsMatch(t, []string{"I_INBOX", "I_SUPERSEDED"}, getIDs(nil), "the RPC applies the inbox scope")
+	assert.Equal(t, []string{"I_ACKED"}, getIDs(predicateExpr(octodeckv1.Field_FIELD_TRIAGE, "acked")))
+}

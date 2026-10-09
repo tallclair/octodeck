@@ -149,93 +149,6 @@ func TestOctoDeckHandler_GetItems(t *testing.T) {
 			octodeckv1.CommentNoiseType_COMMENT_NOISE_TYPE_BOT_AUTHOR,
 			gotItem.GetComments()[2].GetNoiseType(),
 		)
-
-		// Test status filtering in GetItems
-		filterReq := connect.NewRequest(octodeckv1.GetItemsRequest_builder{
-			Filter: octodeckv1.Filter_builder{
-				Status: []octodeckv1.ItemStatus{octodeckv1.ItemStatus_ITEM_STATUS_IDLE},
-			}.Build(),
-		}.Build())
-		addHeaders(filterReq)
-		filterResp, err := client.GetItems(t.Context(), filterReq)
-		require.NoError(t, err)
-		assert.Empty(t, filterResp.Msg.GetItems())
-
-		// Test milestone filtering in GetItems
-		itemWithMilestone := octodeckv1.Item_builder{
-			Id:        config.Ptr("milestone_item"),
-			Repo:      config.Ptr("owner/repo"),
-			Number:    config.Ptr(int32(2)),
-			Type:      config.Ptr(octodeckv1.ItemType_ITEM_TYPE_ISSUE),
-			Title:     config.Ptr("Milestone Issue"),
-			State:     config.Ptr(octodeckv1.ItemState_ITEM_STATE_OPEN),
-			UpdatedAt: timestamppb.New(time.Now()),
-			Milestone: octodeckv1.Milestone_builder{
-				Title: config.Ptr("v1.32"),
-			}.Build(),
-		}.Build()
-		err = db.SaveItems(t.Context(), []*octodeckv1.Item{itemWithMilestone})
-		require.NoError(t, err)
-
-		msFilterReq := connect.NewRequest(octodeckv1.GetItemsRequest_builder{
-			Filter: octodeckv1.Filter_builder{
-				Milestones: []string{"v1.32"},
-			}.Build(),
-		}.Build())
-		addHeaders(msFilterReq)
-		msFilterResp, err := client.GetItems(t.Context(), msFilterReq)
-		require.NoError(t, err)
-		require.Len(t, msFilterResp.Msg.GetItems(), 1)
-		assert.Equal(t, "milestone_item", msFilterResp.Msg.GetItems()[0].GetId())
-		assert.Equal(t, "v1.32", msFilterResp.Msg.GetItems()[0].GetMilestone().GetTitle())
-
-		msMismatchFilterReq := connect.NewRequest(octodeckv1.GetItemsRequest_builder{
-			Filter: octodeckv1.Filter_builder{
-				Milestones: []string{"nonexistent"},
-			}.Build(),
-		}.Build())
-		addHeaders(msMismatchFilterReq)
-		msMismatchFilterResp, err := client.GetItems(t.Context(), msMismatchFilterReq)
-		require.NoError(t, err)
-		assert.Empty(t, msMismatchFilterResp.Msg.GetItems())
-
-		// Test with Labels filter & items with labels
-		itemWithLabels := octodeckv1.Item_builder{
-			Id:        config.Ptr("labeled_item"),
-			Repo:      config.Ptr("owner/repo"),
-			Number:    config.Ptr(int32(3)),
-			Type:      config.Ptr(octodeckv1.ItemType_ITEM_TYPE_ISSUE),
-			Title:     config.Ptr("Labeled Issue"),
-			State:     config.Ptr(octodeckv1.ItemState_ITEM_STATE_OPEN),
-			UpdatedAt: timestamppb.New(time.Now()),
-			Labels: []*octodeckv1.Label{
-				octodeckv1.Label_builder{Name: config.Ptr("kind/bug"), Color: config.Ptr("d73a4a")}.Build(),
-				octodeckv1.Label_builder{Name: config.Ptr("size/small"), Color: config.Ptr("0075ca")}.Build(),
-			},
-		}.Build()
-		err = db.SaveItems(t.Context(), []*octodeckv1.Item{itemWithLabels})
-		require.NoError(t, err)
-
-		labelFilterReq := connect.NewRequest(octodeckv1.GetItemsRequest_builder{
-			Filter: octodeckv1.Filter_builder{
-				Labels: []string{"kind/bug"},
-			}.Build(),
-		}.Build())
-		addHeaders(labelFilterReq)
-		labelFilterResp, err := client.GetItems(t.Context(), labelFilterReq)
-		require.NoError(t, err)
-		require.Len(t, labelFilterResp.Msg.GetItems(), 1)
-		assert.Equal(t, "labeled_item", labelFilterResp.Msg.GetItems()[0].GetId())
-
-		labelMismatchReq := connect.NewRequest(octodeckv1.GetItemsRequest_builder{
-			Filter: octodeckv1.Filter_builder{
-				Labels: []string{"nonexistent-label"},
-			}.Build(),
-		}.Build())
-		addHeaders(labelMismatchReq)
-		labelMismatchResp, err := client.GetItems(t.Context(), labelMismatchReq)
-		require.NoError(t, err)
-		assert.Empty(t, labelMismatchResp.Msg.GetItems())
 	})
 }
 
@@ -511,17 +424,39 @@ func TestOctoDeckHandler_SyncAndConfig(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 
-		// Verify that GetItems filters labels on read
-		readReq := connect.NewRequest(&octodeckv1.GetItemsRequest{})
+		// Verify that GetItems filters labels on read. The item is acked, so it is only returned
+		// with triage:all; requiring it keeps the check from passing vacuously.
+		labeledAt := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+		require.NoError(t, db.SaveItems(t.Context(), []*octodeckv1.Item{octodeckv1.Item_builder{
+			Id:        config.Ptr("labeled_item"),
+			Repo:      config.Ptr("owner/repo"),
+			Number:    config.Ptr(int32(77)),
+			Title:     config.Ptr("Labeled"),
+			UpdatedAt: timestamppb.New(labeledAt),
+			Labels: []*octodeckv1.Label{
+				octodeckv1.Label_builder{Name: config.Ptr("kind/bug")}.Build(),
+				octodeckv1.Label_builder{Name: config.Ptr("size/small")}.Build(),
+			},
+			Local: octodeckv1.ItemLocalState_builder{
+				AckedAt:         timestamppb.New(labeledAt.Add(time.Hour)),
+				AckedActivityAt: timestamppb.New(labeledAt),
+			}.Build(),
+		}.Build()}))
+		readReq := connect.NewRequest(octodeckv1.GetItemsRequest_builder{
+			Query: predicateExpr(octodeckv1.Field_FIELD_TRIAGE, "all"),
+		}.Build())
 		addHeaders(readReq)
 		readResp, err := client.GetItems(t.Context(), readReq)
 		require.NoError(t, err)
+		found := false
 		for _, it := range readResp.Msg.GetItems() {
 			if it.GetId() == "labeled_item" {
+				found = true
 				require.Len(t, it.GetLabels(), 1)
 				assert.Equal(t, "size/small", it.GetLabels()[0].GetName())
 			}
 		}
+		require.True(t, found, "labeled_item should be returned")
 	})
 
 	t.Run("RefetchItem", func(t *testing.T) {
