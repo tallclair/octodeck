@@ -39,6 +39,9 @@ const (
 	OctoDeckServiceGetItemsProcedure = "/octodeck.v1.OctoDeckService/GetItems"
 	// OctoDeckServiceGetItemProcedure is the fully-qualified name of the OctoDeckService's GetItem RPC.
 	OctoDeckServiceGetItemProcedure = "/octodeck.v1.OctoDeckService/GetItem"
+	// OctoDeckServiceGetFacetsProcedure is the fully-qualified name of the OctoDeckService's GetFacets
+	// RPC.
+	OctoDeckServiceGetFacetsProcedure = "/octodeck.v1.OctoDeckService/GetFacets"
 	// OctoDeckServiceSyncProcedure is the fully-qualified name of the OctoDeckService's Sync RPC.
 	OctoDeckServiceSyncProcedure = "/octodeck.v1.OctoDeckService/Sync"
 	// OctoDeckServiceViewItemProcedure is the fully-qualified name of the OctoDeckService's ViewItem
@@ -86,6 +89,8 @@ type OctoDeckServiceClient interface {
 	// Main Dashboard Data
 	GetItems(context.Context, *connect.Request[v1.GetItemsRequest]) (*connect.Response[v1.GetItemsResponse], error)
 	GetItem(context.Context, *connect.Request[v1.GetItemRequest]) (*connect.Response[v1.GetItemResponse], error)
+	// Available filter values with counts (dropdown options, sidebar counts).
+	GetFacets(context.Context, *connect.Request[v1.GetFacetsRequest]) (*connect.Response[v1.GetFacetsResponse], error)
 	// Synchronization (Streaming)
 	Sync(context.Context, *connect.Request[v1.SyncRequest]) (*connect.ServerStreamForClient[v1.SyncResponse], error)
 	// Actions
@@ -130,6 +135,12 @@ func NewOctoDeckServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			httpClient,
 			baseURL+OctoDeckServiceGetItemProcedure,
 			connect.WithSchema(octoDeckServiceMethods.ByName("GetItem")),
+			connect.WithClientOptions(opts...),
+		),
+		getFacets: connect.NewClient[v1.GetFacetsRequest, v1.GetFacetsResponse](
+			httpClient,
+			baseURL+OctoDeckServiceGetFacetsProcedure,
+			connect.WithSchema(octoDeckServiceMethods.ByName("GetFacets")),
 			connect.WithClientOptions(opts...),
 		),
 		sync: connect.NewClient[v1.SyncRequest, v1.SyncResponse](
@@ -223,6 +234,7 @@ func NewOctoDeckServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 type octoDeckServiceClient struct {
 	getItems           *connect.Client[v1.GetItemsRequest, v1.GetItemsResponse]
 	getItem            *connect.Client[v1.GetItemRequest, v1.GetItemResponse]
+	getFacets          *connect.Client[v1.GetFacetsRequest, v1.GetFacetsResponse]
 	sync               *connect.Client[v1.SyncRequest, v1.SyncResponse]
 	viewItem           *connect.Client[v1.ViewItemRequest, v1.ViewItemResponse]
 	ackItem            *connect.Client[v1.AckItemRequest, v1.AckItemResponse]
@@ -247,6 +259,11 @@ func (c *octoDeckServiceClient) GetItems(ctx context.Context, req *connect.Reque
 // GetItem calls octodeck.v1.OctoDeckService.GetItem.
 func (c *octoDeckServiceClient) GetItem(ctx context.Context, req *connect.Request[v1.GetItemRequest]) (*connect.Response[v1.GetItemResponse], error) {
 	return c.getItem.CallUnary(ctx, req)
+}
+
+// GetFacets calls octodeck.v1.OctoDeckService.GetFacets.
+func (c *octoDeckServiceClient) GetFacets(ctx context.Context, req *connect.Request[v1.GetFacetsRequest]) (*connect.Response[v1.GetFacetsResponse], error) {
+	return c.getFacets.CallUnary(ctx, req)
 }
 
 // Sync calls octodeck.v1.OctoDeckService.Sync.
@@ -324,6 +341,8 @@ type OctoDeckServiceHandler interface {
 	// Main Dashboard Data
 	GetItems(context.Context, *connect.Request[v1.GetItemsRequest]) (*connect.Response[v1.GetItemsResponse], error)
 	GetItem(context.Context, *connect.Request[v1.GetItemRequest]) (*connect.Response[v1.GetItemResponse], error)
+	// Available filter values with counts (dropdown options, sidebar counts).
+	GetFacets(context.Context, *connect.Request[v1.GetFacetsRequest]) (*connect.Response[v1.GetFacetsResponse], error)
 	// Synchronization (Streaming)
 	Sync(context.Context, *connect.Request[v1.SyncRequest], *connect.ServerStream[v1.SyncResponse]) error
 	// Actions
@@ -364,6 +383,12 @@ func NewOctoDeckServiceHandler(svc OctoDeckServiceHandler, opts ...connect.Handl
 		OctoDeckServiceGetItemProcedure,
 		svc.GetItem,
 		connect.WithSchema(octoDeckServiceMethods.ByName("GetItem")),
+		connect.WithHandlerOptions(opts...),
+	)
+	octoDeckServiceGetFacetsHandler := connect.NewUnaryHandler(
+		OctoDeckServiceGetFacetsProcedure,
+		svc.GetFacets,
+		connect.WithSchema(octoDeckServiceMethods.ByName("GetFacets")),
 		connect.WithHandlerOptions(opts...),
 	)
 	octoDeckServiceSyncHandler := connect.NewServerStreamHandler(
@@ -456,6 +481,8 @@ func NewOctoDeckServiceHandler(svc OctoDeckServiceHandler, opts ...connect.Handl
 			octoDeckServiceGetItemsHandler.ServeHTTP(w, r)
 		case OctoDeckServiceGetItemProcedure:
 			octoDeckServiceGetItemHandler.ServeHTTP(w, r)
+		case OctoDeckServiceGetFacetsProcedure:
+			octoDeckServiceGetFacetsHandler.ServeHTTP(w, r)
 		case OctoDeckServiceSyncProcedure:
 			octoDeckServiceSyncHandler.ServeHTTP(w, r)
 		case OctoDeckServiceViewItemProcedure:
@@ -499,6 +526,10 @@ func (UnimplementedOctoDeckServiceHandler) GetItems(context.Context, *connect.Re
 
 func (UnimplementedOctoDeckServiceHandler) GetItem(context.Context, *connect.Request[v1.GetItemRequest]) (*connect.Response[v1.GetItemResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("octodeck.v1.OctoDeckService.GetItem is not implemented"))
+}
+
+func (UnimplementedOctoDeckServiceHandler) GetFacets(context.Context, *connect.Request[v1.GetFacetsRequest]) (*connect.Response[v1.GetFacetsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("octodeck.v1.OctoDeckService.GetFacets is not implemented"))
 }
 
 func (UnimplementedOctoDeckServiceHandler) Sync(context.Context, *connect.Request[v1.SyncRequest], *connect.ServerStream[v1.SyncResponse]) error {

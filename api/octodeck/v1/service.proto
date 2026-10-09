@@ -4,6 +4,7 @@ package octodeck.v1;
 
 import "google/protobuf/field_mask.proto";
 import "google/protobuf/timestamp.proto";
+import "octodeck/v1/query.proto";
 import "octodeck/v1/resources.proto";
 
 option go_package = "github.com/tallclair/octodeck/backend/internal/api/v1;octodeckv1";
@@ -12,6 +13,8 @@ service OctoDeckService {
   // Main Dashboard Data
   rpc GetItems(GetItemsRequest) returns (GetItemsResponse);
   rpc GetItem(GetItemRequest) returns (GetItemResponse);
+  // Available filter values with counts (dropdown options, sidebar counts).
+  rpc GetFacets(GetFacetsRequest) returns (GetFacetsResponse);
 
   // Synchronization (Streaming)
   rpc Sync(SyncRequest) returns (stream SyncResponse);
@@ -42,7 +45,15 @@ service OctoDeckService {
 }
 
 message GetItemsRequest {
-  Filter filter = 1;
+  // Was the removed Filter message.
+  reserved 1;
+  reserved filter;
+
+  // Items to return. Unset means the empty query (implicit triage:inbox). An invalid query
+  // returns InvalidArgument with an ExprError detail.
+  Expr query = 2;
+  // Unset means SORT_KEY_UPDATED, SORT_ORDER_DESC.
+  Sort sort = 3;
 }
 
 message GetItemsResponse {
@@ -57,25 +68,18 @@ message GetItemResponse {
   Item item = 1;
 }
 
-message Filter {
-  // Tri-state boolean filters
-  reserved 1;
-  bool is_viewed = 2;
-  bool is_assigned = 3;
+message GetFacetsRequest {
+  // Validated and scoped exactly as GetItemsRequest.query.
+  Expr query = 1;
+  // Fields to facet. FIELD_UNSPECIFIED, FIELD_IN and FIELD_TEXT are InvalidArgument.
+  repeated Field fields = 2;
+}
 
-  // Enum filters
-  ItemType type = 4;
-  ItemState state = 5;
-  
-  // List filters (OR logic)
-  repeated ItemStatus status = 6;
-  repeated string repos = 7;
-  repeated string authors = 8;
-  repeated string milestones = 10;
-  repeated string labels = 11;
-
-  // Fuzzy search
-  string query = 9;
+message GetFacetsResponse {
+  // One facet per requested field, in request order. For each field, every known value is
+  // listed with the count of items matching the query with that field's own top-level
+  // predicates removed (for FIELD_TRIAGE: with triage:all instead of the implicit inbox).
+  repeated Facet facets = 1;
 }
 
 message SyncRequest {}

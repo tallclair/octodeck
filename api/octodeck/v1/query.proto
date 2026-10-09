@@ -1,0 +1,144 @@
+edition = "2023";
+
+package octodeck.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/tallclair/octodeck/backend/internal/api/v1;octodeckv1";
+
+// A boolean query over items. An unset Expr (or a root Expr with no kind set) is the empty
+// query, which matches every item before the implicit triage scope is applied.
+//
+// Triage scope: when no FIELD_TRIAGE predicate appears anywhere in the tree (at any depth,
+// negated or not), the server ANDs an implicit `triage:inbox` onto the root. Callers that
+// need every item must send `triage:all`.
+//
+// Validation (InvalidArgument with an ExprError detail): a nested Expr must have a kind set;
+// an `or` list must be non-empty (an empty `and` list is true); `not` must have its child set.
+message Expr {
+  oneof kind {
+    Predicate predicate = 1;
+    // All children must match. An empty list matches every item.
+    ExprList and = 2;
+    // At least one child must match. Must be non-empty.
+    ExprList or = 3;
+    // The child must not match.
+    Expr not = 4;
+  }
+}
+
+message ExprList {
+  repeated Expr exprs = 1;
+}
+
+// One condition on one field: `field:v1,v2` (v1 OR v2), or `-field:v1,v2` when negated
+// (neither v1 nor v2). Repeating a predicate for the same field ANDs them.
+message Predicate {
+  // Must be a known value other than FIELD_UNSPECIFIED.
+  Field field = 1;
+  // ORed together. Must be non-empty; every value must be non-empty after trimming.
+  // All values are case-insensitive. Closed fields accept only the values documented on
+  // their Field enum value.
+  repeated string values = 2;
+  // Negates the whole OR of values.
+  bool negated = 3;
+}
+
+// The query vocabulary. This enum and its comments are the single source of truth for the
+// fields and the legal values of closed fields. "Closed" fields reject any other value with
+// InvalidArgument; "open" fields accept any non-empty string.
+enum Field {
+  FIELD_UNSPECIFIED = 0;
+  // Closed: "inbox" (computed status is not ACKED), "acked" (status is ACKED),
+  // "all" (= inbox,acked). Implicit "inbox" when no triage predicate is present.
+  FIELD_TRIAGE = 1;
+  // Closed: "open" (OPEN or unspecified), "closed" (CLOSED or MERGED), "merged" (MERGED).
+  FIELD_STATE = 2;
+  // Closed: "pr", "issue". Items with an unspecified type fall back to the URL
+  // ("/pull/" or "/issues/").
+  FIELD_TYPE = 3;
+  // Closed: "true", "false". Matches Item.is_draft.
+  FIELD_DRAFT = 4;
+  // Closed: "true" (subscription is not UNSUBSCRIBED), "false" (UNSUBSCRIBED).
+  FIELD_TRACKING = 5;
+  // Closed: "true", "false". Matches ItemLocalState.starred.
+  FIELD_STARRED = 6;
+  // Closed: "item" (never viewed), "mention", "comment" (comments, reviews and state
+  // changes), "code", "noise", "any" (= item,mention,comment,code; never noise).
+  // Flags are independent: one item can match several values. Acked items have none.
+  FIELD_NEW = 7;
+  // Open: "owner/name", compared case-insensitively with Item.repo.
+  FIELD_REPO = 8;
+  // Open: "owner"; matches items whose repo is "owner/<anything>".
+  FIELD_ORG = 9;
+  // Open: a login, or "@me" for the authenticated user (matches nothing if unknown).
+  FIELD_AUTHOR = 10;
+  // Open: a login, or "@me"; matches if any assignee has that login.
+  FIELD_ASSIGNEE = 11;
+  // Open: a milestone title.
+  FIELD_MILESTONE = 12;
+  // Open: a label name; matches if any visible label has that name.
+  FIELD_LABEL = 13;
+  // Closed: "assignee", "label", "milestone"; matches items with none of that field.
+  FIELD_NO = 14;
+  // Closed: "title", "body". Narrows which fields FIELD_TEXT terms search (default: both).
+  // Must not be negated. Always matches on its own.
+  FIELD_IN = 15;
+  // Open: one free-text term (a word or a phrase), matched as a case-insensitive substring
+  // of the title or body. A term of the form "123" or "#123" also matches item number 123.
+  FIELD_TEXT = 16;
+}
+
+// Result ordering for GetItems. Starred items always come first.
+message Sort {
+  SortKey key = 1;
+  SortOrder order = 2;
+}
+
+enum SortKey {
+  // Same as SORT_KEY_UPDATED.
+  SORT_KEY_UNSPECIFIED = 0;
+  // Latest non-noise activity.
+  SORT_KEY_UPDATED = 1;
+  // Time the item was acked (items never acked sort as oldest).
+  SORT_KEY_ACKED = 2;
+  // Creation time (falls back to the update time).
+  SORT_KEY_CREATED = 3;
+}
+
+enum SortOrder {
+  // Same as SORT_ORDER_DESC.
+  SORT_ORDER_UNSPECIFIED = 0;
+  SORT_ORDER_DESC = 1;
+  SORT_ORDER_ASC = 2;
+}
+
+// The available values of one field, with counts. See GetFacetsRequest.
+message Facet {
+  Field field = 1;
+  repeated FacetValue values = 2;
+}
+
+message FacetValue {
+  // Canonical value (lower-case for closed fields; first-seen casing for open fields).
+  string value = 1;
+  // Number of matching items with this value. May be 0.
+  int32 count = 2;
+  // FIELD_LABEL only: the label color (hex, without '#').
+  string color = 3;
+  // FIELD_REPO only: latest non-noise activity across the repo's items.
+  google.protobuf.Timestamp latest_activity_at = 4;
+}
+
+// Attached as a detail to InvalidArgument errors returned for an invalid Expr.
+message ExprError {
+  // Proto field path from the root Expr to the offending node, e.g.
+  // "and.exprs[2].not.predicate.values[0]". Empty for the root.
+  string path = 1;
+  // Human-readable description of the problem.
+  string message = 2;
+  // Field of the offending predicate, if any.
+  Field field = 3;
+  // Offending value, if any.
+  string value = 4;
+}

@@ -17,6 +17,13 @@ export const getItems = OctoDeckService.method.getItems;
 export const getItem = OctoDeckService.method.getItem;
 
 /**
+ * Available filter values with counts (dropdown options, sidebar counts).
+ *
+ * @generated from rpc octodeck.v1.OctoDeckService.GetFacets
+ */
+export const getFacets = OctoDeckService.method.getFacets;
+
+/**
  * Actions
  *
  * @generated from rpc octodeck.v1.OctoDeckService.ViewItem
