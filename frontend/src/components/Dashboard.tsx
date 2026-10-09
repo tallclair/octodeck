@@ -1,29 +1,6 @@
 import { useToast } from '../context/ToastContext';
 import { useState, useEffect, useMemo, useRef } from 'react';
-import {
-  Settings as SettingsIcon,
-  Search,
-  Filter,
-  CircleDot,
-  GitPullRequest,
-  Disc,
-  FolderGit,
-  User as UserIcon,
-  Zap,
-  CheckCircle,
-  Pin,
-  UserCheck,
-  X,
-  ChevronDown,
-  ChevronUp,
-  Check,
-  Layers,
-  Milestone as MilestoneIcon,
-  Tag as LabelIcon,
-  AlertTriangle,
-  RefreshCw,
-  Keyboard,
-} from 'lucide-react';
+import { Search, CheckCircle, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useQuery, useMutation } from '@connectrpc/connect-query';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -35,10 +12,7 @@ import {
   getSyncStatus,
   updateSubscription,
 } from '../api/octodeck/v1/service-OctoDeckService_connectquery';
-import {
-  SubscriptionState,
-  type Item,
-} from '../api/octodeck/v1/resources_pb';
+import { SubscriptionState, type Item } from '../api/octodeck/v1/resources_pb';
 import { client, checkStatus } from '../api/client';
 import { PullRequestCard } from './PullRequestCard';
 import { DetailsPane } from './DetailsPane';
@@ -49,7 +23,12 @@ import { useDashboardFilters } from '../hooks/useDashboardFilters';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { useScrollAnchoring } from '../hooks/useScrollAnchoring';
 import { useKeyboardNavigation } from '../hooks/useKeyboardNavigation';
-import { formatPredicateChip } from '../logic/query/predicates';
+import { useMenuGroup } from '../hooks/useMenuGroup';
+import { TriageTitleMenu } from './dashboard/TriageTitleMenu';
+import { FilterToolbar } from './dashboard/FilterToolbar';
+import { ActiveFilterChips } from './dashboard/ActiveFilterChips';
+import { SortMenu } from './dashboard/SortMenu';
+import { DashboardSidebar } from './dashboard/DashboardSidebar';
 
 interface DashboardProps {
   onOpenDebug?: (targetItemId?: string) => void;
@@ -97,27 +76,19 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
         // Retain fallback version if status query fails
       });
   }, []);
+
   const [showSettings, setShowSettings] = useState(false);
-  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
-  const [stateMenuOpen, setStateMenuOpen] = useState(false);
-  const [repoMenuOpen, setRepoMenuOpen] = useState(false);
-  const [authorMenuOpen, setAuthorMenuOpen] = useState(false);
-  const [milestoneMenuOpen, setMilestoneMenuOpen] = useState(false);
-  const [labelMenuOpen, setLabelMenuOpen] = useState(false);
-  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const menus = useMenuGroup();
 
   const [showAllRepos, setShowAllRepos] = useState(false);
   const [showAllAuthors, setShowAllAuthors] = useState(false);
   const [showAllMilestones, setShowAllMilestones] = useState(false);
   const [showAllLabels, setShowAllLabels] = useState(false);
 
-  const statusMenuRef = useRef<HTMLDivElement>(null);
-  const stateMenuRef = useRef<HTMLDivElement>(null);
-  const repoMenuRef = useRef<HTMLDivElement>(null);
-  const authorMenuRef = useRef<HTMLDivElement>(null);
-  const milestoneMenuRef = useRef<HTMLDivElement>(null);
-  const labelMenuRef = useRef<HTMLDivElement>(null);
-  const sortMenuRef = useRef<HTMLDivElement>(null);
+  if (!menus.isOpen('repo') && showAllRepos) setShowAllRepos(false);
+  if (!menus.isOpen('author') && showAllAuthors) setShowAllAuthors(false);
+  if (!menus.isOpen('milestone') && showAllMilestones) setShowAllMilestones(false);
+  if (!menus.isOpen('label') && showAllLabels) setShowAllLabels(false);
 
   const [debugMode, setDebugMode] = useState<boolean>(() => {
     try {
@@ -144,7 +115,6 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   } = useDashboardFilters();
 
   const selectedItemId = filters.item;
-  const [showHiddenRepos, setShowHiddenRepos] = useState(false);
   const [dismissingIds, setDismissingIds] = useState<Set<string>>(new Set());
 
   const handleToggleDebugMode = (enabled: boolean) => {
@@ -168,16 +138,19 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
     query,
     filters,
     pinnedRepos,
-    showAll: { repos: showAllRepos, authors: showAllAuthors, milestones: showAllMilestones, labels: showAllLabels },
+    showAll: {
+      repos: showAllRepos,
+      authors: showAllAuthors,
+      milestones: showAllMilestones,
+      labels: showAllLabels,
+    },
   });
   const { items, refreshAll } = data;
   // An invalid query is reported inline; only connectivity failures mean "disconnected".
   const isDisconnected = data.hasConnectivityError || isConfigError || isSyncStatusError;
 
-  const { pinnedList, otherList, activeOtherList, hiddenOtherList } = data.sidebar;
-
-  const hasActiveChips = useMemo(() => {
-    return (
+  const hasActiveChips = useMemo(
+    () =>
       filters.state !== 'all' ||
       filters.tracking !== 'all' ||
       Boolean(filters.repo) ||
@@ -186,11 +159,11 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
       Boolean(filters.milestone) ||
       Boolean(filters.label) ||
       filters.assigned === 'me' ||
-      extraPredicates.length > 0
-    );
-  }, [filters.state, filters.tracking, filters.repo, filters.org, filters.author, filters.milestone, filters.label, filters.assigned, extraPredicates.length]);
+      extraPredicates.length > 0,
+    [filters, extraPredicates]
+  );
 
-  const itemIds = useMemo(() => items.map(i => i.id), [items]);
+  const itemIds = useMemo(() => items.map((i) => i.id), [items]);
 
   const { scrollContainerRef } = useScrollAnchoring({
     itemIds,
@@ -236,24 +209,6 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
     }
   }, [lastUpdateKey, lastSyncKey, refreshAll]);
 
-  // Dropdown options from the daemon's facets: values with matches by default, every known
-  // value with "Show all", and the selected value always.
-  const { list: currentAuthorsList, hasMore: hasMoreAuthors } = data.options.authors;
-
-  const authorDropdownList = useMemo(() => {
-    const isCurrentUser = (a: string) => Boolean(currentUser) && a.toLowerCase() === currentUser?.toLowerCase();
-    const listedCurrentUser = currentAuthorsList.find(isCurrentUser) ?? null;
-    const otherAuthors = currentAuthorsList.filter(a => !isCurrentUser(a));
-    return {
-      currentUser: listedCurrentUser,
-      otherAuthors,
-    };
-  }, [currentAuthorsList, currentUser]);
-
-  const { list: currentMilestonesList, hasMore: hasMoreMilestones } = data.options.milestones;
-  const { list: currentLabelsList, hasMore: hasMoreLabels } = data.options.labels;
-  const { orgs: dropdownOrgs, reposByOrg: dropdownReposByOrg, hasMore: hasMoreRepos } = data.options.repos;
-
   const handleManualSync = async () => {
     setIsSyncing(true);
     try {
@@ -276,16 +231,13 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
     try {
       const willDisappear = filters.triage !== 'all' && filters.triage !== 'acked';
       if (willDisappear) {
-        setDismissingIds(prev => new Set(prev).add(id));
+        setDismissingIds((prev) => new Set(prev).add(id));
       }
       setFilter('item', null);
 
       const mutationPromise = ackItemMutate({ itemId: id, acked: true });
       if (willDisappear) {
-        await Promise.all([
-          mutationPromise,
-          new Promise(resolve => setTimeout(resolve, 280)),
-        ]);
+        await Promise.all([mutationPromise, new Promise((resolve) => setTimeout(resolve, 280))]);
       } else {
         await mutationPromise;
       }
@@ -294,7 +246,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
       console.error('Failed to ack item:', err);
       showError(err, 'Failed to acknowledge item');
     } finally {
-      setDismissingIds(prev => {
+      setDismissingIds((prev) => {
         if (!prev.has(id)) return prev;
         const next = new Set(prev);
         next.delete(id);
@@ -341,21 +293,18 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
       });
 
       if (queryClient?.setQueriesData) {
-        queryClient.setQueriesData(
-          { queryKey: ['connect-query'] },
-          (oldData: unknown) => {
-            const dataObj = oldData as { items?: Item[] } | undefined;
-            if (!dataObj || !Array.isArray(dataObj.items)) return oldData;
-            return {
-              ...dataObj,
-              items: dataObj.items.map((it: Item) =>
-                it.id === id
-                  ? (res?.item ?? { ...it, viewerSubscription: SubscriptionState.SUBSCRIBED })
-                  : it
-              ),
-            };
-          }
-        );
+        queryClient.setQueriesData({ queryKey: ['connect-query'] }, (oldData: unknown) => {
+          const dataObj = oldData as { items?: Item[] } | undefined;
+          if (!dataObj || !Array.isArray(dataObj.items)) return oldData;
+          return {
+            ...dataObj,
+            items: dataObj.items.map((it: Item) =>
+              it.id === id
+                ? (res?.item ?? { ...it, viewerSubscription: SubscriptionState.SUBSCRIBED })
+                : it
+            ),
+          };
+        });
       }
 
       if (queryClient?.invalidateQueries) {
@@ -367,8 +316,6 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
       showError(err, 'Failed to subscribe to item on GitHub');
     }
   };
-
-
 
   // From the current result, or fetched directly when it is outside the query.
   const selectedItem = data.selectedItem;
@@ -384,136 +331,22 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
     if (selectedItemId) {
       viewItemMutate({ itemId: selectedItemId })
         .then(() => refreshAll())
-        .catch(err => console.error('Failed to record view for item:', selectedItemId, err));
+        .catch((err) => console.error('Failed to record view for item:', selectedItemId, err));
     }
   }, [selectedItemId, viewItemMutate, refreshAll]);
 
-  const anyMenuOpen =
-    statusMenuOpen ||
-    stateMenuOpen ||
-    repoMenuOpen ||
-    authorMenuOpen ||
-    milestoneMenuOpen ||
-    labelMenuOpen ||
-    sortMenuOpen;
-
-  const {
-    focusedItemId,
-    showShortcutsModal,
-    setShowShortcutsModal,
-  } = useKeyboardNavigation({
+  const { focusedItemId, showShortcutsModal, setShowShortcutsModal } = useKeyboardNavigation({
     items,
     selectedItemId,
     onSelectItem: (id) => setFilter('item', id),
     onAckItem: handleAck,
     onStarItem: handleStar,
     isDetailsOpen: Boolean(selectedItemId),
-    disabled: showSettings || anyMenuOpen,
-  });
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (anyMenuOpen) {
-          setStatusMenuOpen(false);
-          setStateMenuOpen(false);
-          setRepoMenuOpen(false);
-          setShowAllRepos(false);
-          setAuthorMenuOpen(false);
-          setShowAllAuthors(false);
-          setMilestoneMenuOpen(false);
-          setShowAllMilestones(false);
-          setLabelMenuOpen(false);
-          setShowAllLabels(false);
-          setSortMenuOpen(false);
-          return;
-        }
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [anyMenuOpen]);
-
-  // Click outside listener for custom dropdowns
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (statusMenuRef.current && !statusMenuRef.current.contains(e.target as Node)) {
-        setStatusMenuOpen(false);
-      }
-      if (stateMenuRef.current && !stateMenuRef.current.contains(e.target as Node)) {
-        setStateMenuOpen(false);
-      }
-      if (repoMenuRef.current && !repoMenuRef.current.contains(e.target as Node)) {
-        setRepoMenuOpen(false);
-        setShowAllRepos(false);
-      }
-      if (authorMenuRef.current && !authorMenuRef.current.contains(e.target as Node)) {
-        setAuthorMenuOpen(false);
-        setShowAllAuthors(false);
-      }
-      if (milestoneMenuRef.current && !milestoneMenuRef.current.contains(e.target as Node)) {
-        setMilestoneMenuOpen(false);
-        setShowAllMilestones(false);
-      }
-      if (labelMenuRef.current && !labelMenuRef.current.contains(e.target as Node)) {
-        setLabelMenuOpen(false);
-        setShowAllLabels(false);
-      }
-      if (sortMenuRef.current && !sortMenuRef.current.contains(e.target as Node)) {
-        setSortMenuOpen(false);
-      }
-    };
-    if (statusMenuOpen || stateMenuOpen || repoMenuOpen || authorMenuOpen || milestoneMenuOpen || labelMenuOpen || sortMenuOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [statusMenuOpen, stateMenuOpen, repoMenuOpen, authorMenuOpen, milestoneMenuOpen, labelMenuOpen, sortMenuOpen]);
-
-  // Sidebar badges: per-repo inbox counts (GetFacets({}, [repo])) and the unread dot
-  // (GetFacets(new:any, [repo])), keyed by lower-cased repo name.
-  const { repoInboxCounts, repoHasUnread, totals: sidebarTotals } = data;
-  const repoBadge = (repo: string) => ({
-    inboxCount: repoInboxCounts[repo.toLowerCase()] || 0,
-    hasUnread: repoHasUnread.has(repo.toLowerCase()),
+    disabled: showSettings || menus.anyOpen,
   });
 
   // Determine active workflow shortcut (no secondary filters, type=all, no search text)
   const hasNoSecondaryFilters = !hasActiveChips && filters.type === 'all' && !filters.q.trim();
-  const isInboxActive = filters.triage === 'inbox' && hasNoSecondaryFilters;
-  const isActivityActive = filters.triage === 'activity' && hasNoSecondaryFilters;
-  const isAckedActive = filters.triage === 'acked' && hasNoSecondaryFilters;
-  const eqCi = (a: string | null | undefined, b: string | null | undefined) =>
-    Boolean(a && b && a.toLowerCase() === b.toLowerCase());
-
-  const handleOrgRepoChange = (value: string) => {
-    if (!value) {
-      setFilters({ org: null, repo: null });
-    } else if (value.startsWith('org:')) {
-      setFilters({ org: value.slice(4), repo: null });
-    } else if (value.startsWith('repo:')) {
-      setFilters({ repo: value.slice(5), org: null });
-    }
-  };
-
-  const titleText =
-    filters.triage === 'inbox'
-      ? 'Inbox'
-      : filters.triage === 'activity'
-      ? 'New'
-      : filters.triage === 'acked'
-      ? 'Acked'
-      : 'All Items';
-
-  const titleIcon =
-    filters.triage === 'inbox' ? (
-      <Filter size={18} className="text-blue-400" />
-    ) : filters.triage === 'activity' ? (
-      <Zap size={18} className="text-orange-400" />
-    ) : filters.triage === 'acked' ? (
-      <CheckCircle size={18} className="text-emerald-400" />
-    ) : (
-      <Layers size={18} className="text-slate-400" />
-    );
 
   if (data.isInitialLoading && !isDisconnected) {
     return (
@@ -538,7 +371,11 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
           <div className="flex items-center gap-2.5 min-w-0">
             <AlertTriangle className="h-5 w-5 shrink-0 text-white" />
             <span className="truncate">
-              Disconnected from OctoDeck daemon. Make sure the local server is running (<code className="bg-red-800/80 dark:bg-red-900/80 px-1.5 py-0.5 rounded font-mono text-xs text-white">octodeck serve</code>).
+              Disconnected from OctoDeck daemon. Make sure the local server is running (
+              <code className="bg-red-800/80 dark:bg-red-900/80 px-1.5 py-0.5 rounded font-mono text-xs text-white">
+                octodeck serve
+              </code>
+              ).
             </span>
           </div>
           <button
@@ -553,8 +390,6 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
           </button>
         </div>
       )}
-
-
 
       {/* Top Navigation */}
       <nav className="h-14 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 bg-white/80 dark:bg-slate-950/80 backdrop-blur sticky top-0 z-40">
@@ -618,225 +453,19 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
 
       {/* Main Content Area */}
       <div className="flex flex-1 overflow-hidden relative">
-        {/* Sidebar (Navigation / Shortcuts) */}
-        <aside className="w-64 border-r border-slate-200 dark:border-slate-800 p-4 flex flex-col gap-1 overflow-y-auto hidden md:flex shrink-0 bg-slate-50/50 dark:bg-slate-950">
-          <div className="text-xs font-bold text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-2 px-2">Workflows</div>
-
-          <button
-            type="button"
-            onClick={() => applyWorkflowShortcut('inbox')}
-            className={`flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors cursor-pointer ${
-              isInboxActive
-                ? 'bg-blue-600 text-white font-medium shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-900 hover:text-slate-900 dark:hover:text-slate-200'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <Filter size={16} />
-              <span>Inbox</span>
-            </div>
-            <span className={`px-1.5 rounded text-xs font-mono ${isInboxActive ? 'bg-blue-700 text-white' : 'bg-slate-200 dark:bg-slate-800/50 text-slate-700 dark:text-slate-300'}`}>
-              {sidebarTotals.inbox}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => applyWorkflowShortcut('activity')}
-            className={`flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors cursor-pointer ${
-              isActivityActive
-                ? 'bg-blue-600 text-white font-medium shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-900 hover:text-slate-900 dark:hover:text-slate-200'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <Zap size={16} />
-              <span>New</span>
-            </div>
-            <span className={`px-1.5 rounded text-xs font-mono ${isActivityActive ? 'bg-blue-700 text-white' : 'bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300'}`}>
-              {sidebarTotals.new}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => applyWorkflowShortcut('acked')}
-            className={`flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors cursor-pointer ${
-              isAckedActive
-                ? 'bg-blue-600 text-white font-medium shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-900 hover:text-slate-900 dark:hover:text-slate-200'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <CheckCircle size={16} />
-              <span>Acked</span>
-            </div>
-            <span className={`px-1.5 rounded text-xs font-mono ${isAckedActive ? 'bg-blue-700 text-white' : 'bg-slate-200 dark:bg-slate-800/50 text-slate-700 dark:text-slate-300'}`}>
-              {sidebarTotals.acked}
-            </span>
-          </button>
-
-          {/* Pinned Repositories */}
-          {pinnedList.length > 0 && (
-            <div className="mt-6 mb-2">
-              <div className="text-xs font-bold text-slate-500 dark:text-slate-500 uppercase tracking-wider px-2 mb-2 flex items-center gap-1.5">
-                <Pin size={12} className="text-blue-600 dark:text-blue-400 rotate-45" />
-                <span>Pinned</span>
-              </div>
-              <div className="space-y-0.5">
-                {pinnedList.map(repo => {
-                  const { inboxCount, hasUnread } = repoBadge(repo);
-                  return (
-                    <button
-                      key={repo}
-                      type="button"
-                      onClick={() => toggleRepo(repo)}
-                      className={`w-full group px-3 py-1.5 text-sm flex items-center justify-between rounded cursor-pointer transition-colors ${
-                        eqCi(filters.repo, repo)
-                          ? 'bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-slate-200 font-medium'
-                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-900 hover:text-slate-900 dark:hover:text-slate-100'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="truncate">{repo}</span>
-                      </div>
-                      {inboxCount > 0 && (
-                        <span
-                          data-testid={`repo-count-${repo}`}
-                          className={`text-[10px] px-1.5 rounded-full font-mono shrink-0 ${
-                            hasUnread
-                              ? 'bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300'
-                              : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                          }`}
-                        >
-                          {inboxCount}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Other / All Repositories */}
-          <div className={pinnedList.length > 0 ? 'mt-4 mb-2' : 'mt-6 mb-2'}>
-            <div className="text-xs font-bold text-slate-500 dark:text-slate-500 uppercase tracking-wider px-2 mb-2">
-              {pinnedList.length > 0 ? 'Other Repositories' : 'Repositories'}
-            </div>
-            <div className="space-y-0.5">
-              {activeOtherList.map(repo => {
-                const { inboxCount, hasUnread } = repoBadge(repo);
-                return (
-                  <button
-                    key={repo}
-                    type="button"
-                    onClick={() => toggleRepo(repo)}
-                    className={`w-full group px-3 py-1.5 text-sm flex items-center justify-between rounded cursor-pointer transition-colors ${
-                      eqCi(filters.repo, repo)
-                        ? 'bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-slate-200 font-medium'
-                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-900 hover:text-slate-900 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    <span className="truncate">{repo}</span>
-                    {inboxCount > 0 && (
-                      <span
-                        data-testid={`repo-count-${repo}`}
-                        className={`text-[10px] px-1.5 rounded-full font-mono shrink-0 ${
-                          hasUnread
-                            ? 'bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300'
-                            : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                        }`}
-                      >
-                        {inboxCount}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-
-              {hiddenOtherList.length > 0 && (
-                <div className="pt-1">
-                  <button
-                    type="button"
-                    data-testid="toggle-hidden-repos"
-                    onClick={() => setShowHiddenRepos(!showHiddenRepos)}
-                    className="w-full px-3 py-1.5 text-xs flex items-center gap-1.5 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer transition-colors"
-                  >
-                    {showHiddenRepos ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                    <span>{showHiddenRepos ? 'Less' : 'More'}</span>
-                  </button>
-                  {showHiddenRepos && (
-                    <div className="space-y-0.5 mt-0.5" data-testid="hidden-repos-list">
-                      {hiddenOtherList.map(repo => {
-                        const { inboxCount, hasUnread } = repoBadge(repo);
-                        return (
-                          <button
-                            key={repo}
-                            type="button"
-                            onClick={() => toggleRepo(repo)}
-                            className={`w-full group px-3 py-1.5 text-sm flex items-center justify-between rounded cursor-pointer transition-colors ${
-                              eqCi(filters.repo, repo)
-                                ? 'bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-slate-200 font-medium'
-                                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-900 hover:text-slate-900 dark:hover:text-slate-200'
-                            }`}
-                          >
-                            <span className="truncate">{repo}</span>
-                            {inboxCount > 0 && (
-                              <span
-                                data-testid={`repo-count-${repo}`}
-                                className={`text-[10px] px-1.5 rounded-full font-mono shrink-0 ${
-                                  hasUnread
-                                    ? 'bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300'
-                                    : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                                }`}
-                              >
-                                {inboxCount}
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {pinnedList.length === 0 && otherList.length === 0 && (
-                <div className="px-3 py-2 text-xs text-slate-400 dark:text-slate-600 italic">No repositories</div>
-              )}
-            </div>
-          </div>
-
-          {/* Lower Left Shortcuts & Settings Buttons */}
-          <div className="mt-auto pt-3 border-t border-slate-200 dark:border-slate-800 space-y-1">
-            <button
-              type="button"
-              onClick={() => setShowShortcutsModal(true)}
-              className="w-full flex items-center justify-between px-3 py-2 rounded-md text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-900 hover:text-slate-900 dark:hover:text-white transition-colors cursor-pointer"
-              aria-label="Keyboard Shortcuts"
-            >
-              <div className="flex items-center gap-2.5">
-                <Keyboard size={16} />
-                <span>Shortcuts</span>
-              </div>
-              <kbd className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">?</kbd>
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowSettings(!showSettings)}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors cursor-pointer ${
-                showSettings
-                  ? 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-400 font-medium'
-                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-900 hover:text-slate-900 dark:hover:text-white'
-              }`}
-              aria-label="Settings"
-            >
-              <SettingsIcon size={16} />
-              <span>Settings</span>
-            </button>
-          </div>
-        </aside>
+        <DashboardSidebar
+          filters={filters}
+          hasNoSecondaryFilters={hasNoSecondaryFilters}
+          sidebar={data.sidebar}
+          repoInboxCounts={data.repoInboxCounts}
+          repoHasUnread={data.repoHasUnread}
+          totals={data.totals}
+          applyWorkflowShortcut={applyWorkflowShortcut}
+          toggleRepo={toggleRepo}
+          showSettings={showSettings}
+          setShowSettings={setShowSettings}
+          setShowShortcutsModal={setShowShortcutsModal}
+        />
 
         {/* List Pane */}
         <div className="flex-1 min-w-0 flex flex-col border-r border-slate-200 dark:border-slate-800 relative bg-slate-50 dark:bg-slate-950 overflow-hidden">
@@ -844,756 +473,50 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
             {/* List Header */}
             <header className="px-6 py-3.5 border-b border-slate-200 dark:border-slate-800 shrink-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur z-10 sticky top-0">
               <div className="flex w-full items-center transition-all duration-300 ease-in-out">
-                <div className={`transition-all duration-300 ease-in-out ${selectedItem ? 'w-6 flex-none' : 'flex-1'}`} />
+                <div
+                  className={`transition-all duration-300 ease-in-out ${
+                    selectedItem ? 'w-6 flex-none' : 'flex-1'
+                  }`}
+                />
 
                 <div className="max-w-4xl w-full shrink-0 space-y-3">
-                  {/* Row 1: Title with Status Dropdown Arrow + Item Count */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3 relative" ref={statusMenuRef}>
-                      <button
-                        type="button"
-                        onClick={() => setStatusMenuOpen(!statusMenuOpen)}
-                        aria-haspopup="true"
-                        aria-expanded={statusMenuOpen}
-                        aria-label="Select triage status"
-                        className="flex items-center gap-2 text-lg font-bold text-slate-900 dark:text-white tracking-tight hover:text-blue-600 dark:hover:text-blue-300 transition-colors group cursor-pointer select-none"
-                      >
-                        {titleIcon}
-                        <span>{titleText}</span>
-                        <ChevronDown
-                          size={18}
-                          className={`text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-300 transition-transform duration-200 ${
-                            statusMenuOpen ? 'rotate-180 text-blue-600 dark:text-blue-400' : ''
-                          }`}
-                        />
-                      </button>
+                  <TriageTitleMenu
+                    triage={filters.triage}
+                    onSelect={(tab) => setFilter('triage', tab)}
+                    isOpen={menus.isOpen('status')}
+                    onToggle={() => menus.toggle('status')}
+                    onClose={() => menus.close()}
+                    menuRef={menus.refFor('status')}
+                  />
 
-                      {/* Status Dropdown Menu */}
-                      {statusMenuOpen && (
-                        <div className="absolute top-full left-0 mt-1.5 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl py-1 z-30 animate-in fade-in zoom-in-95 duration-100">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFilter('triage', 'inbox');
-                              setStatusMenuOpen(false);
-                            }}
-                            className={`w-full px-3 py-2 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                              filters.triage === 'inbox'
-                                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <Filter size={14} className="text-blue-600 dark:text-blue-400" />
-                              <span>Inbox</span>
-                            </div>
-                            {filters.triage === 'inbox' && <Check size={14} className="text-blue-600 dark:text-blue-400" />}
-                          </button>
+                  <FilterToolbar
+                    filters={filters}
+                    setFilter={setFilter}
+                    setFilters={setFilters}
+                    currentUser={currentUser}
+                    options={data.options}
+                    showAll={{
+                      repos: showAllRepos,
+                      authors: showAllAuthors,
+                      milestones: showAllMilestones,
+                      labels: showAllLabels,
+                    }}
+                    setShowAll={{
+                      repos: setShowAllRepos,
+                      authors: setShowAllAuthors,
+                      milestones: setShowAllMilestones,
+                      labels: setShowAllLabels,
+                    }}
+                    menus={menus}
+                  />
 
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFilter('triage', 'activity');
-                              setStatusMenuOpen(false);
-                            }}
-                            className={`w-full px-3 py-2 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                              filters.triage === 'activity'
-                                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <Zap size={14} className="text-orange-500 dark:text-orange-400" />
-                              <span>New</span>
-                            </div>
-                            {filters.triage === 'activity' && <Check size={14} className="text-blue-600 dark:text-blue-400" />}
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFilter('triage', 'acked');
-                              setStatusMenuOpen(false);
-                            }}
-                            className={`w-full px-3 py-2 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                              filters.triage === 'acked'
-                                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <CheckCircle size={14} className="text-emerald-600 dark:text-emerald-400" />
-                              <span>Acked</span>
-                            </div>
-                            {filters.triage === 'acked' && <Check size={14} className="text-blue-600 dark:text-blue-400" />}
-                          </button>
-
-                          <div className="border-t border-slate-200 dark:border-slate-800 my-1" />
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFilter('triage', 'all');
-                              setStatusMenuOpen(false);
-                            }}
-                            className={`w-full px-3 py-2 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                              filters.triage === 'all'
-                                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <Layers size={14} className="text-slate-500 dark:text-slate-400" />
-                              <span>All Items</span>
-                            </div>
-                            {filters.triage === 'all' && <Check size={14} className="text-blue-600 dark:text-blue-400" />}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Row 2: Filter Toolbar (PRs/Issues slider left-aligned, Custom Dropdowns right-aligned) */}
-                  <div className="flex items-center justify-between gap-4 text-xs">
-                    {/* Left-aligned: PRs / Issues Type Slider (Segmented Control) */}
-                    <div
-                      className="flex bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-md p-0.5 shadow-xs"
-                      role="group"
-                      aria-label="Filter item type"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setFilter('type', 'all')}
-                        className={`px-2.5 py-0.5 text-xs font-medium rounded transition-colors cursor-pointer flex items-center ${
-                          filters.type === 'all'
-                            ? 'bg-white dark:bg-blue-600 text-slate-900 dark:text-white shadow-xs font-semibold'
-                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                        }`}
-                      >
-                        All
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setFilter('type', 'pr')}
-                        className={`px-2.5 py-0.5 text-xs font-medium rounded transition-colors cursor-pointer flex items-center gap-1.5 ${
-                          filters.type === 'pr'
-                            ? 'bg-white dark:bg-blue-600 text-slate-900 dark:text-white shadow-xs font-semibold'
-                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                        }`}
-                      >
-                        <GitPullRequest size={12} />
-                        <span>PRs</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setFilter('type', 'issue')}
-                        className={`px-2.5 py-0.5 text-xs font-medium rounded transition-colors cursor-pointer flex items-center gap-1.5 ${
-                          filters.type === 'issue'
-                            ? 'bg-white dark:bg-blue-600 text-slate-900 dark:text-white shadow-xs font-semibold'
-                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                        }`}
-                      >
-                        <Disc size={12} />
-                        <span>Issues</span>
-                      </button>
-                    </div>
-
-                    {/* Right-aligned: Custom Dropdown Menus for State, Repo, Author, and Assigned-to-me */}
-                    <div className="flex items-center gap-2">
-                      {/* Custom State Dropdown */}
-                      <div className="relative" ref={stateMenuRef}>
-                        <button
-                          type="button"
-                          onClick={() => setStateMenuOpen(!stateMenuOpen)}
-                          aria-label="Filter by state"
-                          aria-haspopup="true"
-                          aria-expanded={stateMenuOpen}
-                          className="flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700 hover:text-slate-900 dark:hover:text-white py-1 px-2.5 transition-colors text-xs cursor-pointer select-none shadow-xs"
-                        >
-                          <CircleDot size={13} className="text-slate-400 dark:text-slate-500" />
-                          <span>State</span>
-                          <ChevronDown
-                            size={12}
-                            className={`text-slate-400 dark:text-slate-500 transition-transform duration-150 ${
-                              stateMenuOpen ? 'rotate-180 text-blue-600 dark:text-blue-400' : ''
-                            }`}
-                          />
-                        </button>
-
-                        {stateMenuOpen && (
-                          <div className="absolute right-0 top-full mt-1.5 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl py-1 z-30 animate-in fade-in zoom-in-95 duration-100">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setFilter('state', 'open');
-                                setStateMenuOpen(false);
-                              }}
-                              className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                                filters.state === 'open'
-                                  ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                              }`}
-                            >
-                              <span>Open</span>
-                              {filters.state === 'open' && <Check size={13} className="text-blue-600 dark:text-blue-400" />}
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setFilter('state', 'closed');
-                                setStateMenuOpen(false);
-                              }}
-                              className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                                filters.state === 'closed'
-                                  ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                              }`}
-                            >
-                              <span>Closed</span>
-                              {filters.state === 'closed' && <Check size={13} className="text-blue-600 dark:text-blue-400" />}
-                            </button>
-
-                            <div className="border-t border-slate-200 dark:border-slate-800 my-1" />
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setFilter('tracking', 'tracked');
-                                setStateMenuOpen(false);
-                              }}
-                              className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                                filters.tracking === 'tracked'
-                                  ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                              }`}
-                            >
-                              <span>Tracked</span>
-                              {filters.tracking === 'tracked' && <Check size={13} className="text-blue-600 dark:text-blue-400" />}
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setFilter('tracking', 'untracked');
-                                setStateMenuOpen(false);
-                              }}
-                              className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                                filters.tracking === 'untracked'
-                                  ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                              }`}
-                            >
-                              <span>Untracked</span>
-                              {filters.tracking === 'untracked' && <Check size={13} className="text-blue-600 dark:text-blue-400" />}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Custom Repository Dropdown */}
-                      <div className="relative" ref={repoMenuRef}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (repoMenuOpen) setShowAllRepos(false);
-                            setRepoMenuOpen(!repoMenuOpen);
-                          }}
-                          aria-label="Filter by repository"
-                          aria-haspopup="true"
-                          aria-expanded={repoMenuOpen}
-                          className="flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700 hover:text-slate-900 dark:hover:text-white py-1 px-2.5 transition-colors text-xs cursor-pointer select-none shadow-xs"
-                        >
-                          <FolderGit size={13} className="text-slate-400 dark:text-slate-500" />
-                          <span>Repository</span>
-                          <ChevronDown
-                            size={12}
-                            className={`text-slate-400 dark:text-slate-500 transition-transform duration-150 ${
-                              repoMenuOpen ? 'rotate-180 text-blue-600 dark:text-blue-400' : ''
-                            }`}
-                          />
-                        </button>
-
-                        {repoMenuOpen && (
-                          <div className="absolute right-0 top-full mt-1.5 w-56 max-h-60 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl py-1 z-30 animate-in fade-in zoom-in-95 duration-100">
-                            {dropdownOrgs.map(org => (
-                              <div key={org} className="py-1">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    handleOrgRepoChange(`org:${org}`);
-                                    setRepoMenuOpen(false);
-                                    setShowAllRepos(false);
-                                  }}
-                                  className={`w-full px-3 py-1.5 text-xs text-left font-bold uppercase tracking-wider flex items-center justify-between transition-colors cursor-pointer ${
-                                    eqCi(filters.org, org) && !filters.repo
-                                      ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300'
-                                      : 'text-slate-500 dark:text-slate-400 bg-slate-100/50 dark:bg-slate-950/40 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                                  }`}
-                                >
-                                  <span className="truncate">{org}</span>
-                                  {eqCi(filters.org, org) && !filters.repo && (
-                                    <Check size={13} className="text-blue-600 dark:text-blue-400" />
-                                  )}
-                                </button>
-                                {(dropdownReposByOrg[org] || []).map(r => (
-                                  <button
-                                    key={r}
-                                    type="button"
-                                    onClick={() => {
-                                      handleOrgRepoChange(`repo:${r}`);
-                                      setRepoMenuOpen(false);
-                                      setShowAllRepos(false);
-                                    }}
-                                    className={`w-full pl-6 pr-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                                      eqCi(filters.repo, r)
-                                        ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                                    }`}
-                                  >
-                                    <span className="truncate">{r}</span>
-                                    {eqCi(filters.repo, r) && <Check size={13} className="text-blue-600 dark:text-blue-400" />}
-                                  </button>
-                                ))}
-                              </div>
-                            ))}
-                            {dropdownOrgs.length === 0 && (
-                              <div className="px-3 py-2 text-xs text-slate-500 italic">No repositories found</div>
-                            )}
-                            {!showAllRepos && hasMoreRepos && (
-                              <>
-                                <div className="border-t border-slate-200 dark:border-slate-800 my-1" />
-                                <button
-                                  type="button"
-                                  onClick={() => setShowAllRepos(true)}
-                                  className="w-full px-3 py-1.5 text-xs flex items-center justify-center text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 transition-colors cursor-pointer font-medium"
-                                >
-                                  Show all
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Custom Author Dropdown */}
-                      <div className="relative" ref={authorMenuRef}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (authorMenuOpen) setShowAllAuthors(false);
-                            setAuthorMenuOpen(!authorMenuOpen);
-                          }}
-                          aria-label="Filter by author"
-                          aria-haspopup="true"
-                          aria-expanded={authorMenuOpen}
-                          className="flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700 hover:text-slate-900 dark:hover:text-white py-1 px-2.5 transition-colors text-xs cursor-pointer select-none shadow-xs"
-                        >
-                          <UserIcon size={13} className="text-slate-400 dark:text-slate-500" />
-                          <span>Author</span>
-                          <ChevronDown
-                            size={12}
-                            className={`text-slate-400 dark:text-slate-500 transition-transform duration-150 ${
-                              authorMenuOpen ? 'rotate-180 text-blue-600 dark:text-blue-400' : ''
-                            }`}
-                          />
-                        </button>
-
-                        {authorMenuOpen && (
-                          <div className="absolute right-0 top-full mt-1.5 w-48 max-h-60 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl py-1 z-30 animate-in fade-in zoom-in-95 duration-100">
-                            {authorDropdownList.currentUser && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setFilter('author', authorDropdownList.currentUser);
-                                    setAuthorMenuOpen(false);
-                                    setShowAllAuthors(false);
-                                  }}
-                                  className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                                    eqCi(filters.author, authorDropdownList.currentUser)
-                                      ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                                      : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                                  }`}
-                                >
-                                  <span className="truncate font-medium">@{authorDropdownList.currentUser} (you)</span>
-                                  {eqCi(filters.author, authorDropdownList.currentUser) && (
-                                    <Check size={13} className="text-blue-600 dark:text-blue-400" />
-                                  )}
-                                </button>
-                                {authorDropdownList.otherAuthors.length > 0 && (
-                                  <div className="border-t border-slate-200 dark:border-slate-800 my-1" />
-                                )}
-                              </>
-                            )}
-                            {authorDropdownList.otherAuthors.map(author => (
-                              <button
-                                key={author}
-                                type="button"
-                                onClick={() => {
-                                  setFilter('author', author);
-                                  setAuthorMenuOpen(false);
-                                  setShowAllAuthors(false);
-                                }}
-                                className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                                  eqCi(filters.author, author)
-                                    ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                                }`}
-                              >
-                                <span className="truncate">@{author}</span>
-                                {eqCi(filters.author, author) && <Check size={13} className="text-blue-600 dark:text-blue-400" />}
-                              </button>
-                            ))}
-                            {!authorDropdownList.currentUser && authorDropdownList.otherAuthors.length === 0 && (
-                              <div className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500 italic">No authors found</div>
-                            )}
-                            {!showAllAuthors && hasMoreAuthors && (
-                              <>
-                                <div className="border-t border-slate-200 dark:border-slate-800 my-1" />
-                                <button
-                                  type="button"
-                                  onClick={() => setShowAllAuthors(true)}
-                                  className="w-full px-3 py-1.5 text-xs flex items-center justify-center text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 transition-colors cursor-pointer font-medium"
-                                >
-                                  Show all
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Custom Milestone Dropdown */}
-                      <div className="relative" ref={milestoneMenuRef}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (milestoneMenuOpen) setShowAllMilestones(false);
-                            setMilestoneMenuOpen(!milestoneMenuOpen);
-                          }}
-                          aria-label="Filter by milestone"
-                          aria-haspopup="true"
-                          aria-expanded={milestoneMenuOpen}
-                          className="flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700 hover:text-slate-900 dark:hover:text-white py-1 px-2.5 transition-colors text-xs cursor-pointer select-none shadow-xs"
-                        >
-                          <MilestoneIcon size={13} className="text-slate-400 dark:text-slate-500" />
-                          <span>Milestone</span>
-                          <ChevronDown
-                            size={12}
-                            className={`text-slate-400 dark:text-slate-500 transition-transform duration-150 ${
-                              milestoneMenuOpen ? 'rotate-180 text-blue-600 dark:text-blue-400' : ''
-                            }`}
-                          />
-                        </button>
-
-                        {milestoneMenuOpen && (
-                          <div className="absolute right-0 top-full mt-1.5 w-48 max-h-60 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl py-1 z-30 animate-in fade-in zoom-in-95 duration-100">
-                            {currentMilestonesList.map(milestone => (
-                              <button
-                                key={milestone}
-                                type="button"
-                                onClick={() => {
-                                  setFilter('milestone', milestone);
-                                  setMilestoneMenuOpen(false);
-                                  setShowAllMilestones(false);
-                                }}
-                                className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                                  eqCi(filters.milestone, milestone)
-                                    ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                                }`}
-                              >
-                                <span className="truncate">{milestone}</span>
-                                {eqCi(filters.milestone, milestone) && <Check size={13} className="text-blue-600 dark:text-blue-400" />}
-                              </button>
-                            ))}
-                            {currentMilestonesList.length === 0 && (
-                              <div className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500 italic">No milestones found</div>
-                            )}
-                            {!showAllMilestones && hasMoreMilestones && (
-                              <>
-                                <div className="border-t border-slate-200 dark:border-slate-800 my-1" />
-                                <button
-                                  type="button"
-                                  onClick={() => setShowAllMilestones(true)}
-                                  className="w-full px-3 py-1.5 text-xs flex items-center justify-center text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 transition-colors cursor-pointer font-medium"
-                                >
-                                  Show all
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Custom Label Dropdown */}
-                      <div className="relative" ref={labelMenuRef}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (labelMenuOpen) setShowAllLabels(false);
-                            setLabelMenuOpen(!labelMenuOpen);
-                          }}
-                          aria-label="Filter by label"
-                          aria-haspopup="true"
-                          aria-expanded={labelMenuOpen}
-                          className="flex items-center gap-1.5 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-700 hover:text-slate-900 dark:hover:text-white py-1 px-2.5 transition-colors text-xs cursor-pointer select-none shadow-xs"
-                        >
-                          <LabelIcon size={13} className="text-slate-400 dark:text-slate-500" />
-                          <span>Label</span>
-                          <ChevronDown
-                            size={12}
-                            className={`text-slate-400 dark:text-slate-500 transition-transform duration-150 ${
-                              labelMenuOpen ? 'rotate-180 text-blue-600 dark:text-blue-400' : ''
-                            }`}
-                          />
-                        </button>
-
-                        {labelMenuOpen && (
-                          <div className="absolute right-0 top-full mt-1.5 w-52 max-h-60 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl py-1 z-30 animate-in fade-in zoom-in-95 duration-100">
-                            {currentLabelsList.map(lbl => (
-                              <button
-                                key={lbl.name}
-                                type="button"
-                                onClick={() => {
-                                  setFilter('label', lbl.name || null);
-                                  setLabelMenuOpen(false);
-                                  setShowAllLabels(false);
-                                }}
-                                className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                                  filters.label?.toLowerCase() === lbl.name?.toLowerCase()
-                                    ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                                }`}
-                              >
-                                <span className="flex items-center gap-1.5 truncate">
-                                  <span
-                                    className="w-2 h-2 rounded-full shrink-0 border border-slate-300 dark:border-slate-700"
-                                    style={{ backgroundColor: lbl.color ? `#${lbl.color.replace(/^#/, '')}` : '#888' }}
-                                  />
-                                  <span className="truncate">{lbl.name}</span>
-                                </span>
-                                {filters.label?.toLowerCase() === lbl.name?.toLowerCase() && (
-                                  <Check size={13} className="text-blue-600 dark:text-blue-400 shrink-0 ml-1" />
-                                )}
-                              </button>
-                            ))}
-                            {currentLabelsList.length === 0 && (
-                              <div className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500 italic">No labels found</div>
-                            )}
-                            {!showAllLabels && hasMoreLabels && (
-                              <>
-                                <div className="border-t border-slate-200 dark:border-slate-800 my-1" />
-                                <button
-                                  type="button"
-                                  onClick={() => setShowAllLabels(true)}
-                                  className="w-full px-3 py-1.5 text-xs flex items-center justify-center text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 transition-colors cursor-pointer font-medium"
-                                >
-                                  Show all
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Assigned to me toggle */}
-                      <button
-                        type="button"
-                        onClick={() => setFilter('assigned', filters.assigned === 'me' ? 'all' : 'me')}
-                        className={`inline-flex items-center gap-1.5 py-1 px-2.5 rounded-md border text-xs font-medium transition-colors cursor-pointer shadow-xs ${
-                          filters.assigned === 'me'
-                            ? 'bg-blue-50 dark:bg-blue-950/80 border-blue-300 dark:border-blue-500/80 text-blue-700 dark:text-blue-200'
-                            : 'bg-white dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700 hover:text-slate-900 dark:hover:text-slate-200'
-                        }`}
-                        title={currentUser ? `Assigned to @${currentUser}` : 'Assigned to me'}
-                      >
-                        <UserCheck
-                          size={13}
-                          className={filters.assigned === 'me' ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}
-                        />
-                        <span>Assigned to me</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Row 3: Active Chips & Clear Filters Row */}
-                  {hasActiveChips && (
-                    <div className="flex items-center justify-between gap-4 pt-1">
-                      {/* Active Filter Chips */}
-                      <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                        {filters.state !== 'all' && (
-                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium">
-                            <span className="text-blue-600 dark:text-blue-400/80">State:</span>
-                            <span className="font-semibold capitalize">
-                              {filters.state === 'open' ? 'Open' : 'Closed'}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setFilter('state', 'all')}
-                              className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
-                              title="Remove state filter"
-                              aria-label="Remove state filter"
-                            >
-                              <X size={12} />
-                            </button>
-                          </span>
-                        )}
-
-                        {filters.tracking !== 'all' && (
-                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium">
-                            <span className="text-blue-600 dark:text-blue-400/80">Tracking:</span>
-                            <span className="font-semibold capitalize">
-                              {filters.tracking === 'tracked' ? 'Tracked' : 'Untracked'}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setFilter('tracking', 'all')}
-                              className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
-                              title="Remove tracking filter"
-                              aria-label="Remove tracking filter"
-                            >
-                              <X size={12} />
-                            </button>
-                          </span>
-                        )}
-
-                        {filters.repo && (
-                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium">
-                            <span className="text-blue-600 dark:text-blue-400/80">Repo:</span>
-                            <span className="font-semibold">{filters.repo}</span>
-                            <button
-                              type="button"
-                              onClick={() => setFilter('repo', null)}
-                              className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
-                              title="Remove repository filter"
-                              aria-label="Remove repository filter"
-                            >
-                              <X size={12} />
-                            </button>
-                          </span>
-                        )}
-
-                        {filters.org && !filters.repo && (
-                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium">
-                            <span className="text-blue-600 dark:text-blue-400/80">Org:</span>
-                            <span className="font-semibold">{filters.org}</span>
-                            <button
-                              type="button"
-                              onClick={() => setFilter('org', null)}
-                              className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
-                              title="Remove organization filter"
-                              aria-label="Remove organization filter"
-                            >
-                              <X size={12} />
-                            </button>
-                          </span>
-                        )}
-
-                        {filters.author && (
-                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium">
-                            <span className="text-blue-600 dark:text-blue-400/80">Author:</span>
-                            <span className="font-semibold">@{filters.author}</span>
-                            <button
-                              type="button"
-                              onClick={() => setFilter('author', null)}
-                              className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
-                              title="Remove author filter"
-                              aria-label="Remove author filter"
-                            >
-                              <X size={12} />
-                            </button>
-                          </span>
-                        )}
-
-                        {filters.milestone && (
-                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium">
-                            <span className="text-blue-600 dark:text-blue-400/80">Milestone:</span>
-                            <span className="font-semibold">{filters.milestone}</span>
-                            <button
-                              type="button"
-                              onClick={() => setFilter('milestone', null)}
-                              className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
-                              title="Remove milestone filter"
-                              aria-label="Remove milestone filter"
-                            >
-                              <X size={12} />
-                            </button>
-                          </span>
-                        )}
-
-                        {filters.label && (
-                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium">
-                            <span className="text-blue-600 dark:text-blue-400/80">Label:</span>
-                            <span className="font-semibold">{filters.label}</span>
-                            <button
-                              type="button"
-                              onClick={() => setFilter('label', null)}
-                              className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
-                              title="Remove label filter"
-                              aria-label="Remove label filter"
-                            >
-                              <X size={12} />
-                            </button>
-                          </span>
-                        )}
-
-                        {filters.assigned === 'me' && (
-                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium">
-                            <span className="text-blue-600 dark:text-blue-400/80">Assigned:</span>
-                            <span className="font-semibold">Me</span>
-                            <button
-                              type="button"
-                              onClick={() => setFilter('assigned', 'all')}
-                              className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
-                              title="Remove assigned filter"
-                              aria-label="Remove assigned filter"
-                            >
-                              <X size={12} />
-                            </button>
-                          </span>
-                        )}
-
-                        {/* Predicates from the URL that no control can show (multiple values, negation, other fields) */}
-                        {extraPredicates.map(({ predicate, index }) => {
-                          const chip = formatPredicateChip(predicate);
-                          return (
-                            <span
-                              key={`${index}-${chip.label}-${chip.value}`}
-                              data-testid="extra-filter-chip"
-                              className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium"
-                            >
-                              <span className="text-blue-600 dark:text-blue-400/80">
-                                {chip.negated ? 'Not ' : ''}{chip.label}:
-                              </span>
-                              <span className="font-semibold">{chip.value}</span>
-                              <button
-                                type="button"
-                                onClick={() => removePredicateAt(index)}
-                                className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
-                                title={`Remove ${chip.label.toLowerCase()} filter`}
-                                aria-label={`Remove ${chip.negated ? 'negated ' : ''}${chip.label.toLowerCase()} filter ${chip.value}`}
-                              >
-                                <X size={12} />
-                              </button>
-                            </span>
-                          );
-                        })}
-                      </div>
-
-                      {/* Right-aligned Clear filters button */}
-                      <button
-                        type="button"
-                        onClick={clearSecondaryFilters}
-                        aria-label="Reset filters"
-                        className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-300 cursor-pointer transition-colors shrink-0"
-                      >
-                        <X size={13} />
-                        <span>Clear filters</span>
-                      </button>
-                    </div>
-                  )}
+                  <ActiveFilterChips
+                    filters={filters}
+                    extraPredicates={extraPredicates}
+                    setFilter={setFilter}
+                    removePredicateAt={removePredicateAt}
+                    clearSecondaryFilters={clearSecondaryFilters}
+                  />
                 </div>
 
                 <div className="flex-1" />
@@ -1602,7 +525,11 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
 
             <div className="flex-1 overflow-y-auto" ref={scrollContainerRef}>
               <div className="flex min-h-full w-full">
-                <div className={`transition-all duration-300 ease-in-out ${selectedItem ? 'w-6 flex-none' : 'flex-1'}`} />
+                <div
+                  className={`transition-all duration-300 ease-in-out ${
+                    selectedItem ? 'w-6 flex-none' : 'flex-1'
+                  }`}
+                />
 
                 <div className="max-w-4xl w-full shrink-0 border-x border-slate-200/70 dark:border-slate-800/50 min-h-full bg-white dark:bg-slate-950">
                   {/* Top of list row: Item count left-aligned, subtle borderless sort control right-aligned */}
@@ -1611,116 +538,16 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                       {items.length} {items.length === 1 ? 'item' : 'items'}
                     </span>
 
-                    <div className="relative" ref={sortMenuRef}>
-                      <button
-                        type="button"
-                        onClick={() => setSortMenuOpen(!sortMenuOpen)}
-                        aria-label="Sort options"
-                        aria-haspopup="true"
-                        aria-expanded={sortMenuOpen}
-                        className="flex items-center gap-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 px-1 py-0.5 rounded transition-colors cursor-pointer text-xs"
-                      >
-                        <span>
-                          {filters.sort === 'updated'
-                            ? 'Latest Activity'
-                            : filters.sort === 'acked'
-                            ? 'Last Acked'
-                            : 'Creation Date'}
-                        </span>
-                        <ChevronDown
-                          size={12}
-                          className={`text-slate-400 dark:text-slate-500 transition-transform duration-150 ${
-                            sortMenuOpen ? 'rotate-180 text-blue-600 dark:text-blue-400' : ''
-                          }`}
-                        />
-                      </button>
-
-                      {sortMenuOpen && (
-                        <div className="absolute right-0 top-full mt-1 w-36 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl py-1 z-30 animate-in fade-in zoom-in-95 duration-100">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFilter('sort', 'updated');
-                              setSortMenuOpen(false);
-                            }}
-                            className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                              filters.sort === 'updated'
-                                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                            }`}
-                          >
-                            <span>Latest Activity</span>
-                            {filters.sort === 'updated' && <Check size={12} className="text-blue-600 dark:text-blue-400" />}
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFilter('sort', 'acked');
-                              setSortMenuOpen(false);
-                            }}
-                            className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                              filters.sort === 'acked'
-                                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                            }`}
-                          >
-                            <span>Last Acked</span>
-                            {filters.sort === 'acked' && <Check size={12} className="text-blue-600 dark:text-blue-400" />}
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFilter('sort', 'created');
-                              setSortMenuOpen(false);
-                            }}
-                            className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                              filters.sort === 'created'
-                                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                            }`}
-                          >
-                            <span>Creation Date</span>
-                            {filters.sort === 'created' && <Check size={12} className="text-blue-600 dark:text-blue-400" />}
-                          </button>
-
-                          <div className="border-t border-slate-200 dark:border-slate-800 my-1" />
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFilter('order', 'asc');
-                              setSortMenuOpen(false);
-                            }}
-                            className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                              filters.order === 'asc'
-                                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                            }`}
-                          >
-                            <span>Ascending</span>
-                            {filters.order === 'asc' && <Check size={12} className="text-blue-600 dark:text-blue-400" />}
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFilter('order', 'desc');
-                              setSortMenuOpen(false);
-                            }}
-                            className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                              filters.order === 'desc'
-                                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                            }`}
-                          >
-                            <span>Descending</span>
-                            {filters.order === 'desc' && <Check size={12} className="text-blue-600 dark:text-blue-400" />}
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    <SortMenu
+                      sort={filters.sort}
+                      order={filters.order}
+                      onSelectSort={(sort) => setFilter('sort', sort)}
+                      onSelectOrder={(order) => setFilter('order', order)}
+                      isOpen={menus.isOpen('sort')}
+                      onToggle={() => menus.toggle('sort')}
+                      onClose={() => menus.close()}
+                      menuRef={menus.refFor('sort')}
+                    />
                   </div>
                   {data.invalidQuery && (
                     <div
@@ -1731,7 +558,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                       Invalid filter: {data.invalidQuery.message}
                     </div>
                   )}
-                  {items.map(item => (
+                  {items.map((item) => (
                     <div
                       key={item.id}
                       data-item-id={item.id}
@@ -1741,7 +568,9 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                         item={item}
                         isSelected={selectedItemId === item.id}
                         isFocused={focusedItemId === item.id}
-                        onSelect={() => setFilter('item', selectedItemId === item.id ? null : item.id)}
+                        onSelect={() =>
+                          setFilter('item', selectedItemId === item.id ? null : item.id)
+                        }
                         onAck={handleAck}
                         onUnack={handleUnack}
                         onSubscribe={handleSubscribe}
@@ -1762,7 +591,11 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                         Daemon Offline — Please start octodeck serve
                       </h3>
                       <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                        OctoDeck daemon is currently unreachable. Please run <code className="bg-red-100 dark:bg-red-900/60 px-1 py-0.5 rounded font-mono text-xs">octodeck serve</code> to start the backend server.
+                        OctoDeck daemon is currently unreachable. Please run{' '}
+                        <code className="bg-red-100 dark:bg-red-900/60 px-1 py-0.5 rounded font-mono text-xs">
+                          octodeck serve
+                        </code>{' '}
+                        to start the backend server.
                       </p>
                     </div>
                   ) : items.length === 0 && !data.invalidQuery ? (
@@ -1781,7 +614,9 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
           {/* Details Pane Overlay */}
           <div
             className={`absolute top-0 right-0 bottom-0 w-[750px] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl z-30 flex flex-col transition-transform duration-300 ease-in-out ${
-              selectedItem ? 'translate-x-0 pointer-events-auto' : 'translate-x-full pointer-events-none'
+              selectedItem
+                ? 'translate-x-0 pointer-events-auto'
+                : 'translate-x-full pointer-events-none'
             }`}
           >
             {(selectedItem || recentItem) && (
