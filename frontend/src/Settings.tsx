@@ -21,6 +21,29 @@ import {
 
 const SCOPE_QUALIFIER_REGEX = /(?:^|[\s(])(?:(?:org|user):[^\s)]+|repo:[^\s)/]+\/[^\s)]+)/i;
 
+/**
+ * The config fields edited by this form, mapped to their proto field mask paths. Saves send only
+ * these fields under an explicit update mask; everything else (e.g. notification settings edited
+ * from the extension, port, database path) is left untouched by the daemon.
+ */
+const DASHBOARD_CONFIG_FIELDS = {
+  pollingIntervalMin: 'polling_interval_min',
+  watchedRepos: 'watched_repos',
+  excludedRepos: 'excluded_repos',
+  pinnedRepos: 'pinned_repos',
+  knownBots: 'known_bots',
+  autoAckOwnActivity: 'auto_ack_own_activity',
+  includedLabels: 'included_labels',
+  excludedLabels: 'excluded_labels',
+  trackedQueries: 'tracked_queries',
+  autoSubscribeQueries: 'auto_subscribe_queries',
+  discoveryIntervalMin: 'discovery_interval_min',
+} as const satisfies Partial<Record<keyof Config, string>>;
+
+type DashboardConfigField = keyof typeof DASHBOARD_CONFIG_FIELDS;
+
+const DASHBOARD_CONFIG_MASK_PATHS: string[] = Object.values(DASHBOARD_CONFIG_FIELDS);
+
 function validateSingleTrackedQuery(raw: string): string | null {
   const q = raw.trim();
   if (!q) {
@@ -410,9 +433,7 @@ export function Settings({
         autoSubscribeQueries.includes(q)
       );
 
-      const currentCfg = data?.config;
       const newConfig = {
-        ...currentCfg,
         pollingIntervalMin: Number(pollingInterval),
         watchedRepos: parsedRepos.includes,
         excludedRepos: parsedRepos.excludes,
@@ -424,10 +445,13 @@ export function Settings({
         trackedQueries: dedupedQueries,
         autoSubscribeQueries: dedupedAutoSubscribeQueries,
         discoveryIntervalMin: Math.max(MIN_DISCOVERY_INTERVAL_MIN, Math.round(parsedDiscoveryInterval)),
-      };
+      } satisfies Record<DashboardConfigField, unknown>;
 
       const res = await updateConfigMutate({
-        config: newConfig as Partial<Config> as Config,
+        config: newConfig,
+        // Only overwrite the fields edited here, so settings changed elsewhere (e.g. notification
+        // settings from the extension) are never clobbered by this form's copy of the config.
+        updateMask: { paths: [...DASHBOARD_CONFIG_MASK_PATHS] },
         ...(forceSave ? { forceSave: true } : {}),
       });
 

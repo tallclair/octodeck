@@ -188,30 +188,41 @@
       background-color: var(--primary-hover);
     }
 
-    .mode-toggle {
-      display: flex;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      overflow: hidden;
-      margin-bottom: 16px;
+    .field-error {
+      display: none;
+      margin-top: 6px;
+      color: #f87171;
+      font-size: 12px;
     }
 
-    .mode-btn {
-      flex: 1;
-      padding: 8px 12px;
-      background: none;
-      border: none;
-      color: var(--text-muted);
+    .field-error.show {
+      display: block;
+    }
+
+    .settings-unavailable {
+      display: none;
+      margin-bottom: 12px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      background: rgba(220, 38, 38, 0.15);
+      border: 1px solid rgba(220, 38, 38, 0.4);
+      color: #fecaca;
       font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      text-align: center;
-      transition: all 100ms ease;
     }
 
-    .mode-btn.active {
-      background-color: var(--primary);
-      color: white;
+    .settings-unavailable.show {
+      display: block;
+    }
+
+    fieldset.settings-group {
+      border: none;
+      margin: 0;
+      padding: 0;
+      min-width: 0;
+    }
+
+    fieldset.settings-group:disabled {
+      opacity: 0.5;
     }
 
     .toast {
@@ -326,6 +337,10 @@
       </div>
     </div>
 
+    <div id="settings-unavailable" class="settings-unavailable">
+      Notification and badge settings are stored by the OctoDeck daemon and can't be changed while it is unreachable.
+    </div>
+
     <!-- Icon Badge Count Card -->
     <div class="card">
       <div class="card-title">
@@ -333,7 +348,7 @@
       </div>
       <div class="form-desc">Display an item count badge on the extension icon in your browser toolbar</div>
 
-      <div style="margin-top: 14px;">
+      <fieldset id="badge-settings" class="settings-group" style="margin-top: 14px;" disabled>
         <label class="radio-row">
           <input type="radio" name="badge-count-mode" id="badge-mode-inbox" value="inbox" checked>
           <div>
@@ -357,7 +372,7 @@
             <div class="radio-desc">Hide number badge on icon (offline warnings will still appear)</div>
           </div>
         </label>
-      </div>
+      </fieldset>
     </div>
 
     <!-- Notification Filters Card -->
@@ -366,75 +381,82 @@
         <span>Desktop Notifications</span>
       </div>
 
-      <label class="checkbox-row">
-        <input type="checkbox" id="notif-enabled" checked>
-        <div>
-          <div class="checkbox-label">Enable Desktop Notifications</div>
-          <div class="checkbox-desc">Receive OS-level notification alerts for new GitHub updates</div>
-        </div>
-      </label>
+      <fieldset id="notification-settings" class="settings-group" disabled>
+        <label class="checkbox-row">
+          <input type="checkbox" id="notif-enabled" checked>
+          <div>
+            <div class="checkbox-label">Enable Desktop Notifications</div>
+            <div class="checkbox-desc">Receive OS-level notification alerts for new GitHub updates</div>
+          </div>
+        </label>
 
-      <div id="filter-options-panel">
-        <div class="form-group" style="margin-top: 16px;">
-          <label class="form-label">Filter Mode</label>
-          <div class="mode-toggle">
-            <button type="button" id="mode-exclude" class="mode-btn active">Exclude Mode (Notify all except filtered)</button>
-            <button type="button" id="mode-include" class="mode-btn">Include Mode (Only notify matched)</button>
+        <div id="filter-options-panel">
+          <div class="form-desc" style="margin-top: 16px;">
+            One pattern per line; wildcards are supported. Prefix a line with <code>!</code> to exclude matches.
+            If any include patterns are given, only matching items notify.
+          </div>
+
+          <div class="form-group" style="margin-top: 12px;">
+            <label class="form-label" for="filter-repos">Repository Patterns</label>
+            <textarea id="filter-repos" rows="3" placeholder="kubernetes/*&#10;!kubernetes/website"></textarea>
+            <div id="filter-repos-error" class="field-error"></div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="filter-labels">Label Patterns</label>
+            <textarea id="filter-labels" rows="3" placeholder="area/*&#10;!lifecycle/stale"></textarea>
+            <div id="filter-labels-error" class="field-error"></div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="filter-authors">Author Patterns</label>
+            <textarea id="filter-authors" rows="2" placeholder="alice&#10;!dependabot*"></textarea>
+            <div id="filter-authors-error" class="field-error"></div>
+          </div>
+
+          <div style="margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px;">
+            <label class="checkbox-row">
+              <input type="checkbox" id="notif-mentions" checked>
+              <div>
+                <div class="checkbox-label">Always notify on explicit mentions</div>
+                <div class="checkbox-desc">@mentions of you notify even when the other filters would suppress them</div>
+              </div>
+            </label>
+
+            <label class="checkbox-row">
+              <input type="checkbox" id="notif-assigned" checked>
+              <div>
+                <div class="checkbox-label">Only assigned to me or authored by me</div>
+                <div class="checkbox-desc">Suppresses notifications for general repository activity on other PRs</div>
+              </div>
+            </label>
+
+            <label class="checkbox-row">
+              <input type="checkbox" id="notif-ignore-bots" checked>
+              <div>
+                <div class="checkbox-label">Ignore bot noise &amp; slash-command comments</div>
+                <div class="checkbox-desc">Only triggers alerts when human reviewers comment or approve</div>
+              </div>
+            </label>
+
+            <label class="checkbox-row">
+              <input type="checkbox" id="notif-new-items" checked>
+              <div>
+                <div class="checkbox-label">Notify on new items</div>
+                <div class="checkbox-desc">Alert when a newly matched PR or Issue is synced into OctoDeck</div>
+              </div>
+            </label>
+
+            <label class="checkbox-row">
+              <input type="checkbox" id="notif-activity" checked>
+              <div>
+                <div class="checkbox-label">Notify on new activity</div>
+                <div class="checkbox-desc">Alert when existing items receive new comments, reviews, or state changes</div>
+              </div>
+            </label>
           </div>
         </div>
-
-        <div class="form-group">
-          <label class="form-label" for="filter-repos">Repository Patterns</label>
-          <div class="form-desc">One pattern per line or comma-separated. Supports wildcards (e.g. <code>kubernetes/*</code>, <code>octodeck/*</code>)</div>
-          <textarea id="filter-repos" rows="3" placeholder="kubernetes/*&#10;octodeck/octodeck"></textarea>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="filter-labels">Label Patterns</label>
-          <div class="form-desc">One pattern per line or comma-separated (e.g. <code>needs-triage</code>, <code>area/*</code>)</div>
-          <textarea id="filter-labels" rows="3" placeholder="needs-triage&#10;priority/urgent"></textarea>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="filter-authors">Author Patterns</label>
-          <div class="form-desc">One login per line or comma-separated (e.g. <code>alice</code>, <code>team-*</code>)</div>
-          <textarea id="filter-authors" rows="2" placeholder="alice&#10;dependabot[bot]"></textarea>
-        </div>
-
-        <div style="margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px;">
-          <label class="checkbox-row">
-            <input type="checkbox" id="notif-assigned" checked>
-            <div>
-              <div class="checkbox-label">Only assigned to me or authored by me</div>
-              <div class="checkbox-desc">Suppresses notifications for general repository activity on other PRs</div>
-            </div>
-          </label>
-
-          <label class="checkbox-row">
-            <input type="checkbox" id="notif-ignore-bots" checked>
-            <div>
-              <div class="checkbox-label">Ignore bot noise & slash-command comments</div>
-              <div class="checkbox-desc">Only triggers alerts when human reviewers comment or approve</div>
-            </div>
-          </label>
-
-          <label class="checkbox-row">
-            <input type="checkbox" id="notif-new-items" checked>
-            <div>
-              <div class="checkbox-label">Notify on new items</div>
-              <div class="checkbox-desc">Alert when a newly matched PR or Issue is synced into OctoDeck</div>
-            </div>
-          </label>
-
-          <label class="checkbox-row">
-            <input type="checkbox" id="notif-activity" checked>
-            <div>
-              <div class="checkbox-label">Notify on new activity</div>
-              <div class="checkbox-desc">Alert when existing items receive new comments, reviews, or state changes</div>
-            </div>
-          </label>
-        </div>
-      </div>
+      </fieldset>
     </div>
   </div>
 

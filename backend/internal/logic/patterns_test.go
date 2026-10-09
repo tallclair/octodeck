@@ -102,3 +102,30 @@ func TestValidatePatterns(t *testing.T) {
 	})
 	require.ErrorIs(t, err, assert.AnError)
 }
+
+func TestMatchesAnyValueFilter(t *testing.T) {
+	labels := []string{"kind/bug", "area/kubelet"}
+	tests := []struct {
+		name               string
+		values             []string
+		includes, excludes []string
+		want               bool
+	}{
+		{name: "no patterns", values: labels, want: true},
+		{name: "no values, no patterns", want: true},
+		{name: "include matches one value", values: labels, includes: []string{"area/*"}, want: true},
+		{name: "include matches no value", values: labels, includes: []string{"sig/*"}, want: false},
+		{name: "include with no values", includes: []string{"sig/*"}, want: false},
+		{name: "exclude matches one value", values: labels, excludes: []string{"kind/*"}, want: false},
+		{
+			name: "exclude wins over include", values: labels,
+			includes: []string{"area/*"}, excludes: []string{"kind/bug"},
+		},
+		{name: "blank patterns are ignored", values: labels, includes: []string{" "}, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, MatchesAnyValueFilter(tt.values, tt.includes, tt.excludes))
+		})
+	}
+}

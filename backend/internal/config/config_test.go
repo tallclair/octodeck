@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
@@ -586,6 +587,43 @@ func TestConfig_RepeatedFieldsFieldMaskClearing(t *testing.T) {
 		assert.Empty(t, cfg.GetTrackedQueries())
 		assert.Empty(t, cfg.GetWatchedRepos())
 	})
+
+	t.Run("Masked scalars are replaced or defaulted, unmasked scalars untouched", func(t *testing.T) {
+		cfg, err := Load(configPath, Overrides{})
+		require.NoError(t, err)
+		err = cfg.UpdateProto(octodeckv1.Config_builder{
+			PollingIntervalMin: Ptr(int32(7)),
+			AutoAckOwnActivity: Ptr(true),
+			Port:               Ptr(int32(9090)),
+		}.Build(), nil)
+		require.NoError(t, err)
+
+		// auto_ack_own_activity is explicitly false; polling_interval_min is unset.
+		err = cfg.UpdateProto(octodeckv1.Config_builder{AutoAckOwnActivity: Ptr(false)}.Build(),
+			&fieldmaskpb.FieldMask{Paths: []string{"auto_ack_own_activity", "polling_interval_min"}})
+		require.NoError(t, err)
+
+		got := cfg.GetProto()
+		assert.True(t, got.HasAutoAckOwnActivity())
+		assert.False(t, got.GetAutoAckOwnActivity())
+		assert.Equal(t, int32(DefaultSyncInterval.Minutes()), got.GetPollingIntervalMin(),
+			"unset masked scalar takes its default")
+		assert.Equal(t, int32(9090), got.GetPort(), "unmasked scalar is untouched")
+
+		reloaded, err := Load(configPath, Overrides{})
+		require.NoError(t, err)
+		assert.True(t, proto.Equal(got, reloaded.GetProto()), "memory matches a reload")
+
+		// An unset masked auto_ack_own_activity reads as its default (true), before and after a
+		// reload.
+		err = cfg.UpdateProto(octodeckv1.Config_builder{}.Build(),
+			&fieldmaskpb.FieldMask{Paths: []string{"auto_ack_own_activity"}})
+		require.NoError(t, err)
+		assert.True(t, cfg.GetAutoAckOwnActivity())
+		reloaded, err = Load(configPath, Overrides{})
+		require.NoError(t, err)
+		assert.True(t, reloaded.GetAutoAckOwnActivity())
+	})
 }
 
 func TestConfig_RepeatedFieldsSliceImmutability(t *testing.T) {
@@ -780,7 +818,7 @@ func TestConfig_LegacyMigrationAndCompat(t *testing.T) {
 
 		// New fields have safe defaults
 		assert.Empty(t, cfg.GetTrackedQueries())
-		assert.Equal(t, int32(0), cfg.GetDiscoveryIntervalMin())
+		assert.Equal(t, int32(DefaultDiscoveryInterval.Minutes()), cfg.GetDiscoveryIntervalMin())
 		assert.Equal(t, DefaultDiscoveryInterval, cfg.GetDiscoveryInterval())
 		assert.Equal(t, 10*time.Minute, cfg.GetDiscoveryInterval())
 

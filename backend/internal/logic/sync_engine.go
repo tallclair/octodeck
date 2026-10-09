@@ -20,6 +20,7 @@ import (
 	"github.com/tallclair/octodeck/backend/internal/config"
 	"github.com/tallclair/octodeck/backend/internal/database"
 	"github.com/tallclair/octodeck/backend/internal/github"
+	"github.com/tallclair/octodeck/backend/internal/notify"
 )
 
 const (
@@ -88,7 +89,23 @@ type SyncEngine struct {
 
 	// lastPendingReviewSweepAt is when the pending review backfill sweep last ran. Guarded by mu.
 	lastPendingReviewSweepAt time.Time
+
+	// broadcaster receives the notifications decided while reconciling items, and badge
+	// invalidations. Nil-safe.
+	broadcaster *notify.Broadcaster
+	// reconcileMu serializes reconciliation (read stored copy, merge, save, publish) across every
+	// sync path, including discovery, which runs outside mu. Otherwise two paths reconciling the
+	// same item at once would both see it as new and both notify. Lock order: mu or discoveryMu,
+	// then reconcileMu; nothing acquires mu or discoveryMu while holding it.
+	reconcileMu sync.Mutex
+	// clock returns the current time; nil means time.Now. Tests override it.
+	clock func() time.Time
 }
+
+// incrementalSyncLookback is how far back an incremental sync without a previous sync time
+// looks for notifications. It also bounds what counts as recent when an item is seen for the
+// first time: only items created, or events that happened, within it can notify.
+const incrementalSyncLookback = 24 * time.Hour
 
 // NewSyncEngine creates a new SyncEngine instance.
 func NewSyncEngine(db *database.DB, gh *github.Client, cfg *config.Config) *SyncEngine {
@@ -102,6 +119,18 @@ func NewSyncEngine(db *database.DB, gh *github.Client, cfg *config.Config) *Sync
 	s.loadPersistedStatus(context.Background())
 	s.mu.Unlock()
 	return s
+}
+
+// SetBroadcaster sets the broadcaster that receives notifications and badge invalidations.
+func (s *SyncEngine) SetBroadcaster(b *notify.Broadcaster) {
+	s.broadcaster = b
+}
+
+func (s *SyncEngine) now() time.Time {
+	if s.clock != nil {
+		return s.clock()
+	}
+	return time.Now()
 }
 
 func (s *SyncEngine) parseTimeMetadata(ctx context.Context, key string) (time.Time, bool) {
@@ -203,6 +232,8 @@ func (s *SyncEngine) recordSyncSuccess(dbCtx context.Context, itemsProcessed int
 
 func (s *SyncEngine) recordSyncFinish(ctx context.Context, err error, itemsProcessed int) {
 	s.isSyncing = false
+	// Counts may have changed (items saved, missing items marked); subscribers dedupe.
+	s.broadcaster.InvalidateBadge()
 	if !s.lastSyncAttemptAt.IsZero() {
 		s.lastSyncDurationMs = time.Since(s.lastSyncAttemptAt).Milliseconds()
 	}
@@ -308,7 +339,7 @@ func (s *SyncEngine) runEventLoop(ctx context.Context, tickerGC *time.Ticker) {
 			return
 		case <-s.tickerInc.C:
 			syncCtx, cancel := context.WithTimeout(ctx, config.SyncHeartbeatTimeout)
-			if err := s.RunIncrementalSync(syncCtx); err != nil {
+			if err := s.runScheduledSync(syncCtx); err != nil {
 				slog.ErrorContext(syncCtx, "Heartbeat sync failed", "error", err)
 			}
 			cancel()
@@ -326,6 +357,16 @@ func (s *SyncEngine) runEventLoop(ctx context.Context, tickerGC *time.Ticker) {
 			cancel()
 		}
 	}
+}
+
+// runScheduledSync runs the periodic sync: an incremental sync, or the inventory sync while the
+// database is still empty (e.g. the startup inventory failed because GitHub was unreachable).
+func (s *SyncEngine) runScheduledSync(ctx context.Context) error {
+	if populated, err := s.db.IsPopulated(ctx); err == nil && !populated {
+		slog.InfoContext(ctx, "DB still empty, retrying inventory sync")
+		return s.RunInventorySync(ctx)
+	}
+	return s.RunIncrementalSync(ctx)
 }
 
 func (s *SyncEngine) stopEventLoopTickers(tickerGC *time.Ticker) {
@@ -682,7 +723,7 @@ func (s *SyncEngine) calculateIncrementalSyncSince(
 		return time.Time{}, "", true
 	}
 	if lastSync.IsZero() {
-		lastSync = startTime.Add(-24 * time.Hour)
+		lastSync = startTime.Add(-incrementalSyncLookback)
 	}
 	return lastSync.Add(-15 * time.Minute), lastModified, false
 }
@@ -992,6 +1033,8 @@ func (s *SyncEngine) RunGarbageCollection(ctx context.Context) error {
 	var gcErr error
 	var processedCount int
 	defer func() {
+		// GC prunes and deletes items, which changes badge counts.
+		s.broadcaster.InvalidateBadge()
 		s.saveTrace(ctx, traceParams{
 			traceType:      "garbage_collection",
 			triggerSource:  "gc_ticker",
@@ -1219,8 +1262,19 @@ func (s *SyncEngine) processItemsWithBudget(
 
 	s.discoverBots(fetchedItems)
 
+	s.reconcileMu.Lock()
+	defer s.reconcileMu.Unlock()
+
 	var itemsToSave []*octodeckv1.Item
-	now := time.Now()
+	var notifications []*octodeckv1.Notification
+	now := s.now()
+	// Seeding an empty database never notifies, whichever sync path does it (the startup
+	// inventory, an incremental sync after a failed inventory, discovery, a refetch).
+	populated, err := s.db.IsPopulated(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "Failed to check if DB is populated; suppressing notifications", "error", err)
+	}
+	notifCtx := s.newNotificationContext(err != nil || !populated)
 
 	for _, item := range fetchedItems {
 		item.SetLastSyncedAt(timestamppb.New(now))
@@ -1230,33 +1284,56 @@ func (s *SyncEngine) processItemsWithBudget(
 			slog.ErrorContext(ctx, "Failed to fetch existing item from DB", "id", item.GetId(), "error", err)
 			continue // Skip this item to avoid data loss (overwriting local state)
 		}
-		isNew := errors.Is(err, sql.ErrNoRows)
+		s.mergeWithStored(ctx, existing, item, paging[item.GetId()], budget)
 
-		if !isNew {
-			s.handleGapResolution(ctx, existing, item)
-			item.SetStateEvents(mergeStateEvents(existing.GetStateEvents(), item.GetStateEvents()))
-			// Merge existing local state
-			item.SetLocal(existing.GetLocal())
-			if item.GetLocal() != nil {
-				item.GetLocal().ClearSyncError()
-			}
+		// existing is nil for an item that wasn't stored. Merging builds new event slices, so
+		// existing still holds exactly the stored events.
+		if n := notifCtx.evaluate(existing, item, now); n != nil {
+			notifications = append(notifications, n)
 		}
-		if item.GetLocal() == nil {
-			// Initialize Local if new (or missing)
-			item.SetLocal((&octodeckv1.ItemLocalState_builder{}).Build())
-		}
-		// Runs after local state is attached because it reads and updates the pending
-		// review backfill marker stored there.
-		s.handleReviewGapResolution(ctx, existing.GetReviews(), item, paging[item.GetId()], budget)
-
-		s.calculateItemState(item)
 		itemsToSave = append(itemsToSave, item)
 	}
 
-	if len(itemsToSave) > 0 {
-		return s.db.SaveItems(ctx, itemsToSave)
+	if len(itemsToSave) == 0 {
+		return nil
 	}
+	if err := s.db.SaveItems(ctx, itemsToSave); err != nil {
+		return err
+	}
+	// Publish only once the reconciled items are stored, so a failed save (whose items will be
+	// reconciled again on the next sync) never notifies.
+	s.broadcaster.Publish(notifications...)
+	s.broadcaster.InvalidateBadge()
 	return nil
+}
+
+// mergeWithStored merges a fetched item with its stored copy (nil if it wasn't stored): it
+// resolves comment and review gaps, carries over state events and local state, and recomputes
+// the derived state.
+func (s *SyncEngine) mergeWithStored(
+	ctx context.Context,
+	existing, item *octodeckv1.Item,
+	paging github.HydrationPaging,
+	budget *reviewBackfillBudget,
+) {
+	if existing != nil {
+		s.handleGapResolution(ctx, existing, item)
+		item.SetStateEvents(mergeStateEvents(existing.GetStateEvents(), item.GetStateEvents()))
+		// Merge existing local state
+		item.SetLocal(existing.GetLocal())
+		if item.GetLocal() != nil {
+			item.GetLocal().ClearSyncError()
+		}
+	}
+	if item.GetLocal() == nil {
+		// Initialize Local if new (or missing)
+		item.SetLocal((&octodeckv1.ItemLocalState_builder{}).Build())
+	}
+	// Runs after local state is attached because it reads and updates the pending
+	// review backfill marker stored there.
+	s.handleReviewGapResolution(ctx, existing.GetReviews(), item, paging, budget)
+
+	s.calculateItemState(item)
 }
 
 func (s *SyncEngine) handleGapResolution(ctx context.Context, existing, item *octodeckv1.Item) {

@@ -1,43 +1,67 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { create, fromJson } from '@bufbuild/protobuf';
+import { timestampFromMs } from '@bufbuild/protobuf/wkt';
 import {
+  acquireBearerToken,
   ensureBearerToken,
   callDaemonRpc,
-  updateBadgeState,
-  formatBadgeText,
-  computeBadgeCount,
-  isItemInbox,
-  isItemUnread,
+  createCursorStore,
+  ensureWatchdogAlarm,
+  safeDashboardUrl,
+  CURSOR_PERSIST_INTERVAL_MS,
+  WATCHDOG_ALARM,
+  applyBadge,
+  applyStreamStatus,
+  showNotification,
+  showSummary,
+  handleNotificationClick,
+  cleanUpObsoleteState,
 } from '../background';
 import { ItemStatus } from '../../api/octodeck/v1/resources_pb';
+import {
+  BadgeCountMode,
+  BadgeUpdateSchema,
+  NotificationSchema,
+  NotificationSummarySchema,
+  UpdateConfigRequestSchema,
+} from '../../api/octodeck/v1/service_pb';
 import { DEFAULT_BASE_URL } from '../../utils/constants';
 
 describe('Extension Background Service Worker', () => {
   let mockStorage: Record<string, any> = {};
+  let mockSession: Record<string, any> = {};
+
+  const storageArea = (getStore: () => Record<string, any>, setStore: (s: Record<string, any>) => void) => ({
+    get: vi.fn((keys: string[]) => {
+      const store = getStore();
+      const res: Record<string, any> = {};
+      keys.forEach((k) => {
+        if (k in store) res[k] = store[k];
+      });
+      return Promise.resolve(res);
+    }),
+    set: vi.fn((data: Record<string, any>) => {
+      setStore({ ...getStore(), ...data });
+      return Promise.resolve();
+    }),
+    remove: vi.fn((keys: string | string[]) => {
+      const store = { ...getStore() };
+      for (const k of Array.isArray(keys) ? keys : [keys]) delete store[k];
+      setStore(store);
+      return Promise.resolve();
+    }),
+  });
 
   beforeEach(() => {
     mockStorage = {};
+    mockSession = {};
     globalThis.fetch = vi.fn();
 
     (globalThis as any).chrome = {
       storage: {
-        local: {
-          get: vi.fn((keys: string[]) => {
-            const res: Record<string, any> = {};
-            keys.forEach((k) => {
-              if (k in mockStorage) res[k] = mockStorage[k];
-            });
-            return Promise.resolve(res);
-          }),
-          set: vi.fn((data: Record<string, any>) => {
-            mockStorage = { ...mockStorage, ...data };
-            return Promise.resolve();
-          }),
-          remove: vi.fn((key: string) => {
-            delete mockStorage[key];
-            return Promise.resolve();
-          }),
-        },
+        local: storageArea(() => mockStorage, (s) => (mockStorage = s)),
+        session: storageArea(() => mockSession, (s) => (mockSession = s)),
         onChanged: {
           addListener: vi.fn(),
         },
@@ -50,6 +74,8 @@ describe('Extension Background Service Worker', () => {
       },
       alarms: {
         create: vi.fn(),
+        get: vi.fn().mockResolvedValue(undefined),
+        clear: vi.fn().mockResolvedValue(true),
         onAlarm: { addListener: vi.fn() },
       },
       notifications: {
@@ -75,67 +101,6 @@ describe('Extension Background Service Worker', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-  });
-
-  describe('formatBadgeText', () => {
-    it('returns empty string when count is 0 or negative', () => {
-      expect(formatBadgeText(0, 'inbox')).toBe('');
-      expect(formatBadgeText(-5, 'inbox')).toBe('');
-    });
-
-    it('returns empty string when badge mode is disabled', () => {
-      expect(formatBadgeText(10, 'disabled')).toBe('');
-      expect(formatBadgeText(100, 'disabled')).toBe('');
-    });
-
-    it('returns count as string for values from 1 to 99', () => {
-      expect(formatBadgeText(1, 'inbox')).toBe('1');
-      expect(formatBadgeText(42, 'inbox')).toBe('42');
-      expect(formatBadgeText(99, 'inbox')).toBe('99');
-    });
-
-    it('returns * when count exceeds 99', () => {
-      expect(formatBadgeText(100, 'inbox')).toBe('*');
-      expect(formatBadgeText(999, 'unread')).toBe('*');
-    });
-  });
-
-  describe('computeBadgeCount & item classification', () => {
-    const testItems: any[] = [
-      { id: '1', local: { computedStatus: ItemStatus.NEW } },
-      { id: '2', local: { computedStatus: ItemStatus.NEW_ACTIVITY } },
-      { id: '3', local: { computedStatus: ItemStatus.IDLE } },
-      { id: '4', local: { computedStatus: ItemStatus.NOISE } },
-      { id: '5', local: { computedStatus: ItemStatus.ACKED } },
-      { id: '6', local: { computedStatus: ItemStatus.NEW_MENTION } },
-      { id: '7', local: { computedStatus: ItemStatus.NEW_CODE } },
-    ];
-
-    it('identifies inbox items (all unacknowledged)', () => {
-      expect(isItemInbox(testItems[0])).toBe(true);
-      expect(isItemInbox(testItems[1])).toBe(true);
-      expect(isItemInbox(testItems[2])).toBe(true);
-      expect(isItemInbox(testItems[3])).toBe(true);
-      expect(isItemInbox(testItems[4])).toBe(false);
-      expect(isItemInbox(testItems[5])).toBe(true);
-      expect(isItemInbox(testItems[6])).toBe(true);
-    });
-
-    it('identifies unread/new items (unacknowledged and not idle/noise)', () => {
-      expect(isItemUnread(testItems[0])).toBe(true);
-      expect(isItemUnread(testItems[1])).toBe(true);
-      expect(isItemUnread(testItems[2])).toBe(false); // IDLE
-      expect(isItemUnread(testItems[3])).toBe(false); // NOISE
-      expect(isItemUnread(testItems[4])).toBe(false); // ACKED
-      expect(isItemUnread(testItems[5])).toBe(true); // NEW_MENTION
-      expect(isItemUnread(testItems[6])).toBe(true); // NEW_CODE
-    });
-
-    it('computes correct count based on selected mode', () => {
-      expect(computeBadgeCount(testItems, 'inbox')).toBe(6);
-      expect(computeBadgeCount(testItems, 'unread')).toBe(4);
-      expect(computeBadgeCount(testItems, 'disabled')).toBe(0);
-    });
   });
 
   describe('ensureBearerToken', () => {
@@ -179,6 +144,23 @@ describe('Extension Background Service Worker', () => {
       const token = await ensureBearerToken();
       expect(token).toBeNull();
       expect(mockStorage.bearer_token).toBeUndefined();
+    });
+  });
+
+  describe('acquireBearerToken', () => {
+    it('reports unreachable when the daemon cannot be contacted', async () => {
+      (globalThis.fetch as any).mockRejectedValueOnce(new Error('Connection refused'));
+      expect(await acquireBearerToken()).toEqual({ token: null, reason: 'unreachable' });
+    });
+
+    it('reports unpaired when the daemon refuses to issue a token', async () => {
+      (globalThis.fetch as any).mockResolvedValueOnce({ ok: false, status: 403 });
+      expect(await acquireBearerToken()).toEqual({ token: null, reason: 'unpaired' });
+    });
+
+    it('reports unpaired when the daemon answers without a token', async () => {
+      (globalThis.fetch as any).mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) });
+      expect(await acquireBearerToken()).toEqual({ token: null, reason: 'unpaired' });
     });
   });
 
@@ -244,130 +226,6 @@ describe('Extension Background Service Worker', () => {
     });
   });
 
-  describe('updateBadgeState', () => {
-    it('sets red ! badge when daemon is offline', async () => {
-      (globalThis.fetch as any).mockRejectedValueOnce(new Error('Failed to fetch'));
-
-      await updateBadgeState();
-
-      expect(chrome.action.setBadgeText).toHaveBeenCalledWith({ text: '!' });
-      expect(chrome.action.setBadgeBackgroundColor).toHaveBeenCalledWith({ color: '#dc2626' });
-    });
-
-    it('sets orange SETUP badge when daemon is online but no token exists', async () => {
-      // /status returns online
-      (globalThis.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ version: '2.0.0', gh_authenticated: true }),
-      });
-      // /auth/companion-token fails
-      (globalThis.fetch as any).mockRejectedValueOnce(new Error('Forbidden'));
-
-      await updateBadgeState();
-
-      expect(chrome.action.setBadgeText).toHaveBeenCalledWith({ text: 'SETUP' });
-      expect(chrome.action.setBadgeBackgroundColor).toHaveBeenCalledWith({ color: '#f97316' });
-    });
-
-    it('displays inbox count badge when daemon is online and authenticated', async () => {
-      mockStorage.bearer_token = 'active-token';
-      mockStorage.badge_count_mode = 'inbox';
-
-      // 1. /status
-      (globalThis.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ version: '2.0.0', gh_authenticated: true }),
-      });
-      // 2. /GetItems
-      (globalThis.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            items: [
-              { id: '1', local: { computedStatus: ItemStatus.NEW } },
-              { id: '2', local: { computedStatus: ItemStatus.ACKED } },
-              { id: '3', local: { computedStatus: ItemStatus.IDLE } },
-            ],
-          }),
-      });
-
-      await updateBadgeState();
-
-      // 2 unacked items in inbox
-      expect(chrome.action.setBadgeText).toHaveBeenCalledWith({ text: '2' });
-      expect(chrome.action.setBadgeBackgroundColor).toHaveBeenCalledWith({ color: '#2563eb' });
-    });
-
-    it('displays unread count badge when unread mode is configured', async () => {
-      mockStorage.bearer_token = 'active-token';
-      mockStorage.badge_count_mode = 'unread';
-
-      // 1. /status
-      (globalThis.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ version: '2.0.0', gh_authenticated: true }),
-      });
-      // 2. /GetItems
-      (globalThis.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            items: [
-              { id: '1', local: { computedStatus: ItemStatus.NEW } },
-              { id: '2', local: { computedStatus: ItemStatus.ACKED } },
-              { id: '3', local: { computedStatus: ItemStatus.IDLE } },
-            ],
-          }),
-      });
-
-      await updateBadgeState();
-
-      // 1 unread (item 1: NEW)
-      expect(chrome.action.setBadgeText).toHaveBeenCalledWith({ text: '1' });
-      expect(chrome.action.setBadgeBackgroundColor).toHaveBeenCalledWith({ color: '#2563eb' });
-    });
-
-    it('displays * when count exceeds 99', async () => {
-      mockStorage.bearer_token = 'active-token';
-      mockStorage.badge_count_mode = 'inbox';
-
-      // 1. /status
-      (globalThis.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ version: '2.0.0', gh_authenticated: true }),
-      });
-      // 2. /GetItems with 120 items
-      const items = Array.from({ length: 120 }, (_, i) => ({
-        id: `item-${i}`,
-        local: { computedStatus: ItemStatus.NEW },
-      }));
-      (globalThis.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ items }),
-      });
-
-      await updateBadgeState();
-
-      expect(chrome.action.setBadgeText).toHaveBeenCalledWith({ text: '*' });
-      expect(chrome.action.setBadgeBackgroundColor).toHaveBeenCalledWith({ color: '#2563eb' });
-    });
-
-    it('clears badge when disabled mode is selected', async () => {
-      mockStorage.bearer_token = 'active-token';
-      mockStorage.badge_count_mode = 'disabled';
-
-      // 1. /status
-      (globalThis.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ version: '2.0.0', gh_authenticated: true }),
-      });
-
-      await updateBadgeState();
-
-      expect(chrome.action.setBadgeText).toHaveBeenCalledWith({ text: '' });
-    });
-  });
-
   describe('known bots synchronization', () => {
     it('syncKnownBots fetches knownBots from GetConfig and saves to chrome.storage.local', async () => {
       const { syncKnownBots } = await import('../background');
@@ -424,6 +282,16 @@ describe('Extension Background Service Worker', () => {
       expect(response.ok).toBe(true);
       expect(response.data).toEqual(['k8s-ci-robot', 'new-bot', 'renovate']);
       expect(mockStorage.known_bots).toEqual(['k8s-ci-robot', 'new-bot', 'renovate']);
+
+      // The update is masked to known_bots, with the FieldMask in its protojson string form
+      // (the daemon's JSON decoder rejects the object form).
+      const [url, init] = (globalThis.fetch as any).mock.calls[1];
+      expect(url).toContain('/octodeck.v1.OctoDeckService/UpdateConfig');
+      const body = JSON.parse(init.body);
+      expect(body.updateMask).toBe('knownBots');
+      const decoded = fromJson(UpdateConfigRequestSchema, body);
+      expect(decoded.updateMask?.paths).toEqual(['known_bots']);
+      expect(decoded.config?.knownBots).toEqual(['k8s-ci-robot', 'renovate', 'new-bot']);
     });
 
     it('returns null and does not overwrite storage when syncKnownBots fails', async () => {
@@ -599,7 +467,8 @@ describe('Extension Background Service Worker', () => {
       const promise1 = ensureBearerToken(true);
       const promise2 = ensureBearerToken(true);
 
-      expect(promise1).toBe(promise2);
+      // Both calls wait on the same in-flight pairing request.
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
 
       resolveFetch!({
         ok: true,
@@ -613,187 +482,268 @@ describe('Extension Background Service Worker', () => {
     });
   });
 
-  describe('Extension Storage Timestamp Race Condition (FE-02)', () => {
-    it('re-reads last_notified_timestamps after GetItems RPC finishes before writing back to storage', async () => {
-      const { pollNotifications } = await import('../background');
-      mockStorage.bearer_token = 'valid-token';
-      mockStorage.notification_filters = { enabled: true };
-      mockStorage.last_notified_timestamps = { 'old-item': 1000 };
+  describe('badge', () => {
+    it('applies the badge pushed by the daemon', () => {
+      applyBadge(
+        create(BadgeUpdateSchema, {
+          count: 3,
+          mode: BadgeCountMode.INBOX,
+          text: '3',
+          tooltip: 'OctoDeck (3 inbox items)',
+        })
+      );
+      expect(chrome.action.setBadgeText).toHaveBeenCalledWith({ text: '3' });
+      expect(chrome.action.setTitle).toHaveBeenCalledWith({ title: 'OctoDeck (3 inbox items)' });
+    });
 
-      (globalThis.fetch as any).mockImplementation((url: string) => {
-        if (url.endsWith('/GetConfig')) {
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({}),
-          });
-        }
-        if (url.endsWith('/GetItems')) {
-          // Simulate concurrent storage update while GetItems was in flight
-          mockStorage.last_notified_timestamps = { 'old-item': 1000, 'concurrent-item': 9999 };
-          return Promise.resolve({
-            ok: true,
-            json: () =>
-              Promise.resolve({
-                items: [
-                  {
-                    id: 'new-item',
-                    updatedAt: { seconds: 2000n, nanos: 0 },
-                    local: { computedStatus: ItemStatus.NEW },
-                  },
-                ],
-              }),
-          });
-        }
-        return Promise.reject(new Error('Unknown URL'));
-      });
+    it('clears the badge text when the daemon sends an empty badge', () => {
+      applyBadge(create(BadgeUpdateSchema, { mode: BadgeCountMode.DISABLED, text: '', tooltip: '' }));
+      expect(chrome.action.setBadgeText).toHaveBeenCalledWith({ text: '' });
+      expect(chrome.action.setTitle).toHaveBeenCalledWith({ title: 'Open OctoDeck Dashboard' });
+    });
 
-      await pollNotifications();
+    it('sets red ! badge when the daemon is offline', () => {
+      applyStreamStatus('offline');
+      expect(chrome.action.setBadgeText).toHaveBeenCalledWith({ text: '!' });
+      expect(chrome.action.setBadgeBackgroundColor).toHaveBeenCalledWith({ color: '#dc2626' });
+    });
 
-      // Verify that concurrent-item was preserved from the fresh re-read of chrome.storage.local
-      expect(mockStorage.last_notified_timestamps).toHaveProperty('concurrent-item', 9999);
-      expect(mockStorage.last_notified_timestamps).toHaveProperty('new-item', 2000000);
-      expect(mockStorage.last_notified_timestamps).toHaveProperty('old-item', 1000);
+    it('sets orange SETUP badge when the extension is not paired', () => {
+      applyStreamStatus('setup');
+      expect(chrome.action.setBadgeText).toHaveBeenCalledWith({ text: 'SETUP' });
+      expect(chrome.action.setBadgeBackgroundColor).toHaveBeenCalledWith({ color: '#f97316' });
+    });
+
+    it('sets orange UPD badge when daemon and extension versions differ', () => {
+      applyStreamStatus('version-mismatch');
+      expect(chrome.action.setBadgeText).toHaveBeenCalledWith({ text: 'UPD' });
+      expect(chrome.action.setBadgeBackgroundColor).toHaveBeenCalledWith({ color: '#f97316' });
+    });
+
+    it('leaves the badge alone on connect (the daemon sends it)', () => {
+      applyStreamStatus('connected');
+      expect(chrome.action.setBadgeText).not.toHaveBeenCalled();
     });
   });
 
-  describe('Notification Click Navigation to Dashboard Item Details', () => {
-    it('creates notification with octodeck dashboard item URL', async () => {
-      const { pollNotifications } = await import('../background');
-      mockStorage.bearer_token = 'valid-token';
-      mockStorage.notification_filters = {
-        enabled: true,
-        notifyOnNewItems: true,
-        notifyOnNewActivity: true,
-        ignoreBots: false,
-        repos: [],
-        labels: [],
-        authors: [],
-      };
-      mockStorage.last_notified_timestamps = { 'item-1': 1000 };
-
-      (globalThis.fetch as any).mockImplementation((url: string) => {
-        if (url.endsWith('/GetConfig')) {
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({ currentUserLogin: 'my-user' }),
-          });
-        }
-        if (url.endsWith('/GetItems')) {
-          return Promise.resolve({
-            ok: true,
-            json: () =>
-              Promise.resolve({
-                items: [
-                  {
-                    id: 'PR_kwDO12345',
-                    repo: 'kubernetes/kubernetes',
-                    number: 141039,
-                    title: 'Update checkpoint',
-                    author: { login: 'my-user' },
-                    updatedAt: { seconds: 3000n, nanos: 0 },
-                    local: { computedStatus: ItemStatus.NEW },
-                  },
-                ],
-              }),
-          });
-        }
-        return Promise.reject(new Error('Unknown URL'));
+  describe('desktop notifications', () => {
+    const itemUrl = `${DEFAULT_BASE_URL}/?item=PR_kwDO12345`;
+    const notification = () =>
+      create(NotificationSchema, {
+        id: 'PR_kwDO12345@1700000000000',
+        itemId: 'PR_kwDO12345',
+        title: 'kubernetes/kubernetes #100',
+        message: 'New activity: Fix kubelet',
+        url: itemUrl,
       });
 
-      await pollNotifications();
-
+    it('shows the notification under its daemon-assigned id', async () => {
+      await showNotification(notification());
       expect(chrome.notifications.create).toHaveBeenCalledWith(
-        `${DEFAULT_BASE_URL}/?item=PR_kwDO12345`,
+        'PR_kwDO12345@1700000000000',
         expect.objectContaining({
           type: 'basic',
-          title: expect.stringContaining('kubernetes/kubernetes #141039'),
+          title: 'kubernetes/kubernetes #100',
+          message: 'New activity: Fix kubelet',
         })
+      );
+      expect(mockSession.notification_urls).toEqual({ 'PR_kwDO12345@1700000000000': itemUrl });
+    });
+
+    it('does not show the same notification twice (replayed after reconnect)', async () => {
+      await showNotification(notification());
+      await showNotification(notification());
+      expect(chrome.notifications.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('bounds the remembered click targets', async () => {
+      for (let i = 0; i < 205; i++) {
+        await showNotification(create(NotificationSchema, { id: `n${i}`, url: itemUrl }));
+      }
+      const ids = Object.keys(mockSession.notification_urls);
+      expect(ids).toHaveLength(200);
+      expect(ids[0]).toBe('n5');
+    });
+
+    it('shows a catch-up summary that opens the inbox', async () => {
+      const inbox = `${DEFAULT_BASE_URL}/?triage=inbox`;
+      await showSummary(
+        create(NotificationSummarySchema, { count: 5, title: 'OctoDeck', message: '5 items need your attention', url: inbox }),
+        timestampFromMs(1700000000000)
+      );
+      expect(chrome.notifications.create).toHaveBeenCalledWith(
+        expect.stringMatching(/^summary:/),
+        expect.objectContaining({ message: '5 items need your attention' })
+      );
+      expect(Object.values(mockSession.notification_urls)).toEqual([inbox]);
+    });
+
+    it('navigates an existing dashboard tab to the notification target on click', async () => {
+      await showNotification(notification());
+      (chrome.tabs.query as any).mockResolvedValueOnce([{ id: 7, windowId: 3 }]);
+
+      await handleNotificationClick('PR_kwDO12345@1700000000000');
+
+      expect(chrome.tabs.update).toHaveBeenCalledWith(7, { url: itemUrl, active: true });
+      expect(chrome.windows.update).toHaveBeenCalledWith(3, { focused: true });
+      expect(chrome.notifications.clear).toHaveBeenCalledWith('PR_kwDO12345@1700000000000');
+    });
+
+    it('opens a new dashboard tab when none is open', async () => {
+      await showNotification(notification());
+      await handleNotificationClick('PR_kwDO12345@1700000000000');
+      expect(chrome.tabs.create).toHaveBeenCalledWith({ url: itemUrl });
+    });
+
+    it('falls back to the dashboard for unknown notifications', async () => {
+      await handleNotificationClick('unknown');
+      expect(chrome.tabs.create).toHaveBeenCalledWith({ url: `${DEFAULT_BASE_URL}/` });
+    });
+
+    it('only allows click targets on the dashboard origin', () => {
+      expect(safeDashboardUrl(itemUrl)).toBe(itemUrl);
+      expect(safeDashboardUrl('https://evil.example.com/phish')).toBe(`${DEFAULT_BASE_URL}/`);
+      expect(safeDashboardUrl('javascript:alert(1)')).toBe(`${DEFAULT_BASE_URL}/`);
+      expect(safeDashboardUrl('not a url')).toBe(`${DEFAULT_BASE_URL}/`);
+      expect(safeDashboardUrl(undefined)).toBe(`${DEFAULT_BASE_URL}/`);
+    });
+
+    it('stores the dashboard instead of a foreign notification url', async () => {
+      await showNotification(create(NotificationSchema, { id: 'n1', url: 'https://evil.example.com/' }));
+      expect(mockSession.notification_urls).toEqual({ n1: `${DEFAULT_BASE_URL}/` });
+    });
+
+    it('does not navigate to a foreign stored url on click', async () => {
+      mockSession.notification_urls = { n1: 'https://evil.example.com/' };
+      await handleNotificationClick('n1');
+      expect(chrome.tabs.create).toHaveBeenCalledWith({ url: `${DEFAULT_BASE_URL}/` });
+    });
+  });
+
+  describe('cursor store', () => {
+    const cursor = (ms: number) => timestampFromMs(ms);
+
+    it('writes session storage on every save and local storage at most once per interval', async () => {
+      let now = 1_000_000;
+      const store = createCursorStore(() => now);
+
+      await store.saveCursor(cursor(1000), false);
+      const first = mockStorage.last_received_at;
+      expect(first).toBeDefined();
+      expect(mockSession.last_received_at).toBe(first);
+
+      now += 1000;
+      await store.saveCursor(cursor(2000), false);
+      expect(mockStorage.last_received_at).toBe(first);
+      expect(mockSession.last_received_at).not.toBe(first);
+
+      now += CURSOR_PERSIST_INTERVAL_MS;
+      await store.saveCursor(cursor(3000), false);
+      expect(mockStorage.last_received_at).toBe(mockSession.last_received_at);
+    });
+
+    it('always persists durable cursors locally', async () => {
+      const now = 1_000_000;
+      const store = createCursorStore(() => now);
+      await store.saveCursor(cursor(1000), false);
+      await store.saveCursor(cursor(2000), true);
+      expect(mockStorage.last_received_at).toBe(mockSession.last_received_at);
+    });
+
+    it('loads the session cursor in preference to the local one', async () => {
+      const writer = createCursorStore(() => 0);
+      await writer.saveCursor(cursor(1000), true);
+      const local = mockStorage.last_received_at;
+      await writer.saveCursor(cursor(5000), false);
+
+      expect((await createCursorStore().loadCursor())?.seconds).toBe(5n);
+
+      mockSession = {};
+      mockStorage.last_received_at = local;
+      expect((await createCursorStore().loadCursor())?.seconds).toBe(1n);
+    });
+  });
+
+  describe('watchdog alarm', () => {
+    it('creates the alarm when it is missing', async () => {
+      await ensureWatchdogAlarm();
+      expect(chrome.alarms.create).toHaveBeenCalledWith(WATCHDOG_ALARM, { periodInMinutes: 1 });
+    });
+
+    it('keeps an existing alarm', async () => {
+      (chrome.alarms.get as any).mockResolvedValueOnce({ name: WATCHDOG_ALARM, periodInMinutes: 1 });
+      await ensureWatchdogAlarm();
+      expect(chrome.alarms.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('notification settings bridge', () => {
+    it('reads notification settings from the daemon config', async () => {
+      const { handleExtensionMessage } = await import('../background');
+      mockStorage.bearer_token = 'valid-token';
+      (globalThis.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ config: { notificationSettings: { enabled: true, repoExcludes: ['a/b'] } } }),
+      });
+
+      const response = await new Promise<any>((resolve) => {
+        handleExtensionMessage({ type: 'GET_NOTIFICATION_SETTINGS' }, {} as any, resolve);
+      });
+
+      expect(response).toEqual({ ok: true, data: { enabled: true, repoExcludes: ['a/b'] } });
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/octodeck.v1.OctoDeckService/GetConfig'),
+        expect.any(Object)
       );
     });
 
-    it('suppresses notification when update is from self-activity (own comment)', async () => {
-      const { pollNotifications } = await import('../background');
+    it('saves notification settings with a field mask limited to notification_settings', async () => {
+      const { handleExtensionMessage } = await import('../background');
       mockStorage.bearer_token = 'valid-token';
-      mockStorage.notification_filters = {
-        enabled: true,
-        notifyOnNewItems: true,
-        notifyOnNewActivity: true,
-        ignoreBots: true,
-        repos: [],
-        labels: [],
-        authors: [],
+      const settings = { enabled: false, badgeCountMode: 'BADGE_COUNT_MODE_UNREAD' };
+      (globalThis.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ config: { notificationSettings: settings } }),
+      });
+
+      const response = await new Promise<any>((resolve) => {
+        handleExtensionMessage({ type: 'SAVE_NOTIFICATION_SETTINGS', settings }, {} as any, resolve);
+      });
+
+      expect(response).toEqual({ ok: true, data: settings });
+      const [url, opts] = (globalThis.fetch as any).mock.calls[0];
+      expect(url).toContain('/octodeck.v1.OctoDeckService/UpdateConfig');
+      expect(JSON.parse(opts.body)).toEqual({
+        config: { notificationSettings: settings },
+        updateMask: 'notificationSettings',
+      });
+    });
+
+    it('reports failure when the daemon is unreachable', async () => {
+      const { handleExtensionMessage } = await import('../background');
+      mockStorage.bearer_token = 'valid-token';
+      (globalThis.fetch as any).mockRejectedValueOnce(new Error('Failed to fetch'));
+
+      const response = await new Promise<any>((resolve) => {
+        handleExtensionMessage({ type: 'GET_NOTIFICATION_SETTINGS' }, {} as any, resolve);
+      });
+      expect(response.ok).toBe(false);
+    });
+  });
+
+  describe('cleanUpObsoleteState', () => {
+    it('clears the legacy poll alarm and storage keys', async () => {
+      mockStorage = {
+        bearer_token: 'keep',
+        known_bots: ['keep-bot'],
+        notification_filters: {},
+        last_notified_timestamps: {},
+        last_known_user_login: 'me',
+        badge_count_mode: 'inbox',
       };
-      mockStorage.last_notified_timestamps = { 'PR_kwDO12345': 2000000 };
-
-      (globalThis.fetch as any).mockImplementation((url: string) => {
-        if (url.endsWith('/GetConfig')) {
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({ currentUserLogin: 'my-user' }),
-          });
-        }
-        if (url.endsWith('/GetItems')) {
-          return Promise.resolve({
-            ok: true,
-            json: () =>
-              Promise.resolve({
-                items: [
-                  {
-                    id: 'PR_kwDO12345',
-                    repo: 'kubernetes/kubernetes',
-                    number: 141039,
-                    title: 'Update checkpoint',
-                    author: { login: 'alice' },
-                    updatedAt: { seconds: 3000n, nanos: 0 },
-                    comments: [
-                      {
-                        author: { login: 'my-user' },
-                        bodyText: 'I reviewed this, looks good!',
-                        createdAt: { seconds: 3000n, nanos: 0 },
-                      },
-                    ],
-                  },
-                ],
-              }),
-          });
-        }
-        return Promise.reject(new Error('Unknown URL'));
-      });
-
-      await pollNotifications();
-
-      expect(chrome.notifications.create).not.toHaveBeenCalled();
-      expect(mockStorage.last_notified_timestamps).toHaveProperty('PR_kwDO12345', 3000000);
-    });
-
-    it('navigates existing dashboard tab to item details on notification click', async () => {
-      const { handleNotificationClick } = await import('../background');
-
-      // Setup existing dashboard tab
-      (chrome.tabs.query as any).mockResolvedValueOnce([{ id: 10, windowId: 5 }]);
-
-      await handleNotificationClick(`${DEFAULT_BASE_URL}/?item=PR_kwDO12345`);
-
-      expect(chrome.tabs.update).toHaveBeenCalledWith(10, {
-        url: `${DEFAULT_BASE_URL}/?item=PR_kwDO12345`,
-        active: true,
-      });
-      expect(chrome.windows.update).toHaveBeenCalledWith(5, { focused: true });
-      expect(chrome.notifications.clear).toHaveBeenCalledWith(`${DEFAULT_BASE_URL}/?item=PR_kwDO12345`);
-    });
-
-    it('creates new dashboard tab when no existing tab is open on notification click', async () => {
-      const { handleNotificationClick } = await import('../background');
-
-      (chrome.tabs.query as any).mockResolvedValueOnce([]);
-
-      await handleNotificationClick(`${DEFAULT_BASE_URL}/?item=PR_kwDO99999`);
-
-      expect(chrome.tabs.create).toHaveBeenCalledWith({
-        url: `${DEFAULT_BASE_URL}/?item=PR_kwDO99999`,
-      });
-      expect(chrome.notifications.clear).toHaveBeenCalledWith(`${DEFAULT_BASE_URL}/?item=PR_kwDO99999`);
+      await cleanUpObsoleteState();
+      expect(chrome.alarms.clear).toHaveBeenCalledWith('octodeck_poll_notifications');
+      expect(mockStorage).toEqual({ bearer_token: 'keep', known_bots: ['keep-bot'] });
     });
   });
 });
-

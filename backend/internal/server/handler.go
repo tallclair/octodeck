@@ -19,13 +19,17 @@ import (
 	"github.com/tallclair/octodeck/backend/internal/config"
 	"github.com/tallclair/octodeck/backend/internal/database"
 	"github.com/tallclair/octodeck/backend/internal/logic"
+	"github.com/tallclair/octodeck/backend/internal/notify"
 )
 
 type octoDeckHandler struct {
-	db         *database.DB
-	syncEngine SyncEngine
-	cfg        *config.Config
-	ghClient   GitHubClient
+	db          *database.DB
+	syncEngine  SyncEngine
+	cfg         *config.Config
+	ghClient    GitHubClient
+	broadcaster *notify.Broadcaster
+	// heartbeatInterval overrides defaultHeartbeatInterval (for tests).
+	heartbeatInterval time.Duration
 }
 
 // currentUser returns the authenticated GitHub login cached by the client, or "" if it is not
@@ -80,33 +84,40 @@ func (h *octoDeckHandler) buildTrackedQueryStats(
 	return out
 }
 
+// validateConfigUpdate checks the user-editable fields of a config update.
+func validateConfigUpdate(newCfg *octodeckv1.Config) error {
+	if err := logic.ValidateRepoPatterns(newCfg.GetWatchedRepos()); err != nil {
+		return fmt.Errorf("invalid watched_repos: %w", err)
+	}
+	if err := logic.ValidateRepoPatterns(newCfg.GetExcludedRepos()); err != nil {
+		return fmt.Errorf("invalid excluded_repos: %w", err)
+	}
+	if err := logic.ValidateLabelPatterns(newCfg.GetIncludedLabels()); err != nil {
+		return fmt.Errorf("invalid included_labels: %w", err)
+	}
+	if err := logic.ValidateLabelPatterns(newCfg.GetExcludedLabels()); err != nil {
+		return fmt.Errorf("invalid excluded_labels: %w", err)
+	}
+	if newCfg.GetDiscoveryIntervalMin() < 0 {
+		return errors.New("discovery_interval_min cannot be negative")
+	}
+	if err := config.ValidateTrackedQueries(newCfg.GetTrackedQueries()); err != nil {
+		return fmt.Errorf("invalid tracked_queries: %w", err)
+	}
+	if err := validateNotificationSettings(newCfg.GetNotificationSettings()); err != nil {
+		return fmt.Errorf("invalid notification_settings: %w", err)
+	}
+	return nil
+}
+
 func (h *octoDeckHandler) UpdateConfig(ctx context.Context,
 	req *connect.Request[octodeckv1.UpdateConfigRequest]) (*connect.Response[octodeckv1.UpdateConfigResponse], error) {
 	newCfg := req.Msg.GetConfig()
 	if newCfg == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("config is required"))
 	}
-
-	if err := logic.ValidateRepoPatterns(newCfg.GetWatchedRepos()); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid watched_repos: %w", err))
-	}
-	if err := logic.ValidateRepoPatterns(newCfg.GetExcludedRepos()); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid excluded_repos: %w", err))
-	}
-	if err := logic.ValidateLabelPatterns(newCfg.GetIncludedLabels()); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid included_labels: %w", err))
-	}
-	if err := logic.ValidateLabelPatterns(newCfg.GetExcludedLabels()); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid excluded_labels: %w", err))
-	}
-	if newCfg.GetDiscoveryIntervalMin() < 0 {
-		return nil, connect.NewError(
-			connect.CodeInvalidArgument,
-			errors.New("discovery_interval_min cannot be negative"),
-		)
-	}
-	if err := config.ValidateTrackedQueries(newCfg.GetTrackedQueries()); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid tracked_queries: %w", err))
+	if err := validateConfigUpdate(newCfg); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	if newCfg.GetTrackedQueries() != nil {
 		newCfg.SetTrackedQueries(config.SanitizeTrackedQueries(newCfg.GetTrackedQueries()))
@@ -147,6 +158,8 @@ func (h *octoDeckHandler) UpdateConfig(ctx context.Context,
 	if h.syncEngine != nil {
 		h.syncEngine.ResetTicker()
 	}
+	// The badge mode or repository filters may have changed.
+	h.invalidateBadge()
 
 	updatedProto := h.cfg.GetProto()
 	return connect.NewResponse(octodeckv1.UpdateConfigResponse_builder{
@@ -418,6 +431,8 @@ func (h *octoDeckHandler) mutateItemLocalState(
 		}
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to %s item: %w", actionName, err))
 	}
+	// Viewing and acking change computed statuses; streams dedupe unchanged badges.
+	h.invalidateBadge()
 
 	h.filterItemLabels(item)
 	h.populateComputedStatus(item)
@@ -529,6 +544,7 @@ func (h *octoDeckHandler) DeleteItem(ctx context.Context,
 	if err := h.db.DeleteItems(ctx, []string{id}); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to delete item: %w", err))
 	}
+	h.invalidateBadge()
 	return connect.NewResponse(octodeckv1.DeleteItemResponse_builder{}.Build()), nil
 }
 
@@ -591,6 +607,7 @@ func (h *octoDeckHandler) UpdateSubscription(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to update local subscription: %w", err))
 	}
+	h.invalidateBadge()
 
 	h.filterItemLabels(item)
 	h.populateComputedStatus(item)

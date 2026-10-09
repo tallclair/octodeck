@@ -187,10 +187,61 @@ describe('Settings Component', () => {
         excludedRepos: ['golang/proposal'],
         autoAckOwnActivity: false,
       }),
+      updateMask: { paths: expect.any(Array) },
     });
     expect(invalidateQueriesMock).toHaveBeenCalled();
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('saves only dashboard-owned fields under an explicit update mask', async () => {
+    const updateConfigMutate = vi.fn().mockResolvedValue({});
+    vi.mocked(connectQuery.useMutation).mockReturnValue({
+      mutateAsync: updateConfigMutate,
+      isPending: false,
+    } as any);
+    // The loaded config includes fields the dashboard doesn't edit; a stale copy of them must
+    // never be written back.
+    vi.mocked(connectQuery.useQuery).mockReturnValue({
+      data: {
+        config: {
+          ...mockConfig,
+          port: 9999,
+          dbPath: '/stale/path.db',
+          notificationSettings: { enabled: false },
+        },
+      },
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as any);
+
+    render(<Settings />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Save Settings/i }));
+    });
+
+    expect(updateConfigMutate).toHaveBeenCalledTimes(1);
+    const req = updateConfigMutate.mock.calls[0][0];
+    const paths: string[] = req.updateMask.paths;
+    expect([...paths].sort()).toEqual([
+      'auto_ack_own_activity',
+      'auto_subscribe_queries',
+      'discovery_interval_min',
+      'excluded_labels',
+      'excluded_repos',
+      'included_labels',
+      'known_bots',
+      'pinned_repos',
+      'polling_interval_min',
+      'tracked_queries',
+      'watched_repos',
+    ]);
+    expect(paths).not.toContain('notification_settings');
+    expect(req.config).not.toHaveProperty('notificationSettings');
+    expect(req.config).not.toHaveProperty('port');
+    expect(req.config).not.toHaveProperty('dbPath');
   });
 
   it('handles save error properly and displays error alert without closing', async () => {

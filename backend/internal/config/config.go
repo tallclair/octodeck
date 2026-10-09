@@ -431,8 +431,13 @@ func (c *Config) GetDBPath() (string, error) {
 // GetProto returns the underlying protocol buffer configuration.
 func (c *Config) GetProto() *octodeckv1.Config {
 	// Return the config as represented in the file/storage
-	// Note: This does NOT include overrides, allowing the frontend to see the persistent state
+	// Note: This does NOT include overrides, allowing the frontend to see the persistent state.
+	// Notification settings are reported with their defaults applied.
 	val, _ := proto.Clone(c.data.Load()).(*octodeckv1.Config)
+	if val == nil {
+		return nil
+	}
+	val.SetNotificationSettings(effectiveNotificationSettings(val.GetNotificationSettings()))
 	return val
 }
 
@@ -458,8 +463,27 @@ func (c *Config) UpdateProto(newCfg *octodeckv1.Config, mask *fieldmaskpb.FieldM
 	target.SetAutoSubscribeQueries(
 		SanitizeAutoSubscribeQueries(target.GetAutoSubscribeQueries(), target.GetTrackedQueries()),
 	)
+	applyScalarDefaults(target)
 	c.data.Store(target)
 	return c.saveLocked()
+}
+
+// applyScalarDefaults fills unset top-level scalar settings with their defaults, in place. It
+// runs on load and after every update, so a setting left unset by an update reads the same in
+// memory as after a reload.
+func applyScalarDefaults(cfg *octodeckv1.Config) {
+	if !cfg.HasPollingIntervalMin() {
+		cfg.SetPollingIntervalMin(int32(DefaultSyncInterval.Minutes()))
+	}
+	if !cfg.HasDiscoveryIntervalMin() {
+		cfg.SetDiscoveryIntervalMin(int32(DefaultDiscoveryInterval.Minutes()))
+	}
+	if !cfg.HasAutoAckOwnActivity() {
+		cfg.SetAutoAckOwnActivity(true)
+	}
+	if !cfg.HasPort() {
+		cfg.SetPort(DefaultPort)
+	}
 }
 
 func applyFieldMask(dst, src protoreflect.ProtoMessage, mask *fieldmaskpb.FieldMask) {
@@ -476,14 +500,27 @@ func applyFieldMask(dst, src protoreflect.ProtoMessage, mask *fieldmaskpb.FieldM
 		if fd == nil {
 			continue
 		}
-		if fd.IsList() {
+		switch {
+		case fd.IsList():
 			dstReflect.Clear(fd)
 			srcList := srcReflect.Get(fd).List()
 			dstList := dstReflect.Mutable(fd).List()
 			for i := range srcList.Len() {
 				dstList.Append(srcList.Get(i))
 			}
-		} else {
+		case fd.Message() != nil:
+			// A masked message field is replaced as a whole; an unset source clears it (and
+			// defaults are re-applied afterwards where they exist).
+			if srcReflect.Has(fd) {
+				dstReflect.Set(fd, protoreflect.ValueOfMessage(
+					proto.Clone(srcReflect.Get(fd).Message().Interface()).ProtoReflect()))
+			} else {
+				dstReflect.Clear(fd)
+			}
+		case fd.HasPresence() && !srcReflect.Has(fd):
+			// An unset masked scalar is cleared rather than stored as an explicit zero.
+			dstReflect.Clear(fd)
+		default:
 			dstReflect.Set(fd, srcReflect.Get(fd))
 		}
 	}
@@ -515,13 +552,8 @@ func Load(customPath string, overrides Overrides) (*Config, error) {
 	cfg.path = path
 
 	// Default config
-	data := octodeckv1.Config_builder{
-		PollingIntervalMin:   Ptr(int32(DefaultSyncInterval.Minutes())),
-		DiscoveryIntervalMin: Ptr(int32(DefaultDiscoveryInterval.Minutes())),
-		KnownBots:            DefaultKnownBots(),
-		AutoAckOwnActivity:   Ptr(true),
-		Port:                 Ptr(int32(DefaultPort)),
-	}.Build()
+	data := octodeckv1.Config_builder{KnownBots: DefaultKnownBots()}.Build()
+	applyScalarDefaults(data)
 	cfg.data.Store(data)
 
 	fileData, err := os.ReadFile(path)
@@ -532,11 +564,11 @@ func Load(customPath string, overrides Overrides) (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	// Use protojson to unmarshal
+	// Use protojson to unmarshal (which starts from an empty message, not the defaults above).
 	// DiscardUnknown: true helps with forward compatibility
 	unmarshaller := protojson.UnmarshalOptions{DiscardUnknown: true}
 	// We need to unmarshal into a new object and then store it to keep it atomic
-	newData, _ := proto.Clone(data).(*octodeckv1.Config)
+	newData := &octodeckv1.Config{}
 	if err := unmarshaller.Unmarshal(fileData, newData); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
@@ -549,6 +581,7 @@ func Load(customPath string, overrides Overrides) (*Config, error) {
 	newData.SetAutoSubscribeQueries(
 		SanitizeAutoSubscribeQueries(newData.GetAutoSubscribeQueries(), newData.GetTrackedQueries()),
 	)
+	applyScalarDefaults(newData)
 	cfg.data.Store(newData)
 
 	return cfg, nil

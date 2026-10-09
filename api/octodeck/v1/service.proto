@@ -35,6 +35,10 @@ service OctoDeckService {
   // Configuration
   rpc GetConfig(GetConfigRequest) returns (GetConfigResponse);
   rpc UpdateConfig(UpdateConfigRequest) returns (UpdateConfigResponse);
+
+  // Desktop notifications and toolbar badge (server streaming). The daemon decides what to
+  // notify during sync; clients only display what they are sent.
+  rpc WatchNotifications(WatchNotificationsRequest) returns (stream WatchNotificationsResponse);
 }
 
 message GetItemsRequest {
@@ -160,6 +164,45 @@ message Config {
   repeated string tracked_queries = 11;
   int32 discovery_interval_min = 12;
   repeated string auto_subscribe_queries = 13;
+  NotificationSettings notification_settings = 14;
+}
+
+// How the extension toolbar badge counts items.
+enum BadgeCountMode {
+  // Treated as BADGE_COUNT_MODE_INBOX.
+  BADGE_COUNT_MODE_UNSPECIFIED = 0;
+  // Items that are not acknowledged.
+  BADGE_COUNT_MODE_INBOX = 1;
+  // Items that are not acknowledged, idle, or noise.
+  BADGE_COUNT_MODE_UNREAD = 2;
+  // No count badge.
+  BADGE_COUNT_MODE_DISABLED = 3;
+}
+
+// Desktop notification and badge preferences. Unset fields take the daemon defaults, so GetConfig
+// always returns every field populated.
+message NotificationSettings {
+  // Master switch. When off nothing notifies, mentions included.
+  bool enabled = 1;
+  // Wildcard patterns ('*' and '?'). If an include list is non-empty the item must match at least
+  // one include; it must match no exclude. Labels match if any label matches.
+  repeated string repo_includes = 2;
+  repeated string repo_excludes = 3;
+  repeated string label_includes = 4;
+  repeated string label_excludes = 5;
+  repeated string author_includes = 6;
+  repeated string author_excludes = 7;
+  // Only notify for items authored by or assigned to the authenticated user.
+  bool only_assigned_or_authored = 8;
+  // Notify when a never-seen item appears.
+  bool notify_on_new_items = 9;
+  // Notify on new comments, reviews, state changes, and commits by others.
+  bool notify_on_new_activity = 10;
+  // Never notify for noise (bots, slash commands, bot reviews and state events).
+  bool ignore_bots = 11;
+  // New explicit @mentions of the user notify even if the item fails the filters above.
+  bool always_include_mentions = 12;
+  BadgeCountMode badge_count_mode = 13;
 }
 
 message TrackedQueryStats {
@@ -245,4 +288,70 @@ message GetDatabaseStatsRequest {}
 
 message GetDatabaseStatsResponse {
   DatabaseStats stats = 1;
+}
+
+// Why an item produced a notification, in descending priority.
+enum NotificationCategory {
+  NOTIFICATION_CATEGORY_UNSPECIFIED = 0;
+  // A new explicit @mention of the authenticated user.
+  NOTIFICATION_CATEGORY_MENTION = 1;
+  // A never-seen item authored by someone else.
+  NOTIFICATION_CATEGORY_NEW_ITEM = 2;
+  // New significant comments, reviews, review comments, or state events by others.
+  NOTIFICATION_CATEGORY_ACTIVITY = 3;
+  // New commits by others.
+  NOTIFICATION_CATEGORY_CODE = 4;
+  // New noise (bot comments, slash commands, bot reviews, bot state events).
+  NOTIFICATION_CATEGORY_NOISE = 5;
+}
+
+message Notification {
+  // Stable identifier; clients use it to avoid showing the same notification twice.
+  string id = 1;
+  string item_id = 2;
+  // e.g. "owner/repo #123".
+  string title = 3;
+  string message = 4;
+  // Dashboard URL that opens the item.
+  string url = 5;
+  NotificationCategory category = 6;
+  // Daemon clock.
+  google.protobuf.Timestamp created_at = 7;
+}
+
+// Sent instead of individual notifications when a reconnecting client missed more than a few.
+message NotificationSummary {
+  // Number of distinct items.
+  int32 count = 1;
+  string title = 2;
+  string message = 3;
+  string url = 4;
+}
+
+message BadgeUpdate {
+  int32 count = 1;
+  BadgeCountMode mode = 2;
+  // Text to display on the badge ("" for none).
+  string text = 3;
+  // Tooltip for the extension action.
+  string tooltip = 4;
+}
+
+message Heartbeat {}
+
+message WatchNotificationsRequest {
+  // sent_at of the last message the client received. When set, notifications emitted after it
+  // that are still in the daemon's in-memory buffer are replayed (or summarised).
+  google.protobuf.Timestamp last_received_at = 1;
+}
+
+message WatchNotificationsResponse {
+  // Daemon clock. Clients pass the latest value back as last_received_at when reconnecting.
+  google.protobuf.Timestamp sent_at = 1;
+  oneof event {
+    Notification notification = 2;
+    NotificationSummary summary = 3;
+    BadgeUpdate badge = 4;
+    Heartbeat heartbeat = 5;
+  }
 }

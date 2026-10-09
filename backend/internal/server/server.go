@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"slices"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/go-chi/chi/v5"
@@ -20,6 +22,7 @@ import (
 	"github.com/tallclair/octodeck/backend/internal/auth"
 	"github.com/tallclair/octodeck/backend/internal/config"
 	"github.com/tallclair/octodeck/backend/internal/database"
+	"github.com/tallclair/octodeck/backend/internal/notify"
 )
 
 // Version is the server's version, intended to be overwritten at build time.
@@ -51,17 +54,38 @@ type SyncEngine interface {
 
 // Server provides the HTTP server for the OctoDeck backend.
 type Server struct {
-	router     *chi.Mux
-	db         *database.DB
-	auth       *auth.Manager
-	ghClient   GitHubClient
-	syncEngine SyncEngine
-	cfg        *config.Config
-	webFS      fs.FS
+	router      *chi.Mux
+	db          *database.DB
+	auth        *auth.Manager
+	ghClient    GitHubClient
+	syncEngine  SyncEngine
+	cfg         *config.Config
+	webFS       fs.FS
+	broadcaster *notify.Broadcaster
+	// heartbeatInterval overrides the notification stream heartbeat interval (for tests).
+	heartbeatInterval time.Duration
 }
 
+// Option configures optional Server dependencies.
+type Option func(*Server)
+
+// WithBroadcaster sets the notification broadcaster backing the WatchNotifications stream.
+func WithBroadcaster(b *notify.Broadcaster) Option {
+	return func(s *Server) { s.broadcaster = b }
+}
+
+// withHeartbeatInterval overrides the notification stream heartbeat interval.
+func withHeartbeatInterval(d time.Duration) Option {
+	return func(s *Server) { s.heartbeatInterval = d }
+}
+
+// watchNotificationsPath is the HTTP path of the long-lived notification stream.
+const watchNotificationsPath = "/api/v1" + octodeckv1connect.OctoDeckServiceWatchNotificationsProcedure
+
 // New creates a new Server instance with the provided dependencies.
-func New(db *database.DB, ghClient GitHubClient, syncEngine SyncEngine, cfg *config.Config, webFS fs.FS) *Server {
+func New(
+	db *database.DB, ghClient GitHubClient, syncEngine SyncEngine, cfg *config.Config, webFS fs.FS, opts ...Option,
+) *Server {
 	r := chi.NewRouter()
 
 	// A good base middleware stack
@@ -70,8 +94,9 @@ func New(db *database.DB, ghClient GitHubClient, syncEngine SyncEngine, cfg *con
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	// Set a timeout value on the render context of each request, after 60 seconds
-	r.Use(middleware.Timeout(config.ServerRequestTimeout))
+	// Bound the duration of each request, except for the notification stream, which is
+	// intentionally long-lived.
+	r.Use(timeoutExcept(config.ServerRequestTimeout, watchNotificationsPath))
 
 	s := &Server{
 		router:     r,
@@ -82,6 +107,9 @@ func New(db *database.DB, ghClient GitHubClient, syncEngine SyncEngine, cfg *con
 		cfg:        cfg,
 		webFS:      webFS,
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
 
 	// Apply Security Middleware
 	r.Use(SecurityMiddleware(s.auth, s.cfg))
@@ -91,6 +119,21 @@ func New(db *database.DB, ghClient GitHubClient, syncEngine SyncEngine, cfg *con
 	return s
 }
 
+// timeoutExcept applies middleware.Timeout to every request whose path is not exempt.
+func timeoutExcept(timeout time.Duration, exemptPaths ...string) func(http.Handler) http.Handler {
+	withTimeout := middleware.Timeout(timeout)
+	return func(next http.Handler) http.Handler {
+		timed := withTimeout(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if slices.Contains(exemptPaths, r.URL.Path) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			timed.ServeHTTP(w, r)
+		})
+	}
+}
+
 func (s *Server) routes() {
 	// Auth routes
 	s.router.Get("/auth/authorize", s.handleAuthorize)
@@ -98,12 +141,18 @@ func (s *Server) routes() {
 	s.router.Post("/auth/token", s.handleToken)
 
 	// Mount ConnectRPC handler
-	_, handler := octodeckv1connect.NewOctoDeckServiceHandler(&octoDeckHandler{
-		db:         s.db,
-		syncEngine: s.syncEngine,
-		cfg:        s.cfg,
-		ghClient:   s.ghClient,
-	}, connect.WithInterceptors(NewLoggingInterceptor()))
+	h := &octoDeckHandler{
+		db:                s.db,
+		syncEngine:        s.syncEngine,
+		cfg:               s.cfg,
+		ghClient:          s.ghClient,
+		broadcaster:       s.broadcaster,
+		heartbeatInterval: s.heartbeatInterval,
+	}
+	// The badge is computed once per change and shared by every notification stream; the loop
+	// stops when the broadcaster is closed.
+	s.broadcaster.StartBadge(h.computeBadge)
+	_, handler := octodeckv1connect.NewOctoDeckServiceHandler(h, connect.WithInterceptors(NewLoggingInterceptor()))
 
 	s.router.Route("/api/v1", func(r chi.Router) {
 		r.Handle("/*", http.StripPrefix("/api/v1", handler))
@@ -199,6 +248,9 @@ func (s *Server) Start(ctx context.Context, port int) error {
 		Handler:           s.router,
 		ReadHeaderTimeout: config.ServerReadHeaderTimeout,
 	}
+	// Long-lived notification streams would otherwise hold graceful shutdown open until it
+	// times out; closing the broadcaster ends them.
+	srv.RegisterOnShutdown(s.broadcaster.Close)
 
 	// Channel to listen for errors coming from the listener.
 	serverErrors := make(chan error, 1)

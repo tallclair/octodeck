@@ -2,6 +2,7 @@ package logic
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 )
@@ -71,16 +72,24 @@ func MatchesAnyPattern(text string, patterns []string) bool {
 // If excludedPatterns is non-empty, matching any exclude pattern rejects the text.
 // Exclusion patterns take precedence over inclusion patterns.
 func MatchesFilter(text string, includedPatterns, excludedPatterns []string) bool {
+	return MatchesAnyValueFilter([]string{text}, includedPatterns, excludedPatterns)
+}
+
+// MatchesAnyValueFilter applies include and exclude patterns to a multi-valued attribute (such
+// as an item's labels). If includedPatterns is non-empty, at least one value must match an include
+// pattern. If any value matches an exclude pattern, the attribute is rejected.
+func MatchesAnyValueFilter(values, includedPatterns, excludedPatterns []string) bool {
 	activeIncludes := CleanPatterns(includedPatterns)
 	activeExcludes := CleanPatterns(excludedPatterns)
 
-	if len(activeIncludes) > 0 && !MatchesAnyPattern(text, activeIncludes) {
+	if len(activeIncludes) > 0 && !slices.ContainsFunc(values, func(v string) bool {
+		return MatchesAnyPattern(v, activeIncludes)
+	}) {
 		return false
 	}
-	if len(activeExcludes) > 0 && MatchesAnyPattern(text, activeExcludes) {
-		return false
-	}
-	return true
+	return !slices.ContainsFunc(values, func(v string) bool {
+		return MatchesAnyPattern(v, activeExcludes)
+	})
 }
 
 // ValidatePatternBase validates standard pattern length and control character constraints.

@@ -76,6 +76,9 @@ const (
 	// OctoDeckServiceUpdateConfigProcedure is the fully-qualified name of the OctoDeckService's
 	// UpdateConfig RPC.
 	OctoDeckServiceUpdateConfigProcedure = "/octodeck.v1.OctoDeckService/UpdateConfig"
+	// OctoDeckServiceWatchNotificationsProcedure is the fully-qualified name of the OctoDeckService's
+	// WatchNotifications RPC.
+	OctoDeckServiceWatchNotificationsProcedure = "/octodeck.v1.OctoDeckService/WatchNotifications"
 )
 
 // OctoDeckServiceClient is a client for the octodeck.v1.OctoDeckService service.
@@ -101,6 +104,9 @@ type OctoDeckServiceClient interface {
 	// Configuration
 	GetConfig(context.Context, *connect.Request[v1.GetConfigRequest]) (*connect.Response[v1.GetConfigResponse], error)
 	UpdateConfig(context.Context, *connect.Request[v1.UpdateConfigRequest]) (*connect.Response[v1.UpdateConfigResponse], error)
+	// Desktop notifications and toolbar badge (server streaming). The daemon decides what to
+	// notify during sync; clients only display what they are sent.
+	WatchNotifications(context.Context, *connect.Request[v1.WatchNotificationsRequest]) (*connect.ServerStreamForClient[v1.WatchNotificationsResponse], error)
 }
 
 // NewOctoDeckServiceClient constructs a client for the octodeck.v1.OctoDeckService service. By
@@ -204,6 +210,12 @@ func NewOctoDeckServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(octoDeckServiceMethods.ByName("UpdateConfig")),
 			connect.WithClientOptions(opts...),
 		),
+		watchNotifications: connect.NewClient[v1.WatchNotificationsRequest, v1.WatchNotificationsResponse](
+			httpClient,
+			baseURL+OctoDeckServiceWatchNotificationsProcedure,
+			connect.WithSchema(octoDeckServiceMethods.ByName("WatchNotifications")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -224,6 +236,7 @@ type octoDeckServiceClient struct {
 	getDatabaseStats   *connect.Client[v1.GetDatabaseStatsRequest, v1.GetDatabaseStatsResponse]
 	getConfig          *connect.Client[v1.GetConfigRequest, v1.GetConfigResponse]
 	updateConfig       *connect.Client[v1.UpdateConfigRequest, v1.UpdateConfigResponse]
+	watchNotifications *connect.Client[v1.WatchNotificationsRequest, v1.WatchNotificationsResponse]
 }
 
 // GetItems calls octodeck.v1.OctoDeckService.GetItems.
@@ -301,6 +314,11 @@ func (c *octoDeckServiceClient) UpdateConfig(ctx context.Context, req *connect.R
 	return c.updateConfig.CallUnary(ctx, req)
 }
 
+// WatchNotifications calls octodeck.v1.OctoDeckService.WatchNotifications.
+func (c *octoDeckServiceClient) WatchNotifications(ctx context.Context, req *connect.Request[v1.WatchNotificationsRequest]) (*connect.ServerStreamForClient[v1.WatchNotificationsResponse], error) {
+	return c.watchNotifications.CallServerStream(ctx, req)
+}
+
 // OctoDeckServiceHandler is an implementation of the octodeck.v1.OctoDeckService service.
 type OctoDeckServiceHandler interface {
 	// Main Dashboard Data
@@ -324,6 +342,9 @@ type OctoDeckServiceHandler interface {
 	// Configuration
 	GetConfig(context.Context, *connect.Request[v1.GetConfigRequest]) (*connect.Response[v1.GetConfigResponse], error)
 	UpdateConfig(context.Context, *connect.Request[v1.UpdateConfigRequest]) (*connect.Response[v1.UpdateConfigResponse], error)
+	// Desktop notifications and toolbar badge (server streaming). The daemon decides what to
+	// notify during sync; clients only display what they are sent.
+	WatchNotifications(context.Context, *connect.Request[v1.WatchNotificationsRequest], *connect.ServerStream[v1.WatchNotificationsResponse]) error
 }
 
 // NewOctoDeckServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -423,6 +444,12 @@ func NewOctoDeckServiceHandler(svc OctoDeckServiceHandler, opts ...connect.Handl
 		connect.WithSchema(octoDeckServiceMethods.ByName("UpdateConfig")),
 		connect.WithHandlerOptions(opts...),
 	)
+	octoDeckServiceWatchNotificationsHandler := connect.NewServerStreamHandler(
+		OctoDeckServiceWatchNotificationsProcedure,
+		svc.WatchNotifications,
+		connect.WithSchema(octoDeckServiceMethods.ByName("WatchNotifications")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/octodeck.v1.OctoDeckService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case OctoDeckServiceGetItemsProcedure:
@@ -455,6 +482,8 @@ func NewOctoDeckServiceHandler(svc OctoDeckServiceHandler, opts ...connect.Handl
 			octoDeckServiceGetConfigHandler.ServeHTTP(w, r)
 		case OctoDeckServiceUpdateConfigProcedure:
 			octoDeckServiceUpdateConfigHandler.ServeHTTP(w, r)
+		case OctoDeckServiceWatchNotificationsProcedure:
+			octoDeckServiceWatchNotificationsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -522,4 +551,8 @@ func (UnimplementedOctoDeckServiceHandler) GetConfig(context.Context, *connect.R
 
 func (UnimplementedOctoDeckServiceHandler) UpdateConfig(context.Context, *connect.Request[v1.UpdateConfigRequest]) (*connect.Response[v1.UpdateConfigResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("octodeck.v1.OctoDeckService.UpdateConfig is not implemented"))
+}
+
+func (UnimplementedOctoDeckServiceHandler) WatchNotifications(context.Context, *connect.Request[v1.WatchNotificationsRequest], *connect.ServerStream[v1.WatchNotificationsResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("octodeck.v1.OctoDeckService.WatchNotifications is not implemented"))
 }

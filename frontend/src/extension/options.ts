@@ -1,14 +1,19 @@
+import { create, fromJson, toJson } from '@bufbuild/protobuf';
+import {
+  BadgeCountMode,
+  NotificationSettingsSchema,
+  type NotificationSettings,
+} from '../api/octodeck/v1/service_pb';
 import type {
   ExtensionMessage,
   ExtensionResponse,
-  NotificationFilters,
   DaemonStatus,
-  BadgeCountMode,
+  NotificationSettingsJson,
 } from './types';
-import { DEFAULT_NOTIFICATION_FILTERS, DEFAULT_BADGE_COUNT_MODE } from './types';
+import { parseFilterPatterns, serializeFilterPatterns, validateBasePattern, validateFilterPatterns } from '../utils/patterns';
+import { validateRepoFilterPatterns } from '../utils/repos';
+import { validateLabelFilterPatterns } from '../utils/labels';
 
-let currentFilters: NotificationFilters = { ...DEFAULT_NOTIFICATION_FILTERS };
-let currentBadgeMode: BadgeCountMode = DEFAULT_BADGE_COUNT_MODE;
 let toastTimeout: number | null = null;
 
 function showToast(msg: string = 'Settings saved') {
@@ -24,78 +29,224 @@ function showToast(msg: string = 'Settings saved') {
   }, 2000);
 }
 
-function parseListInput(value: string): string[] {
-  return value
-    .split(/[\n,]/)
-    .map(s => s.trim())
-    .filter(Boolean);
-}
-
-function formatListInput(list: string[]): string {
-  return (list || []).join('\n');
-}
-
-async function saveFilters() {
-  const notifEnabled = (document.getElementById('notif-enabled') as HTMLInputElement).checked;
-  const reposInput = (document.getElementById('filter-repos') as HTMLTextAreaElement).value;
-  const labelsInput = (document.getElementById('filter-labels') as HTMLTextAreaElement).value;
-  const authorsInput = (document.getElementById('filter-authors') as HTMLTextAreaElement).value;
-  const assignedOnly = (document.getElementById('notif-assigned') as HTMLInputElement).checked;
-  const ignoreBots = (document.getElementById('notif-ignore-bots') as HTMLInputElement).checked;
-  const newItems = (document.getElementById('notif-new-items') as HTMLInputElement).checked;
-  const activity = (document.getElementById('notif-activity') as HTMLInputElement).checked;
-
-  currentFilters = {
-    ...currentFilters,
-    enabled: notifEnabled,
-    repos: parseListInput(reposInput),
-    labels: parseListInput(labelsInput),
-    authors: parseListInput(authorsInput),
-    onlyAssignedOrAuthored: assignedOnly,
-    ignoreBots: ignoreBots,
-    notifyOnNewItems: newItems,
-    notifyOnNewActivity: activity,
-  };
-
-  const msg: ExtensionMessage = {
-    type: 'SAVE_NOTIFICATION_FILTERS',
-    filters: currentFilters,
-  };
-
-  chrome.runtime.sendMessage(msg, (res: ExtensionResponse | undefined) => {
-    if (res && res.ok) {
-      showToast();
-    }
+function sendMessage<T>(msg: ExtensionMessage): Promise<ExtensionResponse<T>> {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(msg, (res: ExtensionResponse<T> | undefined) => {
+      resolve(res ?? { ok: false, error: chrome.runtime.lastError?.message || 'No response from background' });
+    });
   });
 }
 
-async function saveBadgeMode(mode: BadgeCountMode) {
-  currentBadgeMode = mode;
-  const msg: ExtensionMessage = {
-    type: 'SET_BADGE_COUNT_MODE',
-    mode: currentBadgeMode,
-  };
+// ---------------------------------------------------------------------------
+// Settings <-> form mapping
+// ---------------------------------------------------------------------------
 
-  chrome.runtime.sendMessage(msg, (res: ExtensionResponse | undefined) => {
-    if (res && res.ok) {
-      showToast();
-    }
-  });
+export type BadgeModeValue = 'inbox' | 'unread' | 'disabled';
+
+/** The notification and badge settings as edited on the options page. */
+export interface SettingsForm {
+  enabled: boolean;
+  /** Pattern textareas: one pattern per line, '!' prefix for excludes. */
+  repos: string;
+  labels: string;
+  authors: string;
+  alwaysIncludeMentions: boolean;
+  onlyAssignedOrAuthored: boolean;
+  ignoreBots: boolean;
+  notifyOnNewItems: boolean;
+  notifyOnNewActivity: boolean;
+  badgeMode: BadgeModeValue;
 }
 
-function setMode(mode: 'include' | 'exclude') {
-  currentFilters.filterMode = mode;
-  const btnExclude = document.getElementById('mode-exclude');
-  const btnInclude = document.getElementById('mode-include');
+export type SettingsFormErrors = Partial<Record<'repos' | 'labels' | 'authors', string>>;
 
-  if (mode === 'exclude') {
-    btnExclude?.classList.add('active');
-    btnInclude?.classList.remove('active');
-  } else {
-    btnInclude?.classList.add('active');
-    btnExclude?.classList.remove('active');
+function badgeModeToValue(mode: BadgeCountMode): BadgeModeValue {
+  switch (mode) {
+    case BadgeCountMode.UNREAD:
+      return 'unread';
+    case BadgeCountMode.DISABLED:
+      return 'disabled';
+    default:
+      return 'inbox';
   }
-  saveFilters();
+}
+
+function badgeModeFromValue(value: BadgeModeValue): BadgeCountMode {
+  switch (value) {
+    case 'unread':
+      return BadgeCountMode.UNREAD;
+    case 'disabled':
+      return BadgeCountMode.DISABLED;
+    default:
+      return BadgeCountMode.INBOX;
+  }
+}
+
+export function settingsToForm(s: NotificationSettings): SettingsForm {
+  return {
+    enabled: s.enabled,
+    repos: serializeFilterPatterns(s.repoIncludes, s.repoExcludes),
+    labels: serializeFilterPatterns(s.labelIncludes, s.labelExcludes),
+    authors: serializeFilterPatterns(s.authorIncludes, s.authorExcludes),
+    alwaysIncludeMentions: s.alwaysIncludeMentions,
+    onlyAssignedOrAuthored: s.onlyAssignedOrAuthored,
+    ignoreBots: s.ignoreBots,
+    notifyOnNewItems: s.notifyOnNewItems,
+    notifyOnNewActivity: s.notifyOnNewActivity,
+    badgeMode: badgeModeToValue(s.badgeCountMode),
+  };
+}
+
+export function formToSettings(form: SettingsForm): NotificationSettings {
+  const repos = parseFilterPatterns(form.repos);
+  const labels = parseFilterPatterns(form.labels);
+  const authors = parseFilterPatterns(form.authors);
+  return create(NotificationSettingsSchema, {
+    enabled: form.enabled,
+    repoIncludes: repos.includes,
+    repoExcludes: repos.excludes,
+    labelIncludes: labels.includes,
+    labelExcludes: labels.excludes,
+    authorIncludes: authors.includes,
+    authorExcludes: authors.excludes,
+    alwaysIncludeMentions: form.alwaysIncludeMentions,
+    onlyAssignedOrAuthored: form.onlyAssignedOrAuthored,
+    ignoreBots: form.ignoreBots,
+    notifyOnNewItems: form.notifyOnNewItems,
+    notifyOnNewActivity: form.notifyOnNewActivity,
+    badgeCountMode: badgeModeFromValue(form.badgeMode),
+  });
+}
+
+export function validateSettingsForm(form: SettingsForm): SettingsFormErrors {
+  const errors: SettingsFormErrors = {};
+  const repos = validateRepoFilterPatterns(form.repos);
+  if (repos) errors.repos = repos;
+  const labels = validateLabelFilterPatterns(form.labels);
+  if (labels) errors.labels = labels;
+  const authors = validateFilterPatterns(form.authors, (p) => validateBasePattern(p, 'Author').error);
+  if (authors) errors.authors = authors;
+  return errors;
+}
+
+// ---------------------------------------------------------------------------
+// DOM binding
+// ---------------------------------------------------------------------------
+
+const CHECKBOXES = {
+  enabled: 'notif-enabled',
+  alwaysIncludeMentions: 'notif-mentions',
+  onlyAssignedOrAuthored: 'notif-assigned',
+  ignoreBots: 'notif-ignore-bots',
+  notifyOnNewItems: 'notif-new-items',
+  notifyOnNewActivity: 'notif-activity',
+} as const satisfies Partial<Record<keyof SettingsForm, string>>;
+
+const TEXTAREAS = {
+  repos: 'filter-repos',
+  labels: 'filter-labels',
+  authors: 'filter-authors',
+} as const satisfies Partial<Record<keyof SettingsForm, string>>;
+
+const BADGE_RADIOS: Record<BadgeModeValue, string> = {
+  inbox: 'badge-mode-inbox',
+  unread: 'badge-mode-unread',
+  disabled: 'badge-mode-disabled',
+};
+
+function input(id: string): HTMLInputElement | null {
+  return document.getElementById(id) as HTMLInputElement | null;
+}
+
+function textarea(id: string): HTMLTextAreaElement | null {
+  return document.getElementById(id) as HTMLTextAreaElement | null;
+}
+
+export function readForm(): SettingsForm {
+  const checked = (id: string) => Boolean(input(id)?.checked);
+  const text = (id: string) => textarea(id)?.value ?? '';
+  const badgeMode =
+    (Object.keys(BADGE_RADIOS) as BadgeModeValue[]).find((m) => input(BADGE_RADIOS[m])?.checked) ?? 'inbox';
+  return {
+    enabled: checked(CHECKBOXES.enabled),
+    repos: text(TEXTAREAS.repos),
+    labels: text(TEXTAREAS.labels),
+    authors: text(TEXTAREAS.authors),
+    alwaysIncludeMentions: checked(CHECKBOXES.alwaysIncludeMentions),
+    onlyAssignedOrAuthored: checked(CHECKBOXES.onlyAssignedOrAuthored),
+    ignoreBots: checked(CHECKBOXES.ignoreBots),
+    notifyOnNewItems: checked(CHECKBOXES.notifyOnNewItems),
+    notifyOnNewActivity: checked(CHECKBOXES.notifyOnNewActivity),
+    badgeMode,
+  };
+}
+
+export function writeForm(form: SettingsForm): void {
+  for (const [key, id] of Object.entries(CHECKBOXES) as [keyof typeof CHECKBOXES, string][]) {
+    const el = input(id);
+    if (el) el.checked = form[key];
+  }
+  for (const [key, id] of Object.entries(TEXTAREAS) as [keyof typeof TEXTAREAS, string][]) {
+    const el = textarea(id);
+    if (el) el.value = form[key];
+  }
+  const radio = input(BADGE_RADIOS[form.badgeMode]);
+  if (radio) radio.checked = true;
+  updateFilterPanelVisibility(form.enabled);
+}
+
+function updateFilterPanelVisibility(enabled: boolean): void {
+  const panel = document.getElementById('filter-options-panel');
+  if (panel) panel.style.display = enabled ? 'block' : 'none';
+}
+
+function showFormErrors(errors: SettingsFormErrors): void {
+  for (const [key, id] of Object.entries(TEXTAREAS) as [keyof typeof TEXTAREAS, string][]) {
+    const el = document.getElementById(`${id}-error`);
+    if (!el) continue;
+    const msg = errors[key];
+    el.textContent = msg ?? '';
+    el.classList.toggle('show', Boolean(msg));
+  }
+}
+
+/** Enables editing when the daemon provided the settings, or shows why it can't. */
+export function setSettingsAvailable(available: boolean): void {
+  for (const id of ['badge-settings', 'notification-settings']) {
+    const fieldset = document.getElementById(id) as HTMLFieldSetElement | null;
+    if (fieldset) fieldset.disabled = !available;
+  }
+  document.getElementById('settings-unavailable')?.classList.toggle('show', !available);
+}
+
+export async function loadSettings(): Promise<boolean> {
+  const res = await sendMessage<NotificationSettingsJson>({ type: 'GET_NOTIFICATION_SETTINGS' });
+  if (!res.ok) {
+    console.debug('[OctoDeck Options] Failed to load notification settings:', res.error);
+    setSettingsAvailable(false);
+    return false;
+  }
+  writeForm(settingsToForm(fromJson(NotificationSettingsSchema, res.data, { ignoreUnknownFields: true })));
+  setSettingsAvailable(true);
+  return true;
+}
+
+export async function saveSettings(): Promise<boolean> {
+  const form = readForm();
+  updateFilterPanelVisibility(form.enabled);
+  const errors = validateSettingsForm(form);
+  showFormErrors(errors);
+  if (Object.keys(errors).length > 0) {
+    return false;
+  }
+  const settings = toJson(NotificationSettingsSchema, formToSettings(form)) as NotificationSettingsJson;
+  const res = await sendMessage<NotificationSettingsJson>({ type: 'SAVE_NOTIFICATION_SETTINGS', settings });
+  if (!res.ok) {
+    showToast('Failed to save settings: daemon unreachable');
+    return false;
+  }
+  showToast();
+  return true;
 }
 
 export function getExtensionVersion(): string {
@@ -163,7 +314,7 @@ export function updateDaemonUI(status: DaemonStatus): void {
   }
 }
 
-async function init() {
+export async function initOptions(): Promise<void> {
   // Populate extension version immediately
   const extVerEl = document.getElementById('extension-version');
   if (extVerEl) {
@@ -171,89 +322,27 @@ async function init() {
   }
 
   // Check Daemon Status
-  chrome.runtime.sendMessage({ type: 'GET_DAEMON_STATUS' }, (res: ExtensionResponse<DaemonStatus> | undefined) => {
-    if (res && res.ok) {
-      updateDaemonUI(res.data);
-    } else {
-      updateDaemonUI({ online: false, error: res?.error || 'Daemon unreachable' });
-    }
+  void sendMessage<DaemonStatus>({ type: 'GET_DAEMON_STATUS' }).then((res) => {
+    updateDaemonUI(res.ok ? res.data : { online: false, error: res.error || 'Daemon unreachable' });
   });
 
-  // Load Badge Mode
-  chrome.runtime.sendMessage({ type: 'GET_BADGE_COUNT_MODE' }, (res: ExtensionResponse<BadgeCountMode> | undefined) => {
-    if (res && res.ok) {
-      currentBadgeMode = res.data;
-    }
-    const radioInbox = document.getElementById('badge-mode-inbox') as HTMLInputElement | null;
-    const radioUnread = document.getElementById('badge-mode-unread') as HTMLInputElement | null;
-    const radioDisabled = document.getElementById('badge-mode-disabled') as HTMLInputElement | null;
-
-    if (currentBadgeMode === 'unread' && radioUnread) {
-      radioUnread.checked = true;
-    } else if (currentBadgeMode === 'disabled' && radioDisabled) {
-      radioDisabled.checked = true;
-    } else if (radioInbox) {
-      radioInbox.checked = true;
-    }
-
-    const badgeRadios = [radioInbox, radioUnread, radioDisabled];
-    for (const radio of badgeRadios) {
-      radio?.addEventListener('change', () => {
-        if (radio.checked) {
-          saveBadgeMode(radio.value as BadgeCountMode);
-        }
-      });
-    }
-  });
-
-  // Load Filters
-  chrome.runtime.sendMessage({ type: 'GET_NOTIFICATION_FILTERS' }, (res: ExtensionResponse<NotificationFilters> | undefined) => {
-    if (res && res.ok) {
-      currentFilters = res.data;
-    }
-
-    const notifEnabled = document.getElementById('notif-enabled') as HTMLInputElement;
-    const filterPanel = document.getElementById('filter-options-panel');
-    const reposInput = document.getElementById('filter-repos') as HTMLTextAreaElement;
-    const labelsInput = document.getElementById('filter-labels') as HTMLTextAreaElement;
-    const authorsInput = document.getElementById('filter-authors') as HTMLTextAreaElement;
-    const assignedOnly = document.getElementById('notif-assigned') as HTMLInputElement;
-    const ignoreBots = document.getElementById('notif-ignore-bots') as HTMLInputElement;
-    const newItems = document.getElementById('notif-new-items') as HTMLInputElement;
-    const activity = document.getElementById('notif-activity') as HTMLInputElement;
-
-    if (notifEnabled) notifEnabled.checked = currentFilters.enabled;
-    if (filterPanel) filterPanel.style.display = currentFilters.enabled ? 'block' : 'none';
-
-    setMode(currentFilters.filterMode);
-
-    if (reposInput) reposInput.value = formatListInput(currentFilters.repos);
-    if (labelsInput) labelsInput.value = formatListInput(currentFilters.labels);
-    if (authorsInput) authorsInput.value = formatListInput(currentFilters.authors);
-    if (assignedOnly) assignedOnly.checked = currentFilters.onlyAssignedOrAuthored;
-    if (ignoreBots) ignoreBots.checked = currentFilters.ignoreBots;
-    if (newItems) newItems.checked = currentFilters.notifyOnNewItems;
-    if (activity) activity.checked = currentFilters.notifyOnNewActivity;
-
-    // Attach listeners
-    notifEnabled?.addEventListener('change', () => {
-      if (filterPanel) filterPanel.style.display = notifEnabled.checked ? 'block' : 'none';
-      saveFilters();
+  // Every control saves the whole settings message on change.
+  const controls = [
+    ...Object.values(CHECKBOXES).map(input),
+    ...Object.values(BADGE_RADIOS).map(input),
+    ...Object.values(TEXTAREAS).map(textarea),
+  ];
+  for (const control of controls) {
+    control?.addEventListener('change', () => {
+      void saveSettings();
     });
+  }
 
-    document.getElementById('mode-exclude')?.addEventListener('click', () => setMode('exclude'));
-    document.getElementById('mode-include')?.addEventListener('click', () => setMode('include'));
-
-    const textInputs = [reposInput, labelsInput, authorsInput];
-    for (const input of textInputs) {
-      input?.addEventListener('change', () => saveFilters());
-    }
-
-    const checkInputs = [assignedOnly, ignoreBots, newItems, activity];
-    for (const input of checkInputs) {
-      input?.addEventListener('change', () => saveFilters());
-    }
-  });
+  await loadSettings();
 }
 
-document.addEventListener('DOMContentLoaded', init);
+if (typeof document !== 'undefined') {
+  document.addEventListener('DOMContentLoaded', () => {
+    void initOptions();
+  });
+}

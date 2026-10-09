@@ -17,6 +17,7 @@ import (
 	"github.com/tallclair/octodeck/backend/internal/github"
 	"github.com/tallclair/octodeck/backend/internal/logger"
 	"github.com/tallclair/octodeck/backend/internal/logic"
+	"github.com/tallclair/octodeck/backend/internal/notify"
 	"github.com/tallclair/octodeck/backend/internal/server"
 )
 
@@ -77,8 +78,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	resolveStartupLogin(ctx, ghClient)
 
+	broadcaster := notify.New(notify.Options{})
 	syncEngine := logic.NewSyncEngine(db, ghClient, cfg)
-	srv := server.New(db, ghClient, syncEngine, cfg, frontendFS)
+	syncEngine.SetBroadcaster(broadcaster)
+	srv := server.New(db, ghClient, syncEngine, cfg, frontendFS, server.WithBroadcaster(broadcaster))
 
 	syncEngine.Start(ctx)
 	defer syncEngine.Stop()

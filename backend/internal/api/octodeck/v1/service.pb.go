@@ -23,6 +23,117 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// How the extension toolbar badge counts items.
+type BadgeCountMode int32
+
+const (
+	// Treated as BADGE_COUNT_MODE_INBOX.
+	BadgeCountMode_BADGE_COUNT_MODE_UNSPECIFIED BadgeCountMode = 0
+	// Items that are not acknowledged.
+	BadgeCountMode_BADGE_COUNT_MODE_INBOX BadgeCountMode = 1
+	// Items that are not acknowledged, idle, or noise.
+	BadgeCountMode_BADGE_COUNT_MODE_UNREAD BadgeCountMode = 2
+	// No count badge.
+	BadgeCountMode_BADGE_COUNT_MODE_DISABLED BadgeCountMode = 3
+)
+
+// Enum value maps for BadgeCountMode.
+var (
+	BadgeCountMode_name = map[int32]string{
+		0: "BADGE_COUNT_MODE_UNSPECIFIED",
+		1: "BADGE_COUNT_MODE_INBOX",
+		2: "BADGE_COUNT_MODE_UNREAD",
+		3: "BADGE_COUNT_MODE_DISABLED",
+	}
+	BadgeCountMode_value = map[string]int32{
+		"BADGE_COUNT_MODE_UNSPECIFIED": 0,
+		"BADGE_COUNT_MODE_INBOX":       1,
+		"BADGE_COUNT_MODE_UNREAD":      2,
+		"BADGE_COUNT_MODE_DISABLED":    3,
+	}
+)
+
+func (x BadgeCountMode) Enum() *BadgeCountMode {
+	p := new(BadgeCountMode)
+	*p = x
+	return p
+}
+
+func (x BadgeCountMode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (BadgeCountMode) Descriptor() protoreflect.EnumDescriptor {
+	return file_octodeck_v1_service_proto_enumTypes[0].Descriptor()
+}
+
+func (BadgeCountMode) Type() protoreflect.EnumType {
+	return &file_octodeck_v1_service_proto_enumTypes[0]
+}
+
+func (x BadgeCountMode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Why an item produced a notification, in descending priority.
+type NotificationCategory int32
+
+const (
+	NotificationCategory_NOTIFICATION_CATEGORY_UNSPECIFIED NotificationCategory = 0
+	// A new explicit @mention of the authenticated user.
+	NotificationCategory_NOTIFICATION_CATEGORY_MENTION NotificationCategory = 1
+	// A never-seen item authored by someone else.
+	NotificationCategory_NOTIFICATION_CATEGORY_NEW_ITEM NotificationCategory = 2
+	// New significant comments, reviews, review comments, or state events by others.
+	NotificationCategory_NOTIFICATION_CATEGORY_ACTIVITY NotificationCategory = 3
+	// New commits by others.
+	NotificationCategory_NOTIFICATION_CATEGORY_CODE NotificationCategory = 4
+	// New noise (bot comments, slash commands, bot reviews, bot state events).
+	NotificationCategory_NOTIFICATION_CATEGORY_NOISE NotificationCategory = 5
+)
+
+// Enum value maps for NotificationCategory.
+var (
+	NotificationCategory_name = map[int32]string{
+		0: "NOTIFICATION_CATEGORY_UNSPECIFIED",
+		1: "NOTIFICATION_CATEGORY_MENTION",
+		2: "NOTIFICATION_CATEGORY_NEW_ITEM",
+		3: "NOTIFICATION_CATEGORY_ACTIVITY",
+		4: "NOTIFICATION_CATEGORY_CODE",
+		5: "NOTIFICATION_CATEGORY_NOISE",
+	}
+	NotificationCategory_value = map[string]int32{
+		"NOTIFICATION_CATEGORY_UNSPECIFIED": 0,
+		"NOTIFICATION_CATEGORY_MENTION":     1,
+		"NOTIFICATION_CATEGORY_NEW_ITEM":    2,
+		"NOTIFICATION_CATEGORY_ACTIVITY":    3,
+		"NOTIFICATION_CATEGORY_CODE":        4,
+		"NOTIFICATION_CATEGORY_NOISE":       5,
+	}
+)
+
+func (x NotificationCategory) Enum() *NotificationCategory {
+	p := new(NotificationCategory)
+	*p = x
+	return p
+}
+
+func (x NotificationCategory) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (NotificationCategory) Descriptor() protoreflect.EnumDescriptor {
+	return file_octodeck_v1_service_proto_enumTypes[1].Descriptor()
+}
+
+func (NotificationCategory) Type() protoreflect.EnumType {
+	return &file_octodeck_v1_service_proto_enumTypes[1]
+}
+
+func (x NotificationCategory) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
 type SyncResponse_Stage int32
 
 const (
@@ -59,11 +170,11 @@ func (x SyncResponse_Stage) String() string {
 }
 
 func (SyncResponse_Stage) Descriptor() protoreflect.EnumDescriptor {
-	return file_octodeck_v1_service_proto_enumTypes[0].Descriptor()
+	return file_octodeck_v1_service_proto_enumTypes[2].Descriptor()
 }
 
 func (SyncResponse_Stage) Type() protoreflect.EnumType {
-	return &file_octodeck_v1_service_proto_enumTypes[0]
+	return &file_octodeck_v1_service_proto_enumTypes[2]
 }
 
 func (x SyncResponse_Stage) Number() protoreflect.EnumNumber {
@@ -1938,6 +2049,7 @@ type Config struct {
 	xxx_hidden_TrackedQueries       []string               `protobuf:"bytes,11,rep,name=tracked_queries,json=trackedQueries"`
 	xxx_hidden_DiscoveryIntervalMin int32                  `protobuf:"varint,12,opt,name=discovery_interval_min,json=discoveryIntervalMin"`
 	xxx_hidden_AutoSubscribeQueries []string               `protobuf:"bytes,13,rep,name=auto_subscribe_queries,json=autoSubscribeQueries"`
+	xxx_hidden_NotificationSettings *NotificationSettings  `protobuf:"bytes,14,opt,name=notification_settings,json=notificationSettings"`
 	XXX_raceDetectHookData          protoimpl.RaceDetectHookData
 	XXX_presence                    [1]uint32
 	unknownFields                   protoimpl.UnknownFields
@@ -2063,6 +2175,13 @@ func (x *Config) GetAutoSubscribeQueries() []string {
 	return nil
 }
 
+func (x *Config) GetNotificationSettings() *NotificationSettings {
+	if x != nil {
+		return x.xxx_hidden_NotificationSettings
+	}
+	return nil
+}
+
 func (x *Config) SetWatchedRepos(v []string) {
 	x.xxx_hidden_WatchedRepos = v
 }
@@ -2077,7 +2196,7 @@ func (x *Config) SetExcludedRepos(v []string) {
 
 func (x *Config) SetPollingIntervalMin(v int32) {
 	x.xxx_hidden_PollingIntervalMin = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 13)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 14)
 }
 
 func (x *Config) SetKnownBots(v []string) {
@@ -2086,17 +2205,17 @@ func (x *Config) SetKnownBots(v []string) {
 
 func (x *Config) SetAutoAckOwnActivity(v bool) {
 	x.xxx_hidden_AutoAckOwnActivity = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 13)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 14)
 }
 
 func (x *Config) SetPort(v int32) {
 	x.xxx_hidden_Port = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 13)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 14)
 }
 
 func (x *Config) SetDbPath(v string) {
 	x.xxx_hidden_DbPath = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 13)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 14)
 }
 
 func (x *Config) SetIncludedLabels(v []string) {
@@ -2113,11 +2232,15 @@ func (x *Config) SetTrackedQueries(v []string) {
 
 func (x *Config) SetDiscoveryIntervalMin(v int32) {
 	x.xxx_hidden_DiscoveryIntervalMin = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 11, 13)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 11, 14)
 }
 
 func (x *Config) SetAutoSubscribeQueries(v []string) {
 	x.xxx_hidden_AutoSubscribeQueries = v
+}
+
+func (x *Config) SetNotificationSettings(v *NotificationSettings) {
+	x.xxx_hidden_NotificationSettings = v
 }
 
 func (x *Config) HasPollingIntervalMin() bool {
@@ -2155,6 +2278,13 @@ func (x *Config) HasDiscoveryIntervalMin() bool {
 	return protoimpl.X.Present(&(x.XXX_presence[0]), 11)
 }
 
+func (x *Config) HasNotificationSettings() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_NotificationSettings != nil
+}
+
 func (x *Config) ClearPollingIntervalMin() {
 	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 3)
 	x.xxx_hidden_PollingIntervalMin = 0
@@ -2180,6 +2310,10 @@ func (x *Config) ClearDiscoveryIntervalMin() {
 	x.xxx_hidden_DiscoveryIntervalMin = 0
 }
 
+func (x *Config) ClearNotificationSettings() {
+	x.xxx_hidden_NotificationSettings = nil
+}
+
 type Config_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -2196,6 +2330,7 @@ type Config_builder struct {
 	TrackedQueries       []string
 	DiscoveryIntervalMin *int32
 	AutoSubscribeQueries []string
+	NotificationSettings *NotificationSettings
 }
 
 func (b0 Config_builder) Build() *Config {
@@ -2206,30 +2341,382 @@ func (b0 Config_builder) Build() *Config {
 	x.xxx_hidden_PinnedRepos = b.PinnedRepos
 	x.xxx_hidden_ExcludedRepos = b.ExcludedRepos
 	if b.PollingIntervalMin != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 13)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 14)
 		x.xxx_hidden_PollingIntervalMin = *b.PollingIntervalMin
 	}
 	x.xxx_hidden_KnownBots = b.KnownBots
 	if b.AutoAckOwnActivity != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 13)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 14)
 		x.xxx_hidden_AutoAckOwnActivity = *b.AutoAckOwnActivity
 	}
 	if b.Port != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 13)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 14)
 		x.xxx_hidden_Port = *b.Port
 	}
 	if b.DbPath != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 13)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 14)
 		x.xxx_hidden_DbPath = b.DbPath
 	}
 	x.xxx_hidden_IncludedLabels = b.IncludedLabels
 	x.xxx_hidden_ExcludedLabels = b.ExcludedLabels
 	x.xxx_hidden_TrackedQueries = b.TrackedQueries
 	if b.DiscoveryIntervalMin != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 11, 13)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 11, 14)
 		x.xxx_hidden_DiscoveryIntervalMin = *b.DiscoveryIntervalMin
 	}
 	x.xxx_hidden_AutoSubscribeQueries = b.AutoSubscribeQueries
+	x.xxx_hidden_NotificationSettings = b.NotificationSettings
+	return m0
+}
+
+// Desktop notification and badge preferences. Unset fields take the daemon defaults, so GetConfig
+// always returns every field populated.
+type NotificationSettings struct {
+	state                             protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Enabled                bool                   `protobuf:"varint,1,opt,name=enabled"`
+	xxx_hidden_RepoIncludes           []string               `protobuf:"bytes,2,rep,name=repo_includes,json=repoIncludes"`
+	xxx_hidden_RepoExcludes           []string               `protobuf:"bytes,3,rep,name=repo_excludes,json=repoExcludes"`
+	xxx_hidden_LabelIncludes          []string               `protobuf:"bytes,4,rep,name=label_includes,json=labelIncludes"`
+	xxx_hidden_LabelExcludes          []string               `protobuf:"bytes,5,rep,name=label_excludes,json=labelExcludes"`
+	xxx_hidden_AuthorIncludes         []string               `protobuf:"bytes,6,rep,name=author_includes,json=authorIncludes"`
+	xxx_hidden_AuthorExcludes         []string               `protobuf:"bytes,7,rep,name=author_excludes,json=authorExcludes"`
+	xxx_hidden_OnlyAssignedOrAuthored bool                   `protobuf:"varint,8,opt,name=only_assigned_or_authored,json=onlyAssignedOrAuthored"`
+	xxx_hidden_NotifyOnNewItems       bool                   `protobuf:"varint,9,opt,name=notify_on_new_items,json=notifyOnNewItems"`
+	xxx_hidden_NotifyOnNewActivity    bool                   `protobuf:"varint,10,opt,name=notify_on_new_activity,json=notifyOnNewActivity"`
+	xxx_hidden_IgnoreBots             bool                   `protobuf:"varint,11,opt,name=ignore_bots,json=ignoreBots"`
+	xxx_hidden_AlwaysIncludeMentions  bool                   `protobuf:"varint,12,opt,name=always_include_mentions,json=alwaysIncludeMentions"`
+	xxx_hidden_BadgeCountMode         BadgeCountMode         `protobuf:"varint,13,opt,name=badge_count_mode,json=badgeCountMode,enum=octodeck.v1.BadgeCountMode"`
+	XXX_raceDetectHookData            protoimpl.RaceDetectHookData
+	XXX_presence                      [1]uint32
+	unknownFields                     protoimpl.UnknownFields
+	sizeCache                         protoimpl.SizeCache
+}
+
+func (x *NotificationSettings) Reset() {
+	*x = NotificationSettings{}
+	mi := &file_octodeck_v1_service_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NotificationSettings) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NotificationSettings) ProtoMessage() {}
+
+func (x *NotificationSettings) ProtoReflect() protoreflect.Message {
+	mi := &file_octodeck_v1_service_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *NotificationSettings) GetEnabled() bool {
+	if x != nil {
+		return x.xxx_hidden_Enabled
+	}
+	return false
+}
+
+func (x *NotificationSettings) GetRepoIncludes() []string {
+	if x != nil {
+		return x.xxx_hidden_RepoIncludes
+	}
+	return nil
+}
+
+func (x *NotificationSettings) GetRepoExcludes() []string {
+	if x != nil {
+		return x.xxx_hidden_RepoExcludes
+	}
+	return nil
+}
+
+func (x *NotificationSettings) GetLabelIncludes() []string {
+	if x != nil {
+		return x.xxx_hidden_LabelIncludes
+	}
+	return nil
+}
+
+func (x *NotificationSettings) GetLabelExcludes() []string {
+	if x != nil {
+		return x.xxx_hidden_LabelExcludes
+	}
+	return nil
+}
+
+func (x *NotificationSettings) GetAuthorIncludes() []string {
+	if x != nil {
+		return x.xxx_hidden_AuthorIncludes
+	}
+	return nil
+}
+
+func (x *NotificationSettings) GetAuthorExcludes() []string {
+	if x != nil {
+		return x.xxx_hidden_AuthorExcludes
+	}
+	return nil
+}
+
+func (x *NotificationSettings) GetOnlyAssignedOrAuthored() bool {
+	if x != nil {
+		return x.xxx_hidden_OnlyAssignedOrAuthored
+	}
+	return false
+}
+
+func (x *NotificationSettings) GetNotifyOnNewItems() bool {
+	if x != nil {
+		return x.xxx_hidden_NotifyOnNewItems
+	}
+	return false
+}
+
+func (x *NotificationSettings) GetNotifyOnNewActivity() bool {
+	if x != nil {
+		return x.xxx_hidden_NotifyOnNewActivity
+	}
+	return false
+}
+
+func (x *NotificationSettings) GetIgnoreBots() bool {
+	if x != nil {
+		return x.xxx_hidden_IgnoreBots
+	}
+	return false
+}
+
+func (x *NotificationSettings) GetAlwaysIncludeMentions() bool {
+	if x != nil {
+		return x.xxx_hidden_AlwaysIncludeMentions
+	}
+	return false
+}
+
+func (x *NotificationSettings) GetBadgeCountMode() BadgeCountMode {
+	if x != nil {
+		if protoimpl.X.Present(&(x.XXX_presence[0]), 12) {
+			return x.xxx_hidden_BadgeCountMode
+		}
+	}
+	return BadgeCountMode_BADGE_COUNT_MODE_UNSPECIFIED
+}
+
+func (x *NotificationSettings) SetEnabled(v bool) {
+	x.xxx_hidden_Enabled = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 13)
+}
+
+func (x *NotificationSettings) SetRepoIncludes(v []string) {
+	x.xxx_hidden_RepoIncludes = v
+}
+
+func (x *NotificationSettings) SetRepoExcludes(v []string) {
+	x.xxx_hidden_RepoExcludes = v
+}
+
+func (x *NotificationSettings) SetLabelIncludes(v []string) {
+	x.xxx_hidden_LabelIncludes = v
+}
+
+func (x *NotificationSettings) SetLabelExcludes(v []string) {
+	x.xxx_hidden_LabelExcludes = v
+}
+
+func (x *NotificationSettings) SetAuthorIncludes(v []string) {
+	x.xxx_hidden_AuthorIncludes = v
+}
+
+func (x *NotificationSettings) SetAuthorExcludes(v []string) {
+	x.xxx_hidden_AuthorExcludes = v
+}
+
+func (x *NotificationSettings) SetOnlyAssignedOrAuthored(v bool) {
+	x.xxx_hidden_OnlyAssignedOrAuthored = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 13)
+}
+
+func (x *NotificationSettings) SetNotifyOnNewItems(v bool) {
+	x.xxx_hidden_NotifyOnNewItems = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 8, 13)
+}
+
+func (x *NotificationSettings) SetNotifyOnNewActivity(v bool) {
+	x.xxx_hidden_NotifyOnNewActivity = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 9, 13)
+}
+
+func (x *NotificationSettings) SetIgnoreBots(v bool) {
+	x.xxx_hidden_IgnoreBots = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 10, 13)
+}
+
+func (x *NotificationSettings) SetAlwaysIncludeMentions(v bool) {
+	x.xxx_hidden_AlwaysIncludeMentions = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 11, 13)
+}
+
+func (x *NotificationSettings) SetBadgeCountMode(v BadgeCountMode) {
+	x.xxx_hidden_BadgeCountMode = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 12, 13)
+}
+
+func (x *NotificationSettings) HasEnabled() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+}
+
+func (x *NotificationSettings) HasOnlyAssignedOrAuthored() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 7)
+}
+
+func (x *NotificationSettings) HasNotifyOnNewItems() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 8)
+}
+
+func (x *NotificationSettings) HasNotifyOnNewActivity() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 9)
+}
+
+func (x *NotificationSettings) HasIgnoreBots() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 10)
+}
+
+func (x *NotificationSettings) HasAlwaysIncludeMentions() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 11)
+}
+
+func (x *NotificationSettings) HasBadgeCountMode() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 12)
+}
+
+func (x *NotificationSettings) ClearEnabled() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_Enabled = false
+}
+
+func (x *NotificationSettings) ClearOnlyAssignedOrAuthored() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 7)
+	x.xxx_hidden_OnlyAssignedOrAuthored = false
+}
+
+func (x *NotificationSettings) ClearNotifyOnNewItems() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 8)
+	x.xxx_hidden_NotifyOnNewItems = false
+}
+
+func (x *NotificationSettings) ClearNotifyOnNewActivity() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 9)
+	x.xxx_hidden_NotifyOnNewActivity = false
+}
+
+func (x *NotificationSettings) ClearIgnoreBots() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 10)
+	x.xxx_hidden_IgnoreBots = false
+}
+
+func (x *NotificationSettings) ClearAlwaysIncludeMentions() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 11)
+	x.xxx_hidden_AlwaysIncludeMentions = false
+}
+
+func (x *NotificationSettings) ClearBadgeCountMode() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 12)
+	x.xxx_hidden_BadgeCountMode = BadgeCountMode_BADGE_COUNT_MODE_UNSPECIFIED
+}
+
+type NotificationSettings_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Master switch. When off nothing notifies, mentions included.
+	Enabled *bool
+	// Wildcard patterns ('*' and '?'). If an include list is non-empty the item must match at least
+	// one include; it must match no exclude. Labels match if any label matches.
+	RepoIncludes   []string
+	RepoExcludes   []string
+	LabelIncludes  []string
+	LabelExcludes  []string
+	AuthorIncludes []string
+	AuthorExcludes []string
+	// Only notify for items authored by or assigned to the authenticated user.
+	OnlyAssignedOrAuthored *bool
+	// Notify when a never-seen item appears.
+	NotifyOnNewItems *bool
+	// Notify on new comments, reviews, state changes, and commits by others.
+	NotifyOnNewActivity *bool
+	// Never notify for noise (bots, slash commands, bot reviews and state events).
+	IgnoreBots *bool
+	// New explicit @mentions of the user notify even if the item fails the filters above.
+	AlwaysIncludeMentions *bool
+	BadgeCountMode        *BadgeCountMode
+}
+
+func (b0 NotificationSettings_builder) Build() *NotificationSettings {
+	m0 := &NotificationSettings{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.Enabled != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 13)
+		x.xxx_hidden_Enabled = *b.Enabled
+	}
+	x.xxx_hidden_RepoIncludes = b.RepoIncludes
+	x.xxx_hidden_RepoExcludes = b.RepoExcludes
+	x.xxx_hidden_LabelIncludes = b.LabelIncludes
+	x.xxx_hidden_LabelExcludes = b.LabelExcludes
+	x.xxx_hidden_AuthorIncludes = b.AuthorIncludes
+	x.xxx_hidden_AuthorExcludes = b.AuthorExcludes
+	if b.OnlyAssignedOrAuthored != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 13)
+		x.xxx_hidden_OnlyAssignedOrAuthored = *b.OnlyAssignedOrAuthored
+	}
+	if b.NotifyOnNewItems != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 8, 13)
+		x.xxx_hidden_NotifyOnNewItems = *b.NotifyOnNewItems
+	}
+	if b.NotifyOnNewActivity != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 9, 13)
+		x.xxx_hidden_NotifyOnNewActivity = *b.NotifyOnNewActivity
+	}
+	if b.IgnoreBots != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 10, 13)
+		x.xxx_hidden_IgnoreBots = *b.IgnoreBots
+	}
+	if b.AlwaysIncludeMentions != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 11, 13)
+		x.xxx_hidden_AlwaysIncludeMentions = *b.AlwaysIncludeMentions
+	}
+	if b.BadgeCountMode != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 12, 13)
+		x.xxx_hidden_BadgeCountMode = *b.BadgeCountMode
+	}
 	return m0
 }
 
@@ -2246,7 +2733,7 @@ type TrackedQueryStats struct {
 
 func (x *TrackedQueryStats) Reset() {
 	*x = TrackedQueryStats{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[22]
+	mi := &file_octodeck_v1_service_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2258,7 +2745,7 @@ func (x *TrackedQueryStats) String() string {
 func (*TrackedQueryStats) ProtoMessage() {}
 
 func (x *TrackedQueryStats) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[22]
+	mi := &file_octodeck_v1_service_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2379,7 +2866,7 @@ type GetConfigRequest struct {
 
 func (x *GetConfigRequest) Reset() {
 	*x = GetConfigRequest{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[23]
+	mi := &file_octodeck_v1_service_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2391,7 +2878,7 @@ func (x *GetConfigRequest) String() string {
 func (*GetConfigRequest) ProtoMessage() {}
 
 func (x *GetConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[23]
+	mi := &file_octodeck_v1_service_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2427,7 +2914,7 @@ type GetConfigResponse struct {
 
 func (x *GetConfigResponse) Reset() {
 	*x = GetConfigResponse{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[24]
+	mi := &file_octodeck_v1_service_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2439,7 +2926,7 @@ func (x *GetConfigResponse) String() string {
 func (*GetConfigResponse) ProtoMessage() {}
 
 func (x *GetConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[24]
+	mi := &file_octodeck_v1_service_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2546,7 +3033,7 @@ type UpdateConfigRequest struct {
 
 func (x *UpdateConfigRequest) Reset() {
 	*x = UpdateConfigRequest{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[25]
+	mi := &file_octodeck_v1_service_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2558,7 +3045,7 @@ func (x *UpdateConfigRequest) String() string {
 func (*UpdateConfigRequest) ProtoMessage() {}
 
 func (x *UpdateConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[25]
+	mi := &file_octodeck_v1_service_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2672,7 +3159,7 @@ type TrackedQueryWarning struct {
 
 func (x *TrackedQueryWarning) Reset() {
 	*x = TrackedQueryWarning{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[26]
+	mi := &file_octodeck_v1_service_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2684,7 +3171,7 @@ func (x *TrackedQueryWarning) String() string {
 func (*TrackedQueryWarning) ProtoMessage() {}
 
 func (x *TrackedQueryWarning) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[26]
+	mi := &file_octodeck_v1_service_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2843,7 +3330,7 @@ type UpdateConfigResponse struct {
 
 func (x *UpdateConfigResponse) Reset() {
 	*x = UpdateConfigResponse{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[27]
+	mi := &file_octodeck_v1_service_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2855,7 +3342,7 @@ func (x *UpdateConfigResponse) String() string {
 func (*UpdateConfigResponse) ProtoMessage() {}
 
 func (x *UpdateConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[27]
+	mi := &file_octodeck_v1_service_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2969,7 +3456,7 @@ type GetSyncStatusRequest struct {
 
 func (x *GetSyncStatusRequest) Reset() {
 	*x = GetSyncStatusRequest{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[28]
+	mi := &file_octodeck_v1_service_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2981,7 +3468,7 @@ func (x *GetSyncStatusRequest) String() string {
 func (*GetSyncStatusRequest) ProtoMessage() {}
 
 func (x *GetSyncStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[28]
+	mi := &file_octodeck_v1_service_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3026,7 +3513,7 @@ type SyncStatus struct {
 
 func (x *SyncStatus) Reset() {
 	*x = SyncStatus{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[29]
+	mi := &file_octodeck_v1_service_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3038,7 +3525,7 @@ func (x *SyncStatus) String() string {
 func (*SyncStatus) ProtoMessage() {}
 
 func (x *SyncStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[29]
+	mi := &file_octodeck_v1_service_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3406,7 +3893,7 @@ type GetSyncStatusResponse struct {
 
 func (x *GetSyncStatusResponse) Reset() {
 	*x = GetSyncStatusResponse{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[30]
+	mi := &file_octodeck_v1_service_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3418,7 +3905,7 @@ func (x *GetSyncStatusResponse) String() string {
 func (*GetSyncStatusResponse) ProtoMessage() {}
 
 func (x *GetSyncStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[30]
+	mi := &file_octodeck_v1_service_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3478,7 +3965,7 @@ type GetSyncTracesRequest struct {
 
 func (x *GetSyncTracesRequest) Reset() {
 	*x = GetSyncTracesRequest{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[31]
+	mi := &file_octodeck_v1_service_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3490,7 +3977,7 @@ func (x *GetSyncTracesRequest) String() string {
 func (*GetSyncTracesRequest) ProtoMessage() {}
 
 func (x *GetSyncTracesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[31]
+	mi := &file_octodeck_v1_service_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3612,7 +4099,7 @@ type GetSyncTracesResponse struct {
 
 func (x *GetSyncTracesResponse) Reset() {
 	*x = GetSyncTracesResponse{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[32]
+	mi := &file_octodeck_v1_service_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3624,7 +4111,7 @@ func (x *GetSyncTracesResponse) String() string {
 func (*GetSyncTracesResponse) ProtoMessage() {}
 
 func (x *GetSyncTracesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[32]
+	mi := &file_octodeck_v1_service_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3683,7 +4170,7 @@ type DatabaseStats struct {
 
 func (x *DatabaseStats) Reset() {
 	*x = DatabaseStats{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[33]
+	mi := &file_octodeck_v1_service_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3695,7 +4182,7 @@ func (x *DatabaseStats) String() string {
 func (*DatabaseStats) ProtoMessage() {}
 
 func (x *DatabaseStats) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[33]
+	mi := &file_octodeck_v1_service_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4048,7 +4535,7 @@ type GetDatabaseStatsRequest struct {
 
 func (x *GetDatabaseStatsRequest) Reset() {
 	*x = GetDatabaseStatsRequest{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[34]
+	mi := &file_octodeck_v1_service_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4060,7 +4547,7 @@ func (x *GetDatabaseStatsRequest) String() string {
 func (*GetDatabaseStatsRequest) ProtoMessage() {}
 
 func (x *GetDatabaseStatsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[34]
+	mi := &file_octodeck_v1_service_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4092,7 +4579,7 @@ type GetDatabaseStatsResponse struct {
 
 func (x *GetDatabaseStatsResponse) Reset() {
 	*x = GetDatabaseStatsResponse{}
-	mi := &file_octodeck_v1_service_proto_msgTypes[35]
+	mi := &file_octodeck_v1_service_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4104,7 +4591,7 @@ func (x *GetDatabaseStatsResponse) String() string {
 func (*GetDatabaseStatsResponse) ProtoMessage() {}
 
 func (x *GetDatabaseStatsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_service_proto_msgTypes[35]
+	mi := &file_octodeck_v1_service_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4150,6 +4637,1026 @@ func (b0 GetDatabaseStatsResponse_builder) Build() *GetDatabaseStatsResponse {
 	x.xxx_hidden_Stats = b.Stats
 	return m0
 }
+
+type Notification struct {
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Id          *string                `protobuf:"bytes,1,opt,name=id"`
+	xxx_hidden_ItemId      *string                `protobuf:"bytes,2,opt,name=item_id,json=itemId"`
+	xxx_hidden_Title       *string                `protobuf:"bytes,3,opt,name=title"`
+	xxx_hidden_Message     *string                `protobuf:"bytes,4,opt,name=message"`
+	xxx_hidden_Url         *string                `protobuf:"bytes,5,opt,name=url"`
+	xxx_hidden_Category    NotificationCategory   `protobuf:"varint,6,opt,name=category,enum=octodeck.v1.NotificationCategory"`
+	xxx_hidden_CreatedAt   *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt"`
+	XXX_raceDetectHookData protoimpl.RaceDetectHookData
+	XXX_presence           [1]uint32
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *Notification) Reset() {
+	*x = Notification{}
+	mi := &file_octodeck_v1_service_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Notification) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Notification) ProtoMessage() {}
+
+func (x *Notification) ProtoReflect() protoreflect.Message {
+	mi := &file_octodeck_v1_service_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *Notification) GetId() string {
+	if x != nil {
+		if x.xxx_hidden_Id != nil {
+			return *x.xxx_hidden_Id
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *Notification) GetItemId() string {
+	if x != nil {
+		if x.xxx_hidden_ItemId != nil {
+			return *x.xxx_hidden_ItemId
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *Notification) GetTitle() string {
+	if x != nil {
+		if x.xxx_hidden_Title != nil {
+			return *x.xxx_hidden_Title
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *Notification) GetMessage() string {
+	if x != nil {
+		if x.xxx_hidden_Message != nil {
+			return *x.xxx_hidden_Message
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *Notification) GetUrl() string {
+	if x != nil {
+		if x.xxx_hidden_Url != nil {
+			return *x.xxx_hidden_Url
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *Notification) GetCategory() NotificationCategory {
+	if x != nil {
+		if protoimpl.X.Present(&(x.XXX_presence[0]), 5) {
+			return x.xxx_hidden_Category
+		}
+	}
+	return NotificationCategory_NOTIFICATION_CATEGORY_UNSPECIFIED
+}
+
+func (x *Notification) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.xxx_hidden_CreatedAt
+	}
+	return nil
+}
+
+func (x *Notification) SetId(v string) {
+	x.xxx_hidden_Id = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 7)
+}
+
+func (x *Notification) SetItemId(v string) {
+	x.xxx_hidden_ItemId = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 7)
+}
+
+func (x *Notification) SetTitle(v string) {
+	x.xxx_hidden_Title = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 7)
+}
+
+func (x *Notification) SetMessage(v string) {
+	x.xxx_hidden_Message = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 7)
+}
+
+func (x *Notification) SetUrl(v string) {
+	x.xxx_hidden_Url = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 4, 7)
+}
+
+func (x *Notification) SetCategory(v NotificationCategory) {
+	x.xxx_hidden_Category = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 7)
+}
+
+func (x *Notification) SetCreatedAt(v *timestamppb.Timestamp) {
+	x.xxx_hidden_CreatedAt = v
+}
+
+func (x *Notification) HasId() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+}
+
+func (x *Notification) HasItemId() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 1)
+}
+
+func (x *Notification) HasTitle() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 2)
+}
+
+func (x *Notification) HasMessage() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 3)
+}
+
+func (x *Notification) HasUrl() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 4)
+}
+
+func (x *Notification) HasCategory() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 5)
+}
+
+func (x *Notification) HasCreatedAt() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_CreatedAt != nil
+}
+
+func (x *Notification) ClearId() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_Id = nil
+}
+
+func (x *Notification) ClearItemId() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 1)
+	x.xxx_hidden_ItemId = nil
+}
+
+func (x *Notification) ClearTitle() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 2)
+	x.xxx_hidden_Title = nil
+}
+
+func (x *Notification) ClearMessage() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 3)
+	x.xxx_hidden_Message = nil
+}
+
+func (x *Notification) ClearUrl() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 4)
+	x.xxx_hidden_Url = nil
+}
+
+func (x *Notification) ClearCategory() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 5)
+	x.xxx_hidden_Category = NotificationCategory_NOTIFICATION_CATEGORY_UNSPECIFIED
+}
+
+func (x *Notification) ClearCreatedAt() {
+	x.xxx_hidden_CreatedAt = nil
+}
+
+type Notification_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Stable identifier; clients use it to avoid showing the same notification twice.
+	Id     *string
+	ItemId *string
+	// e.g. "owner/repo #123".
+	Title   *string
+	Message *string
+	// Dashboard URL that opens the item.
+	Url      *string
+	Category *NotificationCategory
+	// Daemon clock.
+	CreatedAt *timestamppb.Timestamp
+}
+
+func (b0 Notification_builder) Build() *Notification {
+	m0 := &Notification{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.Id != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 7)
+		x.xxx_hidden_Id = b.Id
+	}
+	if b.ItemId != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 7)
+		x.xxx_hidden_ItemId = b.ItemId
+	}
+	if b.Title != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 7)
+		x.xxx_hidden_Title = b.Title
+	}
+	if b.Message != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 7)
+		x.xxx_hidden_Message = b.Message
+	}
+	if b.Url != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 4, 7)
+		x.xxx_hidden_Url = b.Url
+	}
+	if b.Category != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 7)
+		x.xxx_hidden_Category = *b.Category
+	}
+	x.xxx_hidden_CreatedAt = b.CreatedAt
+	return m0
+}
+
+// Sent instead of individual notifications when a reconnecting client missed more than a few.
+type NotificationSummary struct {
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Count       int32                  `protobuf:"varint,1,opt,name=count"`
+	xxx_hidden_Title       *string                `protobuf:"bytes,2,opt,name=title"`
+	xxx_hidden_Message     *string                `protobuf:"bytes,3,opt,name=message"`
+	xxx_hidden_Url         *string                `protobuf:"bytes,4,opt,name=url"`
+	XXX_raceDetectHookData protoimpl.RaceDetectHookData
+	XXX_presence           [1]uint32
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *NotificationSummary) Reset() {
+	*x = NotificationSummary{}
+	mi := &file_octodeck_v1_service_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NotificationSummary) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NotificationSummary) ProtoMessage() {}
+
+func (x *NotificationSummary) ProtoReflect() protoreflect.Message {
+	mi := &file_octodeck_v1_service_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *NotificationSummary) GetCount() int32 {
+	if x != nil {
+		return x.xxx_hidden_Count
+	}
+	return 0
+}
+
+func (x *NotificationSummary) GetTitle() string {
+	if x != nil {
+		if x.xxx_hidden_Title != nil {
+			return *x.xxx_hidden_Title
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *NotificationSummary) GetMessage() string {
+	if x != nil {
+		if x.xxx_hidden_Message != nil {
+			return *x.xxx_hidden_Message
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *NotificationSummary) GetUrl() string {
+	if x != nil {
+		if x.xxx_hidden_Url != nil {
+			return *x.xxx_hidden_Url
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *NotificationSummary) SetCount(v int32) {
+	x.xxx_hidden_Count = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 4)
+}
+
+func (x *NotificationSummary) SetTitle(v string) {
+	x.xxx_hidden_Title = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 4)
+}
+
+func (x *NotificationSummary) SetMessage(v string) {
+	x.xxx_hidden_Message = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 4)
+}
+
+func (x *NotificationSummary) SetUrl(v string) {
+	x.xxx_hidden_Url = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 4)
+}
+
+func (x *NotificationSummary) HasCount() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+}
+
+func (x *NotificationSummary) HasTitle() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 1)
+}
+
+func (x *NotificationSummary) HasMessage() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 2)
+}
+
+func (x *NotificationSummary) HasUrl() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 3)
+}
+
+func (x *NotificationSummary) ClearCount() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_Count = 0
+}
+
+func (x *NotificationSummary) ClearTitle() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 1)
+	x.xxx_hidden_Title = nil
+}
+
+func (x *NotificationSummary) ClearMessage() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 2)
+	x.xxx_hidden_Message = nil
+}
+
+func (x *NotificationSummary) ClearUrl() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 3)
+	x.xxx_hidden_Url = nil
+}
+
+type NotificationSummary_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Number of distinct items.
+	Count   *int32
+	Title   *string
+	Message *string
+	Url     *string
+}
+
+func (b0 NotificationSummary_builder) Build() *NotificationSummary {
+	m0 := &NotificationSummary{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.Count != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 4)
+		x.xxx_hidden_Count = *b.Count
+	}
+	if b.Title != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 4)
+		x.xxx_hidden_Title = b.Title
+	}
+	if b.Message != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 4)
+		x.xxx_hidden_Message = b.Message
+	}
+	if b.Url != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 4)
+		x.xxx_hidden_Url = b.Url
+	}
+	return m0
+}
+
+type BadgeUpdate struct {
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Count       int32                  `protobuf:"varint,1,opt,name=count"`
+	xxx_hidden_Mode        BadgeCountMode         `protobuf:"varint,2,opt,name=mode,enum=octodeck.v1.BadgeCountMode"`
+	xxx_hidden_Text        *string                `protobuf:"bytes,3,opt,name=text"`
+	xxx_hidden_Tooltip     *string                `protobuf:"bytes,4,opt,name=tooltip"`
+	XXX_raceDetectHookData protoimpl.RaceDetectHookData
+	XXX_presence           [1]uint32
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *BadgeUpdate) Reset() {
+	*x = BadgeUpdate{}
+	mi := &file_octodeck_v1_service_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BadgeUpdate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BadgeUpdate) ProtoMessage() {}
+
+func (x *BadgeUpdate) ProtoReflect() protoreflect.Message {
+	mi := &file_octodeck_v1_service_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *BadgeUpdate) GetCount() int32 {
+	if x != nil {
+		return x.xxx_hidden_Count
+	}
+	return 0
+}
+
+func (x *BadgeUpdate) GetMode() BadgeCountMode {
+	if x != nil {
+		if protoimpl.X.Present(&(x.XXX_presence[0]), 1) {
+			return x.xxx_hidden_Mode
+		}
+	}
+	return BadgeCountMode_BADGE_COUNT_MODE_UNSPECIFIED
+}
+
+func (x *BadgeUpdate) GetText() string {
+	if x != nil {
+		if x.xxx_hidden_Text != nil {
+			return *x.xxx_hidden_Text
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *BadgeUpdate) GetTooltip() string {
+	if x != nil {
+		if x.xxx_hidden_Tooltip != nil {
+			return *x.xxx_hidden_Tooltip
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *BadgeUpdate) SetCount(v int32) {
+	x.xxx_hidden_Count = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 4)
+}
+
+func (x *BadgeUpdate) SetMode(v BadgeCountMode) {
+	x.xxx_hidden_Mode = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 4)
+}
+
+func (x *BadgeUpdate) SetText(v string) {
+	x.xxx_hidden_Text = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 4)
+}
+
+func (x *BadgeUpdate) SetTooltip(v string) {
+	x.xxx_hidden_Tooltip = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 4)
+}
+
+func (x *BadgeUpdate) HasCount() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+}
+
+func (x *BadgeUpdate) HasMode() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 1)
+}
+
+func (x *BadgeUpdate) HasText() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 2)
+}
+
+func (x *BadgeUpdate) HasTooltip() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 3)
+}
+
+func (x *BadgeUpdate) ClearCount() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_Count = 0
+}
+
+func (x *BadgeUpdate) ClearMode() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 1)
+	x.xxx_hidden_Mode = BadgeCountMode_BADGE_COUNT_MODE_UNSPECIFIED
+}
+
+func (x *BadgeUpdate) ClearText() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 2)
+	x.xxx_hidden_Text = nil
+}
+
+func (x *BadgeUpdate) ClearTooltip() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 3)
+	x.xxx_hidden_Tooltip = nil
+}
+
+type BadgeUpdate_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Count *int32
+	Mode  *BadgeCountMode
+	// Text to display on the badge ("" for none).
+	Text *string
+	// Tooltip for the extension action.
+	Tooltip *string
+}
+
+func (b0 BadgeUpdate_builder) Build() *BadgeUpdate {
+	m0 := &BadgeUpdate{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.Count != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 4)
+		x.xxx_hidden_Count = *b.Count
+	}
+	if b.Mode != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 4)
+		x.xxx_hidden_Mode = *b.Mode
+	}
+	if b.Text != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 4)
+		x.xxx_hidden_Text = b.Text
+	}
+	if b.Tooltip != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 4)
+		x.xxx_hidden_Tooltip = b.Tooltip
+	}
+	return m0
+}
+
+type Heartbeat struct {
+	state         protoimpl.MessageState `protogen:"opaque.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Heartbeat) Reset() {
+	*x = Heartbeat{}
+	mi := &file_octodeck_v1_service_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Heartbeat) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Heartbeat) ProtoMessage() {}
+
+func (x *Heartbeat) ProtoReflect() protoreflect.Message {
+	mi := &file_octodeck_v1_service_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+type Heartbeat_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+}
+
+func (b0 Heartbeat_builder) Build() *Heartbeat {
+	m0 := &Heartbeat{}
+	b, x := &b0, m0
+	_, _ = b, x
+	return m0
+}
+
+type WatchNotificationsRequest struct {
+	state                     protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_LastReceivedAt *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=last_received_at,json=lastReceivedAt"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
+}
+
+func (x *WatchNotificationsRequest) Reset() {
+	*x = WatchNotificationsRequest{}
+	mi := &file_octodeck_v1_service_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WatchNotificationsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WatchNotificationsRequest) ProtoMessage() {}
+
+func (x *WatchNotificationsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_octodeck_v1_service_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *WatchNotificationsRequest) GetLastReceivedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.xxx_hidden_LastReceivedAt
+	}
+	return nil
+}
+
+func (x *WatchNotificationsRequest) SetLastReceivedAt(v *timestamppb.Timestamp) {
+	x.xxx_hidden_LastReceivedAt = v
+}
+
+func (x *WatchNotificationsRequest) HasLastReceivedAt() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_LastReceivedAt != nil
+}
+
+func (x *WatchNotificationsRequest) ClearLastReceivedAt() {
+	x.xxx_hidden_LastReceivedAt = nil
+}
+
+type WatchNotificationsRequest_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// sent_at of the last message the client received. When set, notifications emitted after it
+	// that are still in the daemon's in-memory buffer are replayed (or summarised).
+	LastReceivedAt *timestamppb.Timestamp
+}
+
+func (b0 WatchNotificationsRequest_builder) Build() *WatchNotificationsRequest {
+	m0 := &WatchNotificationsRequest{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_LastReceivedAt = b.LastReceivedAt
+	return m0
+}
+
+type WatchNotificationsResponse struct {
+	state             protoimpl.MessageState             `protogen:"opaque.v1"`
+	xxx_hidden_SentAt *timestamppb.Timestamp             `protobuf:"bytes,1,opt,name=sent_at,json=sentAt"`
+	xxx_hidden_Event  isWatchNotificationsResponse_Event `protobuf_oneof:"event"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *WatchNotificationsResponse) Reset() {
+	*x = WatchNotificationsResponse{}
+	mi := &file_octodeck_v1_service_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WatchNotificationsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WatchNotificationsResponse) ProtoMessage() {}
+
+func (x *WatchNotificationsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_octodeck_v1_service_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *WatchNotificationsResponse) GetSentAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.xxx_hidden_SentAt
+	}
+	return nil
+}
+
+func (x *WatchNotificationsResponse) GetNotification() *Notification {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Event.(*watchNotificationsResponse_Notification); ok {
+			return x.Notification
+		}
+	}
+	return nil
+}
+
+func (x *WatchNotificationsResponse) GetSummary() *NotificationSummary {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Event.(*watchNotificationsResponse_Summary); ok {
+			return x.Summary
+		}
+	}
+	return nil
+}
+
+func (x *WatchNotificationsResponse) GetBadge() *BadgeUpdate {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Event.(*watchNotificationsResponse_Badge); ok {
+			return x.Badge
+		}
+	}
+	return nil
+}
+
+func (x *WatchNotificationsResponse) GetHeartbeat() *Heartbeat {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Event.(*watchNotificationsResponse_Heartbeat); ok {
+			return x.Heartbeat
+		}
+	}
+	return nil
+}
+
+func (x *WatchNotificationsResponse) SetSentAt(v *timestamppb.Timestamp) {
+	x.xxx_hidden_SentAt = v
+}
+
+func (x *WatchNotificationsResponse) SetNotification(v *Notification) {
+	if v == nil {
+		x.xxx_hidden_Event = nil
+		return
+	}
+	x.xxx_hidden_Event = &watchNotificationsResponse_Notification{v}
+}
+
+func (x *WatchNotificationsResponse) SetSummary(v *NotificationSummary) {
+	if v == nil {
+		x.xxx_hidden_Event = nil
+		return
+	}
+	x.xxx_hidden_Event = &watchNotificationsResponse_Summary{v}
+}
+
+func (x *WatchNotificationsResponse) SetBadge(v *BadgeUpdate) {
+	if v == nil {
+		x.xxx_hidden_Event = nil
+		return
+	}
+	x.xxx_hidden_Event = &watchNotificationsResponse_Badge{v}
+}
+
+func (x *WatchNotificationsResponse) SetHeartbeat(v *Heartbeat) {
+	if v == nil {
+		x.xxx_hidden_Event = nil
+		return
+	}
+	x.xxx_hidden_Event = &watchNotificationsResponse_Heartbeat{v}
+}
+
+func (x *WatchNotificationsResponse) HasSentAt() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_SentAt != nil
+}
+
+func (x *WatchNotificationsResponse) HasEvent() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Event != nil
+}
+
+func (x *WatchNotificationsResponse) HasNotification() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Event.(*watchNotificationsResponse_Notification)
+	return ok
+}
+
+func (x *WatchNotificationsResponse) HasSummary() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Event.(*watchNotificationsResponse_Summary)
+	return ok
+}
+
+func (x *WatchNotificationsResponse) HasBadge() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Event.(*watchNotificationsResponse_Badge)
+	return ok
+}
+
+func (x *WatchNotificationsResponse) HasHeartbeat() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Event.(*watchNotificationsResponse_Heartbeat)
+	return ok
+}
+
+func (x *WatchNotificationsResponse) ClearSentAt() {
+	x.xxx_hidden_SentAt = nil
+}
+
+func (x *WatchNotificationsResponse) ClearEvent() {
+	x.xxx_hidden_Event = nil
+}
+
+func (x *WatchNotificationsResponse) ClearNotification() {
+	if _, ok := x.xxx_hidden_Event.(*watchNotificationsResponse_Notification); ok {
+		x.xxx_hidden_Event = nil
+	}
+}
+
+func (x *WatchNotificationsResponse) ClearSummary() {
+	if _, ok := x.xxx_hidden_Event.(*watchNotificationsResponse_Summary); ok {
+		x.xxx_hidden_Event = nil
+	}
+}
+
+func (x *WatchNotificationsResponse) ClearBadge() {
+	if _, ok := x.xxx_hidden_Event.(*watchNotificationsResponse_Badge); ok {
+		x.xxx_hidden_Event = nil
+	}
+}
+
+func (x *WatchNotificationsResponse) ClearHeartbeat() {
+	if _, ok := x.xxx_hidden_Event.(*watchNotificationsResponse_Heartbeat); ok {
+		x.xxx_hidden_Event = nil
+	}
+}
+
+const WatchNotificationsResponse_Event_not_set_case case_WatchNotificationsResponse_Event = 0
+const WatchNotificationsResponse_Notification_case case_WatchNotificationsResponse_Event = 2
+const WatchNotificationsResponse_Summary_case case_WatchNotificationsResponse_Event = 3
+const WatchNotificationsResponse_Badge_case case_WatchNotificationsResponse_Event = 4
+const WatchNotificationsResponse_Heartbeat_case case_WatchNotificationsResponse_Event = 5
+
+func (x *WatchNotificationsResponse) WhichEvent() case_WatchNotificationsResponse_Event {
+	if x == nil {
+		return WatchNotificationsResponse_Event_not_set_case
+	}
+	switch x.xxx_hidden_Event.(type) {
+	case *watchNotificationsResponse_Notification:
+		return WatchNotificationsResponse_Notification_case
+	case *watchNotificationsResponse_Summary:
+		return WatchNotificationsResponse_Summary_case
+	case *watchNotificationsResponse_Badge:
+		return WatchNotificationsResponse_Badge_case
+	case *watchNotificationsResponse_Heartbeat:
+		return WatchNotificationsResponse_Heartbeat_case
+	default:
+		return WatchNotificationsResponse_Event_not_set_case
+	}
+}
+
+type WatchNotificationsResponse_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Daemon clock. Clients pass the latest value back as last_received_at when reconnecting.
+	SentAt *timestamppb.Timestamp
+	// Fields of oneof xxx_hidden_Event:
+	Notification *Notification
+	Summary      *NotificationSummary
+	Badge        *BadgeUpdate
+	Heartbeat    *Heartbeat
+	// -- end of xxx_hidden_Event
+}
+
+func (b0 WatchNotificationsResponse_builder) Build() *WatchNotificationsResponse {
+	m0 := &WatchNotificationsResponse{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_SentAt = b.SentAt
+	if b.Notification != nil {
+		x.xxx_hidden_Event = &watchNotificationsResponse_Notification{b.Notification}
+	}
+	if b.Summary != nil {
+		x.xxx_hidden_Event = &watchNotificationsResponse_Summary{b.Summary}
+	}
+	if b.Badge != nil {
+		x.xxx_hidden_Event = &watchNotificationsResponse_Badge{b.Badge}
+	}
+	if b.Heartbeat != nil {
+		x.xxx_hidden_Event = &watchNotificationsResponse_Heartbeat{b.Heartbeat}
+	}
+	return m0
+}
+
+type case_WatchNotificationsResponse_Event protoreflect.FieldNumber
+
+func (x case_WatchNotificationsResponse_Event) String() string {
+	md := file_octodeck_v1_service_proto_msgTypes[42].Descriptor()
+	if x == 0 {
+		return "not set"
+	}
+	return protoimpl.X.MessageFieldStringOf(md, protoreflect.FieldNumber(x))
+}
+
+type isWatchNotificationsResponse_Event interface {
+	isWatchNotificationsResponse_Event()
+}
+
+type watchNotificationsResponse_Notification struct {
+	Notification *Notification `protobuf:"bytes,2,opt,name=notification,oneof"`
+}
+
+type watchNotificationsResponse_Summary struct {
+	Summary *NotificationSummary `protobuf:"bytes,3,opt,name=summary,oneof"`
+}
+
+type watchNotificationsResponse_Badge struct {
+	Badge *BadgeUpdate `protobuf:"bytes,4,opt,name=badge,oneof"`
+}
+
+type watchNotificationsResponse_Heartbeat struct {
+	Heartbeat *Heartbeat `protobuf:"bytes,5,opt,name=heartbeat,oneof"`
+}
+
+func (*watchNotificationsResponse_Notification) isWatchNotificationsResponse_Event() {}
+
+func (*watchNotificationsResponse_Summary) isWatchNotificationsResponse_Event() {}
+
+func (*watchNotificationsResponse_Badge) isWatchNotificationsResponse_Event() {}
+
+func (*watchNotificationsResponse_Heartbeat) isWatchNotificationsResponse_Event() {}
 
 var File_octodeck_v1_service_proto protoreflect.FileDescriptor
 
@@ -4219,7 +5726,7 @@ const file_octodeck_v1_service_proto_rawDesc = "" +
 	"\aitem_id\x18\x01 \x01(\tR\x06itemId\x124\n" +
 	"\x05state\x18\x02 \x01(\x0e2\x1e.octodeck.v1.SubscriptionStateR\x05state\"C\n" +
 	"\x1aUpdateSubscriptionResponse\x12%\n" +
-	"\x04item\x18\x01 \x01(\v2\x11.octodeck.v1.ItemR\x04item\"\x8f\x04\n" +
+	"\x04item\x18\x01 \x01(\v2\x11.octodeck.v1.ItemR\x04item\"\xe7\x04\n" +
 	"\x06Config\x12#\n" +
 	"\rwatched_repos\x18\x01 \x03(\tR\fwatchedRepos\x12!\n" +
 	"\fpinned_repos\x18\x02 \x03(\tR\vpinnedRepos\x12%\n" +
@@ -4235,7 +5742,24 @@ const file_octodeck_v1_service_proto_rawDesc = "" +
 	" \x03(\tR\x0eexcludedLabels\x12'\n" +
 	"\x0ftracked_queries\x18\v \x03(\tR\x0etrackedQueries\x124\n" +
 	"\x16discovery_interval_min\x18\f \x01(\x05R\x14discoveryIntervalMin\x124\n" +
-	"\x16auto_subscribe_queries\x18\r \x03(\tR\x14autoSubscribeQueries\"\x7f\n" +
+	"\x16auto_subscribe_queries\x18\r \x03(\tR\x14autoSubscribeQueries\x12V\n" +
+	"\x15notification_settings\x18\x0e \x01(\v2!.octodeck.v1.NotificationSettingsR\x14notificationSettings\"\xd9\x04\n" +
+	"\x14NotificationSettings\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\x12#\n" +
+	"\rrepo_includes\x18\x02 \x03(\tR\frepoIncludes\x12#\n" +
+	"\rrepo_excludes\x18\x03 \x03(\tR\frepoExcludes\x12%\n" +
+	"\x0elabel_includes\x18\x04 \x03(\tR\rlabelIncludes\x12%\n" +
+	"\x0elabel_excludes\x18\x05 \x03(\tR\rlabelExcludes\x12'\n" +
+	"\x0fauthor_includes\x18\x06 \x03(\tR\x0eauthorIncludes\x12'\n" +
+	"\x0fauthor_excludes\x18\a \x03(\tR\x0eauthorExcludes\x129\n" +
+	"\x19only_assigned_or_authored\x18\b \x01(\bR\x16onlyAssignedOrAuthored\x12-\n" +
+	"\x13notify_on_new_items\x18\t \x01(\bR\x10notifyOnNewItems\x123\n" +
+	"\x16notify_on_new_activity\x18\n" +
+	" \x01(\bR\x13notifyOnNewActivity\x12\x1f\n" +
+	"\vignore_bots\x18\v \x01(\bR\n" +
+	"ignoreBots\x126\n" +
+	"\x17always_include_mentions\x18\f \x01(\bR\x15alwaysIncludeMentions\x12E\n" +
+	"\x10badge_count_mode\x18\r \x01(\x0e2\x1b.octodeck.v1.BadgeCountModeR\x0ebadgeCountMode\"\x7f\n" +
 	"\x11TrackedQueryStats\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12(\n" +
 	"\x10daily_average_7d\x18\x02 \x01(\x01R\x0edailyAverage7d\x12*\n" +
@@ -4309,7 +5833,49 @@ const file_octodeck_v1_service_proto_rawDesc = "" +
 	"\adb_path\x18\v \x01(\tR\x06dbPath\"\x19\n" +
 	"\x17GetDatabaseStatsRequest\"L\n" +
 	"\x18GetDatabaseStatsResponse\x120\n" +
-	"\x05stats\x18\x01 \x01(\v2\x1a.octodeck.v1.DatabaseStatsR\x05stats2\xba\t\n" +
+	"\x05stats\x18\x01 \x01(\v2\x1a.octodeck.v1.DatabaseStatsR\x05stats\"\xf3\x01\n" +
+	"\fNotification\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
+	"\aitem_id\x18\x02 \x01(\tR\x06itemId\x12\x14\n" +
+	"\x05title\x18\x03 \x01(\tR\x05title\x12\x18\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\x12\x10\n" +
+	"\x03url\x18\x05 \x01(\tR\x03url\x12=\n" +
+	"\bcategory\x18\x06 \x01(\x0e2!.octodeck.v1.NotificationCategoryR\bcategory\x129\n" +
+	"\n" +
+	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"m\n" +
+	"\x13NotificationSummary\x12\x14\n" +
+	"\x05count\x18\x01 \x01(\x05R\x05count\x12\x14\n" +
+	"\x05title\x18\x02 \x01(\tR\x05title\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12\x10\n" +
+	"\x03url\x18\x04 \x01(\tR\x03url\"\x82\x01\n" +
+	"\vBadgeUpdate\x12\x14\n" +
+	"\x05count\x18\x01 \x01(\x05R\x05count\x12/\n" +
+	"\x04mode\x18\x02 \x01(\x0e2\x1b.octodeck.v1.BadgeCountModeR\x04mode\x12\x12\n" +
+	"\x04text\x18\x03 \x01(\tR\x04text\x12\x18\n" +
+	"\atooltip\x18\x04 \x01(\tR\atooltip\"\v\n" +
+	"\tHeartbeat\"a\n" +
+	"\x19WatchNotificationsRequest\x12D\n" +
+	"\x10last_received_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x0elastReceivedAt\"\xc3\x02\n" +
+	"\x1aWatchNotificationsResponse\x123\n" +
+	"\asent_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x06sentAt\x12?\n" +
+	"\fnotification\x18\x02 \x01(\v2\x19.octodeck.v1.NotificationH\x00R\fnotification\x12<\n" +
+	"\asummary\x18\x03 \x01(\v2 .octodeck.v1.NotificationSummaryH\x00R\asummary\x120\n" +
+	"\x05badge\x18\x04 \x01(\v2\x18.octodeck.v1.BadgeUpdateH\x00R\x05badge\x126\n" +
+	"\theartbeat\x18\x05 \x01(\v2\x16.octodeck.v1.HeartbeatH\x00R\theartbeatB\a\n" +
+	"\x05event*\x8a\x01\n" +
+	"\x0eBadgeCountMode\x12 \n" +
+	"\x1cBADGE_COUNT_MODE_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16BADGE_COUNT_MODE_INBOX\x10\x01\x12\x1b\n" +
+	"\x17BADGE_COUNT_MODE_UNREAD\x10\x02\x12\x1d\n" +
+	"\x19BADGE_COUNT_MODE_DISABLED\x10\x03*\xe9\x01\n" +
+	"\x14NotificationCategory\x12%\n" +
+	"!NOTIFICATION_CATEGORY_UNSPECIFIED\x10\x00\x12!\n" +
+	"\x1dNOTIFICATION_CATEGORY_MENTION\x10\x01\x12\"\n" +
+	"\x1eNOTIFICATION_CATEGORY_NEW_ITEM\x10\x02\x12\"\n" +
+	"\x1eNOTIFICATION_CATEGORY_ACTIVITY\x10\x03\x12\x1e\n" +
+	"\x1aNOTIFICATION_CATEGORY_CODE\x10\x04\x12\x1f\n" +
+	"\x1bNOTIFICATION_CATEGORY_NOISE\x10\x052\xa3\n" +
+	"\n" +
 	"\x0fOctoDeckService\x12G\n" +
 	"\bGetItems\x12\x1c.octodeck.v1.GetItemsRequest\x1a\x1d.octodeck.v1.GetItemsResponse\x12D\n" +
 	"\aGetItem\x12\x1b.octodeck.v1.GetItemRequest\x1a\x1c.octodeck.v1.GetItemResponse\x12=\n" +
@@ -4326,121 +5892,144 @@ const file_octodeck_v1_service_proto_rawDesc = "" +
 	"\rGetSyncTraces\x12!.octodeck.v1.GetSyncTracesRequest\x1a\".octodeck.v1.GetSyncTracesResponse\x12_\n" +
 	"\x10GetDatabaseStats\x12$.octodeck.v1.GetDatabaseStatsRequest\x1a%.octodeck.v1.GetDatabaseStatsResponse\x12J\n" +
 	"\tGetConfig\x12\x1d.octodeck.v1.GetConfigRequest\x1a\x1e.octodeck.v1.GetConfigResponse\x12S\n" +
-	"\fUpdateConfig\x12 .octodeck.v1.UpdateConfigRequest\x1a!.octodeck.v1.UpdateConfigResponseB\xb7\x01\n" +
+	"\fUpdateConfig\x12 .octodeck.v1.UpdateConfigRequest\x1a!.octodeck.v1.UpdateConfigResponse\x12g\n" +
+	"\x12WatchNotifications\x12&.octodeck.v1.WatchNotificationsRequest\x1a'.octodeck.v1.WatchNotificationsResponse0\x01B\xb7\x01\n" +
 	"\x0fcom.octodeck.v1B\fServiceProtoP\x01ZIgithub.com/tallclair/octodeck/backend/internal/api/octodeck/v1;octodeckv1\xa2\x02\x03OXX\xaa\x02\vOctodeck.V1\xca\x02\vOctodeck\\V1\xe2\x02\x17Octodeck\\V1\\GPBMetadata\xea\x02\fOctodeck::V1b\beditionsp\xe8\a"
 
-var file_octodeck_v1_service_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_octodeck_v1_service_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
+var file_octodeck_v1_service_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_octodeck_v1_service_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
 var file_octodeck_v1_service_proto_goTypes = []any{
-	(SyncResponse_Stage)(0),            // 0: octodeck.v1.SyncResponse.Stage
-	(*GetItemsRequest)(nil),            // 1: octodeck.v1.GetItemsRequest
-	(*GetItemsResponse)(nil),           // 2: octodeck.v1.GetItemsResponse
-	(*GetItemRequest)(nil),             // 3: octodeck.v1.GetItemRequest
-	(*GetItemResponse)(nil),            // 4: octodeck.v1.GetItemResponse
-	(*Filter)(nil),                     // 5: octodeck.v1.Filter
-	(*SyncRequest)(nil),                // 6: octodeck.v1.SyncRequest
-	(*SyncResponse)(nil),               // 7: octodeck.v1.SyncResponse
-	(*ViewItemRequest)(nil),            // 8: octodeck.v1.ViewItemRequest
-	(*ViewItemResponse)(nil),           // 9: octodeck.v1.ViewItemResponse
-	(*AckItemRequest)(nil),             // 10: octodeck.v1.AckItemRequest
-	(*AckItemResponse)(nil),            // 11: octodeck.v1.AckItemResponse
-	(*StarItemRequest)(nil),            // 12: octodeck.v1.StarItemRequest
-	(*StarItemResponse)(nil),           // 13: octodeck.v1.StarItemResponse
-	(*SetNotesRequest)(nil),            // 14: octodeck.v1.SetNotesRequest
-	(*SetNotesResponse)(nil),           // 15: octodeck.v1.SetNotesResponse
-	(*RefetchItemRequest)(nil),         // 16: octodeck.v1.RefetchItemRequest
-	(*RefetchItemResponse)(nil),        // 17: octodeck.v1.RefetchItemResponse
-	(*DeleteItemRequest)(nil),          // 18: octodeck.v1.DeleteItemRequest
-	(*DeleteItemResponse)(nil),         // 19: octodeck.v1.DeleteItemResponse
-	(*UpdateSubscriptionRequest)(nil),  // 20: octodeck.v1.UpdateSubscriptionRequest
-	(*UpdateSubscriptionResponse)(nil), // 21: octodeck.v1.UpdateSubscriptionResponse
-	(*Config)(nil),                     // 22: octodeck.v1.Config
-	(*TrackedQueryStats)(nil),          // 23: octodeck.v1.TrackedQueryStats
-	(*GetConfigRequest)(nil),           // 24: octodeck.v1.GetConfigRequest
-	(*GetConfigResponse)(nil),          // 25: octodeck.v1.GetConfigResponse
-	(*UpdateConfigRequest)(nil),        // 26: octodeck.v1.UpdateConfigRequest
-	(*TrackedQueryWarning)(nil),        // 27: octodeck.v1.TrackedQueryWarning
-	(*UpdateConfigResponse)(nil),       // 28: octodeck.v1.UpdateConfigResponse
-	(*GetSyncStatusRequest)(nil),       // 29: octodeck.v1.GetSyncStatusRequest
-	(*SyncStatus)(nil),                 // 30: octodeck.v1.SyncStatus
-	(*GetSyncStatusResponse)(nil),      // 31: octodeck.v1.GetSyncStatusResponse
-	(*GetSyncTracesRequest)(nil),       // 32: octodeck.v1.GetSyncTracesRequest
-	(*GetSyncTracesResponse)(nil),      // 33: octodeck.v1.GetSyncTracesResponse
-	(*DatabaseStats)(nil),              // 34: octodeck.v1.DatabaseStats
-	(*GetDatabaseStatsRequest)(nil),    // 35: octodeck.v1.GetDatabaseStatsRequest
-	(*GetDatabaseStatsResponse)(nil),   // 36: octodeck.v1.GetDatabaseStatsResponse
-	(*Item)(nil),                       // 37: octodeck.v1.Item
-	(ItemType)(0),                      // 38: octodeck.v1.ItemType
-	(ItemState)(0),                     // 39: octodeck.v1.ItemState
-	(ItemStatus)(0),                    // 40: octodeck.v1.ItemStatus
-	(SubscriptionState)(0),             // 41: octodeck.v1.SubscriptionState
-	(*fieldmaskpb.FieldMask)(nil),      // 42: google.protobuf.FieldMask
-	(*timestamppb.Timestamp)(nil),      // 43: google.protobuf.Timestamp
-	(*SyncTrace)(nil),                  // 44: octodeck.v1.SyncTrace
+	(BadgeCountMode)(0),                // 0: octodeck.v1.BadgeCountMode
+	(NotificationCategory)(0),          // 1: octodeck.v1.NotificationCategory
+	(SyncResponse_Stage)(0),            // 2: octodeck.v1.SyncResponse.Stage
+	(*GetItemsRequest)(nil),            // 3: octodeck.v1.GetItemsRequest
+	(*GetItemsResponse)(nil),           // 4: octodeck.v1.GetItemsResponse
+	(*GetItemRequest)(nil),             // 5: octodeck.v1.GetItemRequest
+	(*GetItemResponse)(nil),            // 6: octodeck.v1.GetItemResponse
+	(*Filter)(nil),                     // 7: octodeck.v1.Filter
+	(*SyncRequest)(nil),                // 8: octodeck.v1.SyncRequest
+	(*SyncResponse)(nil),               // 9: octodeck.v1.SyncResponse
+	(*ViewItemRequest)(nil),            // 10: octodeck.v1.ViewItemRequest
+	(*ViewItemResponse)(nil),           // 11: octodeck.v1.ViewItemResponse
+	(*AckItemRequest)(nil),             // 12: octodeck.v1.AckItemRequest
+	(*AckItemResponse)(nil),            // 13: octodeck.v1.AckItemResponse
+	(*StarItemRequest)(nil),            // 14: octodeck.v1.StarItemRequest
+	(*StarItemResponse)(nil),           // 15: octodeck.v1.StarItemResponse
+	(*SetNotesRequest)(nil),            // 16: octodeck.v1.SetNotesRequest
+	(*SetNotesResponse)(nil),           // 17: octodeck.v1.SetNotesResponse
+	(*RefetchItemRequest)(nil),         // 18: octodeck.v1.RefetchItemRequest
+	(*RefetchItemResponse)(nil),        // 19: octodeck.v1.RefetchItemResponse
+	(*DeleteItemRequest)(nil),          // 20: octodeck.v1.DeleteItemRequest
+	(*DeleteItemResponse)(nil),         // 21: octodeck.v1.DeleteItemResponse
+	(*UpdateSubscriptionRequest)(nil),  // 22: octodeck.v1.UpdateSubscriptionRequest
+	(*UpdateSubscriptionResponse)(nil), // 23: octodeck.v1.UpdateSubscriptionResponse
+	(*Config)(nil),                     // 24: octodeck.v1.Config
+	(*NotificationSettings)(nil),       // 25: octodeck.v1.NotificationSettings
+	(*TrackedQueryStats)(nil),          // 26: octodeck.v1.TrackedQueryStats
+	(*GetConfigRequest)(nil),           // 27: octodeck.v1.GetConfigRequest
+	(*GetConfigResponse)(nil),          // 28: octodeck.v1.GetConfigResponse
+	(*UpdateConfigRequest)(nil),        // 29: octodeck.v1.UpdateConfigRequest
+	(*TrackedQueryWarning)(nil),        // 30: octodeck.v1.TrackedQueryWarning
+	(*UpdateConfigResponse)(nil),       // 31: octodeck.v1.UpdateConfigResponse
+	(*GetSyncStatusRequest)(nil),       // 32: octodeck.v1.GetSyncStatusRequest
+	(*SyncStatus)(nil),                 // 33: octodeck.v1.SyncStatus
+	(*GetSyncStatusResponse)(nil),      // 34: octodeck.v1.GetSyncStatusResponse
+	(*GetSyncTracesRequest)(nil),       // 35: octodeck.v1.GetSyncTracesRequest
+	(*GetSyncTracesResponse)(nil),      // 36: octodeck.v1.GetSyncTracesResponse
+	(*DatabaseStats)(nil),              // 37: octodeck.v1.DatabaseStats
+	(*GetDatabaseStatsRequest)(nil),    // 38: octodeck.v1.GetDatabaseStatsRequest
+	(*GetDatabaseStatsResponse)(nil),   // 39: octodeck.v1.GetDatabaseStatsResponse
+	(*Notification)(nil),               // 40: octodeck.v1.Notification
+	(*NotificationSummary)(nil),        // 41: octodeck.v1.NotificationSummary
+	(*BadgeUpdate)(nil),                // 42: octodeck.v1.BadgeUpdate
+	(*Heartbeat)(nil),                  // 43: octodeck.v1.Heartbeat
+	(*WatchNotificationsRequest)(nil),  // 44: octodeck.v1.WatchNotificationsRequest
+	(*WatchNotificationsResponse)(nil), // 45: octodeck.v1.WatchNotificationsResponse
+	(*Item)(nil),                       // 46: octodeck.v1.Item
+	(ItemType)(0),                      // 47: octodeck.v1.ItemType
+	(ItemState)(0),                     // 48: octodeck.v1.ItemState
+	(ItemStatus)(0),                    // 49: octodeck.v1.ItemStatus
+	(SubscriptionState)(0),             // 50: octodeck.v1.SubscriptionState
+	(*fieldmaskpb.FieldMask)(nil),      // 51: google.protobuf.FieldMask
+	(*timestamppb.Timestamp)(nil),      // 52: google.protobuf.Timestamp
+	(*SyncTrace)(nil),                  // 53: octodeck.v1.SyncTrace
 }
 var file_octodeck_v1_service_proto_depIdxs = []int32{
-	5,  // 0: octodeck.v1.GetItemsRequest.filter:type_name -> octodeck.v1.Filter
-	37, // 1: octodeck.v1.GetItemsResponse.items:type_name -> octodeck.v1.Item
-	37, // 2: octodeck.v1.GetItemResponse.item:type_name -> octodeck.v1.Item
-	38, // 3: octodeck.v1.Filter.type:type_name -> octodeck.v1.ItemType
-	39, // 4: octodeck.v1.Filter.state:type_name -> octodeck.v1.ItemState
-	40, // 5: octodeck.v1.Filter.status:type_name -> octodeck.v1.ItemStatus
-	0,  // 6: octodeck.v1.SyncResponse.stage:type_name -> octodeck.v1.SyncResponse.Stage
-	37, // 7: octodeck.v1.ViewItemResponse.item:type_name -> octodeck.v1.Item
-	37, // 8: octodeck.v1.AckItemResponse.item:type_name -> octodeck.v1.Item
-	37, // 9: octodeck.v1.StarItemResponse.item:type_name -> octodeck.v1.Item
-	37, // 10: octodeck.v1.SetNotesResponse.item:type_name -> octodeck.v1.Item
-	37, // 11: octodeck.v1.RefetchItemResponse.item:type_name -> octodeck.v1.Item
-	41, // 12: octodeck.v1.UpdateSubscriptionRequest.state:type_name -> octodeck.v1.SubscriptionState
-	37, // 13: octodeck.v1.UpdateSubscriptionResponse.item:type_name -> octodeck.v1.Item
-	22, // 14: octodeck.v1.GetConfigResponse.config:type_name -> octodeck.v1.Config
-	23, // 15: octodeck.v1.GetConfigResponse.query_stats:type_name -> octodeck.v1.TrackedQueryStats
-	22, // 16: octodeck.v1.UpdateConfigRequest.config:type_name -> octodeck.v1.Config
-	42, // 17: octodeck.v1.UpdateConfigRequest.update_mask:type_name -> google.protobuf.FieldMask
-	22, // 18: octodeck.v1.UpdateConfigResponse.config:type_name -> octodeck.v1.Config
-	27, // 19: octodeck.v1.UpdateConfigResponse.query_warnings:type_name -> octodeck.v1.TrackedQueryWarning
-	23, // 20: octodeck.v1.UpdateConfigResponse.query_stats:type_name -> octodeck.v1.TrackedQueryStats
-	43, // 21: octodeck.v1.SyncStatus.last_successful_sync_at:type_name -> google.protobuf.Timestamp
-	43, // 22: octodeck.v1.SyncStatus.last_sync_attempt_at:type_name -> google.protobuf.Timestamp
-	43, // 23: octodeck.v1.SyncStatus.last_update_received_at:type_name -> google.protobuf.Timestamp
-	30, // 24: octodeck.v1.GetSyncStatusResponse.status:type_name -> octodeck.v1.SyncStatus
-	44, // 25: octodeck.v1.GetSyncTracesResponse.traces:type_name -> octodeck.v1.SyncTrace
-	34, // 26: octodeck.v1.GetDatabaseStatsResponse.stats:type_name -> octodeck.v1.DatabaseStats
-	1,  // 27: octodeck.v1.OctoDeckService.GetItems:input_type -> octodeck.v1.GetItemsRequest
-	3,  // 28: octodeck.v1.OctoDeckService.GetItem:input_type -> octodeck.v1.GetItemRequest
-	6,  // 29: octodeck.v1.OctoDeckService.Sync:input_type -> octodeck.v1.SyncRequest
-	8,  // 30: octodeck.v1.OctoDeckService.ViewItem:input_type -> octodeck.v1.ViewItemRequest
-	10, // 31: octodeck.v1.OctoDeckService.AckItem:input_type -> octodeck.v1.AckItemRequest
-	12, // 32: octodeck.v1.OctoDeckService.StarItem:input_type -> octodeck.v1.StarItemRequest
-	14, // 33: octodeck.v1.OctoDeckService.SetNotes:input_type -> octodeck.v1.SetNotesRequest
-	16, // 34: octodeck.v1.OctoDeckService.RefetchItem:input_type -> octodeck.v1.RefetchItemRequest
-	18, // 35: octodeck.v1.OctoDeckService.DeleteItem:input_type -> octodeck.v1.DeleteItemRequest
-	20, // 36: octodeck.v1.OctoDeckService.UpdateSubscription:input_type -> octodeck.v1.UpdateSubscriptionRequest
-	29, // 37: octodeck.v1.OctoDeckService.GetSyncStatus:input_type -> octodeck.v1.GetSyncStatusRequest
-	32, // 38: octodeck.v1.OctoDeckService.GetSyncTraces:input_type -> octodeck.v1.GetSyncTracesRequest
-	35, // 39: octodeck.v1.OctoDeckService.GetDatabaseStats:input_type -> octodeck.v1.GetDatabaseStatsRequest
-	24, // 40: octodeck.v1.OctoDeckService.GetConfig:input_type -> octodeck.v1.GetConfigRequest
-	26, // 41: octodeck.v1.OctoDeckService.UpdateConfig:input_type -> octodeck.v1.UpdateConfigRequest
-	2,  // 42: octodeck.v1.OctoDeckService.GetItems:output_type -> octodeck.v1.GetItemsResponse
-	4,  // 43: octodeck.v1.OctoDeckService.GetItem:output_type -> octodeck.v1.GetItemResponse
-	7,  // 44: octodeck.v1.OctoDeckService.Sync:output_type -> octodeck.v1.SyncResponse
-	9,  // 45: octodeck.v1.OctoDeckService.ViewItem:output_type -> octodeck.v1.ViewItemResponse
-	11, // 46: octodeck.v1.OctoDeckService.AckItem:output_type -> octodeck.v1.AckItemResponse
-	13, // 47: octodeck.v1.OctoDeckService.StarItem:output_type -> octodeck.v1.StarItemResponse
-	15, // 48: octodeck.v1.OctoDeckService.SetNotes:output_type -> octodeck.v1.SetNotesResponse
-	17, // 49: octodeck.v1.OctoDeckService.RefetchItem:output_type -> octodeck.v1.RefetchItemResponse
-	19, // 50: octodeck.v1.OctoDeckService.DeleteItem:output_type -> octodeck.v1.DeleteItemResponse
-	21, // 51: octodeck.v1.OctoDeckService.UpdateSubscription:output_type -> octodeck.v1.UpdateSubscriptionResponse
-	31, // 52: octodeck.v1.OctoDeckService.GetSyncStatus:output_type -> octodeck.v1.GetSyncStatusResponse
-	33, // 53: octodeck.v1.OctoDeckService.GetSyncTraces:output_type -> octodeck.v1.GetSyncTracesResponse
-	36, // 54: octodeck.v1.OctoDeckService.GetDatabaseStats:output_type -> octodeck.v1.GetDatabaseStatsResponse
-	25, // 55: octodeck.v1.OctoDeckService.GetConfig:output_type -> octodeck.v1.GetConfigResponse
-	28, // 56: octodeck.v1.OctoDeckService.UpdateConfig:output_type -> octodeck.v1.UpdateConfigResponse
-	42, // [42:57] is the sub-list for method output_type
-	27, // [27:42] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	7,  // 0: octodeck.v1.GetItemsRequest.filter:type_name -> octodeck.v1.Filter
+	46, // 1: octodeck.v1.GetItemsResponse.items:type_name -> octodeck.v1.Item
+	46, // 2: octodeck.v1.GetItemResponse.item:type_name -> octodeck.v1.Item
+	47, // 3: octodeck.v1.Filter.type:type_name -> octodeck.v1.ItemType
+	48, // 4: octodeck.v1.Filter.state:type_name -> octodeck.v1.ItemState
+	49, // 5: octodeck.v1.Filter.status:type_name -> octodeck.v1.ItemStatus
+	2,  // 6: octodeck.v1.SyncResponse.stage:type_name -> octodeck.v1.SyncResponse.Stage
+	46, // 7: octodeck.v1.ViewItemResponse.item:type_name -> octodeck.v1.Item
+	46, // 8: octodeck.v1.AckItemResponse.item:type_name -> octodeck.v1.Item
+	46, // 9: octodeck.v1.StarItemResponse.item:type_name -> octodeck.v1.Item
+	46, // 10: octodeck.v1.SetNotesResponse.item:type_name -> octodeck.v1.Item
+	46, // 11: octodeck.v1.RefetchItemResponse.item:type_name -> octodeck.v1.Item
+	50, // 12: octodeck.v1.UpdateSubscriptionRequest.state:type_name -> octodeck.v1.SubscriptionState
+	46, // 13: octodeck.v1.UpdateSubscriptionResponse.item:type_name -> octodeck.v1.Item
+	25, // 14: octodeck.v1.Config.notification_settings:type_name -> octodeck.v1.NotificationSettings
+	0,  // 15: octodeck.v1.NotificationSettings.badge_count_mode:type_name -> octodeck.v1.BadgeCountMode
+	24, // 16: octodeck.v1.GetConfigResponse.config:type_name -> octodeck.v1.Config
+	26, // 17: octodeck.v1.GetConfigResponse.query_stats:type_name -> octodeck.v1.TrackedQueryStats
+	24, // 18: octodeck.v1.UpdateConfigRequest.config:type_name -> octodeck.v1.Config
+	51, // 19: octodeck.v1.UpdateConfigRequest.update_mask:type_name -> google.protobuf.FieldMask
+	24, // 20: octodeck.v1.UpdateConfigResponse.config:type_name -> octodeck.v1.Config
+	30, // 21: octodeck.v1.UpdateConfigResponse.query_warnings:type_name -> octodeck.v1.TrackedQueryWarning
+	26, // 22: octodeck.v1.UpdateConfigResponse.query_stats:type_name -> octodeck.v1.TrackedQueryStats
+	52, // 23: octodeck.v1.SyncStatus.last_successful_sync_at:type_name -> google.protobuf.Timestamp
+	52, // 24: octodeck.v1.SyncStatus.last_sync_attempt_at:type_name -> google.protobuf.Timestamp
+	52, // 25: octodeck.v1.SyncStatus.last_update_received_at:type_name -> google.protobuf.Timestamp
+	33, // 26: octodeck.v1.GetSyncStatusResponse.status:type_name -> octodeck.v1.SyncStatus
+	53, // 27: octodeck.v1.GetSyncTracesResponse.traces:type_name -> octodeck.v1.SyncTrace
+	37, // 28: octodeck.v1.GetDatabaseStatsResponse.stats:type_name -> octodeck.v1.DatabaseStats
+	1,  // 29: octodeck.v1.Notification.category:type_name -> octodeck.v1.NotificationCategory
+	52, // 30: octodeck.v1.Notification.created_at:type_name -> google.protobuf.Timestamp
+	0,  // 31: octodeck.v1.BadgeUpdate.mode:type_name -> octodeck.v1.BadgeCountMode
+	52, // 32: octodeck.v1.WatchNotificationsRequest.last_received_at:type_name -> google.protobuf.Timestamp
+	52, // 33: octodeck.v1.WatchNotificationsResponse.sent_at:type_name -> google.protobuf.Timestamp
+	40, // 34: octodeck.v1.WatchNotificationsResponse.notification:type_name -> octodeck.v1.Notification
+	41, // 35: octodeck.v1.WatchNotificationsResponse.summary:type_name -> octodeck.v1.NotificationSummary
+	42, // 36: octodeck.v1.WatchNotificationsResponse.badge:type_name -> octodeck.v1.BadgeUpdate
+	43, // 37: octodeck.v1.WatchNotificationsResponse.heartbeat:type_name -> octodeck.v1.Heartbeat
+	3,  // 38: octodeck.v1.OctoDeckService.GetItems:input_type -> octodeck.v1.GetItemsRequest
+	5,  // 39: octodeck.v1.OctoDeckService.GetItem:input_type -> octodeck.v1.GetItemRequest
+	8,  // 40: octodeck.v1.OctoDeckService.Sync:input_type -> octodeck.v1.SyncRequest
+	10, // 41: octodeck.v1.OctoDeckService.ViewItem:input_type -> octodeck.v1.ViewItemRequest
+	12, // 42: octodeck.v1.OctoDeckService.AckItem:input_type -> octodeck.v1.AckItemRequest
+	14, // 43: octodeck.v1.OctoDeckService.StarItem:input_type -> octodeck.v1.StarItemRequest
+	16, // 44: octodeck.v1.OctoDeckService.SetNotes:input_type -> octodeck.v1.SetNotesRequest
+	18, // 45: octodeck.v1.OctoDeckService.RefetchItem:input_type -> octodeck.v1.RefetchItemRequest
+	20, // 46: octodeck.v1.OctoDeckService.DeleteItem:input_type -> octodeck.v1.DeleteItemRequest
+	22, // 47: octodeck.v1.OctoDeckService.UpdateSubscription:input_type -> octodeck.v1.UpdateSubscriptionRequest
+	32, // 48: octodeck.v1.OctoDeckService.GetSyncStatus:input_type -> octodeck.v1.GetSyncStatusRequest
+	35, // 49: octodeck.v1.OctoDeckService.GetSyncTraces:input_type -> octodeck.v1.GetSyncTracesRequest
+	38, // 50: octodeck.v1.OctoDeckService.GetDatabaseStats:input_type -> octodeck.v1.GetDatabaseStatsRequest
+	27, // 51: octodeck.v1.OctoDeckService.GetConfig:input_type -> octodeck.v1.GetConfigRequest
+	29, // 52: octodeck.v1.OctoDeckService.UpdateConfig:input_type -> octodeck.v1.UpdateConfigRequest
+	44, // 53: octodeck.v1.OctoDeckService.WatchNotifications:input_type -> octodeck.v1.WatchNotificationsRequest
+	4,  // 54: octodeck.v1.OctoDeckService.GetItems:output_type -> octodeck.v1.GetItemsResponse
+	6,  // 55: octodeck.v1.OctoDeckService.GetItem:output_type -> octodeck.v1.GetItemResponse
+	9,  // 56: octodeck.v1.OctoDeckService.Sync:output_type -> octodeck.v1.SyncResponse
+	11, // 57: octodeck.v1.OctoDeckService.ViewItem:output_type -> octodeck.v1.ViewItemResponse
+	13, // 58: octodeck.v1.OctoDeckService.AckItem:output_type -> octodeck.v1.AckItemResponse
+	15, // 59: octodeck.v1.OctoDeckService.StarItem:output_type -> octodeck.v1.StarItemResponse
+	17, // 60: octodeck.v1.OctoDeckService.SetNotes:output_type -> octodeck.v1.SetNotesResponse
+	19, // 61: octodeck.v1.OctoDeckService.RefetchItem:output_type -> octodeck.v1.RefetchItemResponse
+	21, // 62: octodeck.v1.OctoDeckService.DeleteItem:output_type -> octodeck.v1.DeleteItemResponse
+	23, // 63: octodeck.v1.OctoDeckService.UpdateSubscription:output_type -> octodeck.v1.UpdateSubscriptionResponse
+	34, // 64: octodeck.v1.OctoDeckService.GetSyncStatus:output_type -> octodeck.v1.GetSyncStatusResponse
+	36, // 65: octodeck.v1.OctoDeckService.GetSyncTraces:output_type -> octodeck.v1.GetSyncTracesResponse
+	39, // 66: octodeck.v1.OctoDeckService.GetDatabaseStats:output_type -> octodeck.v1.GetDatabaseStatsResponse
+	28, // 67: octodeck.v1.OctoDeckService.GetConfig:output_type -> octodeck.v1.GetConfigResponse
+	31, // 68: octodeck.v1.OctoDeckService.UpdateConfig:output_type -> octodeck.v1.UpdateConfigResponse
+	45, // 69: octodeck.v1.OctoDeckService.WatchNotifications:output_type -> octodeck.v1.WatchNotificationsResponse
+	54, // [54:70] is the sub-list for method output_type
+	38, // [38:54] is the sub-list for method input_type
+	38, // [38:38] is the sub-list for extension type_name
+	38, // [38:38] is the sub-list for extension extendee
+	0,  // [0:38] is the sub-list for field type_name
 }
 
 func init() { file_octodeck_v1_service_proto_init() }
@@ -4449,13 +6038,19 @@ func file_octodeck_v1_service_proto_init() {
 		return
 	}
 	file_octodeck_v1_resources_proto_init()
+	file_octodeck_v1_service_proto_msgTypes[42].OneofWrappers = []any{
+		(*watchNotificationsResponse_Notification)(nil),
+		(*watchNotificationsResponse_Summary)(nil),
+		(*watchNotificationsResponse_Badge)(nil),
+		(*watchNotificationsResponse_Heartbeat)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_octodeck_v1_service_proto_rawDesc), len(file_octodeck_v1_service_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   36,
+			NumEnums:      3,
+			NumMessages:   43,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
