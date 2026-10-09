@@ -1,6 +1,6 @@
 # Design: Dashboard Query Model
 
-**Status:** Phase 0 implemented. Phases 1–3 not started.
+**Status:** Phase 0 implemented. Phases 1–3 designed in detail (see [query_model_plan_overview.md](query_model_plan_overview.md) and the per-phase plans it links); not started.
 **Tracking:** [#14 Saved searches](https://github.com/tallclair/octodeck/issues/14), [#15 Selector multi-select](https://github.com/tallclair/octodeck/issues/15)
 
 ## 1. Motivation
@@ -37,9 +37,11 @@ Today [`DashboardFilterState`](../../frontend/src/types/filters.ts) is a flat se
 | Phase | Scope |
 |---|---|
 | **0** | Structured query model in the API, Go validator/evaluator, facets endpoint. Dashboard moves to backend filtering. **The UI is unchanged**: existing dropdowns and chips write predicates instead of separate fields. |
-| 1 | Multi-select (repo, author, label) and activity filter UI. |
-| 2 | Free-form query input that keeps the chips (TypeScript parser/formatter); `?q=` URLs with conversion of old links. |
+| 1 | Multi-select for every non-binary field (repo, org, author, assignee, milestone, label, activity) and activity filter UI; binary fields (type, tracking, draft, starred) and state stay single-select. |
+| 2 | Free-form query input that keeps the chips (tokenized chips, §7.1; TypeScript parser/formatter); the dashboard writes `?q=` URLs and keeps reading old structured links (§7.2). |
 | 3 | Saved searches replacing pinned repos (pin icon, naming modal, sidebar edit mode). |
+
+Phases 1–3 are specified, with ordered commit plans, in [query_model_plan_overview.md](query_model_plan_overview.md), [Phase 1](query_model_phase1_multiselect.md), [Phase 2](query_model_phase2_query_input.md) and [Phase 3](query_model_phase3_saved_searches.md).
 
 ## 3. Data model
 
@@ -85,7 +87,7 @@ Text is an **input format**, produced where users type (Phase 2 input, pasted Gi
 - **TypeScript owns syntax** (Phase 2): `parseQuery(text) -> Expr` and `formatQuery(Expr) -> text`, including `is:` expansion, quoting, commas and `-`. It runs locally on every keystroke, which the chips and autocomplete need anyway. It is tested as a round-trip property in TypeScript alone.
 - **Go owns semantics**: validation of the `Expr` (known field, non-empty values, legal values for closed sets, `triage:all` expansion, the implicit `triage:inbox`), `@me` resolution, and evaluation. The backend never trusts the client's tree.
 - **The proto is the single source of truth for the vocabulary**: the `Field` enum plus documented value sets for closed fields. The `is:` shorthand table is syntactic sugar and lives only in the frontend.
-- **There is no `ParseQuery` RPC and no Go parser.** Every place that needs text parsing (the Phase 2 input, pasted queries, URLs) is in the browser. Saved searches are stored as `Expr` and evaluated by Go without parsing. A Go parser can be added if a text consumer ever appears in Go (CLI, MCP tool).
+- **There is no `ParseQuery` RPC and no Go parser.** Every place that needs text parsing (the Phase 2 input, pasted queries, URLs, saved searches) is in the browser. Saved searches are stored as the user's query **text** in `config.json` and parsed by the browser, which sends the resulting `Expr`; the daemon stores the text and never parses it. *(This supersedes an earlier version of this section, which said saved searches are stored as `Expr` and evaluated by Go without parsing; see [Phase 3 plan §3](query_model_phase3_saved_searches.md#3-storage-configjson-with-the-query-text-as-the-source-of-truth-u13). The wire format stays structured.)* A Go parser can be added if a text consumer ever appears in Go (CLI, MCP tool, per-search notifications).
 
 **Alternatives considered**
 
@@ -186,7 +188,7 @@ Today the whole query is one substring that must appear in any of title, body, r
 - Separate words are ANDed; each is a case-insensitive substring match.
 - `"quoted phrases"` must match exactly.
 - A bare `#123` (or `123`) matches the item number.
-- `in:title` / `in:body` narrow the fields. `in:comments` may come later; comment data exists but is costly to search.
+- `in:title` / `in:body` narrow the fields. `in:comments` is out of scope (no demand); comment data exists but is costly to search.
 - No implicit matching on repo, author, label or milestone; those are reached through qualifiers. This is a behaviour change for anyone who types a repo name into the search box today.
 
 ### 4.6 Triage scope
@@ -212,7 +214,7 @@ Sort is **not** part of the query. It is a separate request field, and saved sea
   - The default dropdown view shows values with count > 0; the existing "show all" toggle also shows values with count 0.
   - For the `triage` field, removing its own predicates means `triage:all`, not the implicit inbox; otherwise acked would always count 0.
   - Sidebar per-repo inbox counts = `GetFacets({}, [repo])`; the unread dot = `GetFacets(new:any, [repo])`.
-- Later: `CountItems(Expr[] queries)` for saved-search badges.
+- Later (Phase 3): `CountItems(Expr[] queries)` for saved-search badges, returning per query the match count, how many of those match `new:any`, and how many are in the inbox, with per-query errors. Saved searches are stored as text, so the client parses each one and sends the resulting `Expr`s. The badge style depends on the saved query's triage scope (inbox, new activity, acked, all items); see [Phase 3 plan §6](query_model_phase3_saved_searches.md#6-countitems-and-badges-p13-p24).
 
 Returning facets inside `GetItems` (one round trip) and splitting dropdown options from badge counts into separate RPCs were both considered; one facets RPC covers both uses.
 
@@ -224,17 +226,34 @@ Returning facets inside `GetItems` (one round trip) and splitting dropdown optio
 ## 7. Frontend (Phase 0)
 
 - Structured filter state becomes a list of `{field, values[], negated}` predicates, replacing `DashboardFilterState`'s single-value fields, and is sent directly as an `Expr`. No text serialization in Phase 0.
-- URLs keep structured params (`repo=`, `author=`, ...), extended with repeated params for multiple values and a `-key=` prefix for negation. Existing links keep working. Switching to `?q=` happens in Phase 2, together with conversion of old links, once the TypeScript parser exists.
+- URLs keep structured params (`repo=`, `author=`, ...), extended with repeated params for multiple values and a `-key=` prefix for negation. Existing links keep working. Phase 2 switches the written format to `?q=` (§7.2).
 - `applyFilters` and the client-side `extractUnique*` helpers are removed in favour of `GetItems` / `GetFacets`.
 
-### 7.1 Phase 2 input (for context)
+### 7.1 Phase 2 input
 
 Two designs keep the chips while allowing free-form editing:
 
 1. **Tokenized input** (Gmail/Linear style): finished `key:value` tokens render as chips; the trailing text is editable; clicking a chip or backspacing into it turns it back into text; typing `key:` opens autocomplete. Closest to today's look.
 2. **Highlighted overlay** (GitHub's search bar): a plain text input with a styled layer behind it drawing qualifiers as pills. Fully free-form and much simpler focus/cursor handling, but the chips are only visual.
 
-Option 1 is preferred for familiarity; option 2 is the fallback if cursor handling proves too fiddly. This decision is deferred to Phase 2.
+**Decision: option 1, tokenized chips**, chosen after hands-on testing of a side-by-side prototype. Lessons from the prototype that the implementation must handle:
+
+- A comma adds another value (`key:a,b` is OR) instead of finishing a token; space and Enter finish a token; quoted values may contain spaces.
+- Click-to-caret inside a chip relies on `caretPositionFromPoint`/`caretRangeFromPoint` and on chips rendering their exact raw text, so chips show what the user typed, not a canonical form.
+- Native select-all, copy across chips and Ctrl+Z do not work with chips and need explicit handling (a custom undo stack, a copy handler that serializes the whole query).
+- Opening a chip while the draft holds unfinished text commits the draft.
+- Keyboard (Backspace into a chip, arrows, Home/End, Delete), IME and screen-reader accessibility need explicit design and tests.
+
+The interaction design is specified in [Phase 2 plan §6](query_model_phase2_query_input.md#6-tokenized-input-u1). The prototype was throwaway code and is deleted in Phase 2.
+
+### 7.2 URLs after Phase 2
+
+The plan to move to `?q=` was made when query strings were going to be sent to the backend. It was re-evaluated once the wire format became structured, and kept:
+
+- The dashboard **writes** the query as a single `?q=` in the text syntax; `sort`, `order` and `item` stay separate parameters. `?q=` can carry everything the parser can express (OR across fields, grouping and NOT if they are added later), which structured params cannot; it preserves the user's exact text, which option 1 chips need because they display raw text; and URLs become readable and can be pasted to and from GitHub-style queries.
+- The dashboard keeps **reading** the legacy structured parameters (`repo=`, `author=`, `triage=`, `-label=`, `assigned=me`, `triage=activity`, ...) indefinitely, so old bookmarks and links keep working. On load, legacy parameters are converted to text with `formatQuery`, ANDed with any `?q=`, and the URL is rewritten in place with `history.replaceState`.
+- It never writes both formats: a single written form avoids two sources of truth.
+- Accepted behaviour change: `q=` already exists as plain free-text search. Bare words still parse as text terms, so `?q=flaky` behaves the same, but an old `q=` value containing qualifier-like text (`repo:x`) or a leading `-` is now read as syntax.
 
 ## 8. Testing
 
@@ -244,8 +263,13 @@ Option 1 is preferred for familiarity; option 2 is the fallback if cursor handli
 
 ## 9. Open items
 
-- Whether saved searches also keep the user's original text for display (Phase 3).
-- `in:comments` support for free text.
-- Phase 2 input design: tokenized chips vs. highlighted overlay (§7.1).
+None. All Phase 1–3 questions are decided; see [query_model_plan_overview.md §2](query_model_plan_overview.md#2-decisions).
 
-**Resolved:** closed-value sets are validated strings in `Predicate.values`, documented on each `Field` enum value in `query.proto`, rather than per-field enums. This keeps `Predicate` uniform across open and closed fields.
+**Non-goal:** `in:comments` support for free text (no demand).
+
+**Resolved:**
+
+- Closed-value sets are validated strings in `Predicate.values`, documented on each `Field` enum value in `query.proto`, rather than per-field enums. This keeps `Predicate` uniform across open and closed fields.
+- Phase 2 input design: tokenized chips (§7.1).
+- Saved searches store the user's original query text, in `config.json`, as their only form; there is no stored `Expr` (§3.3; [Phase 3 plan §3](query_model_phase3_saved_searches.md#3-storage-configjson-with-the-query-text-as-the-source-of-truth-u13)).
+- Saved-search badges depend on the saved query's triage scope; all-items searches show the inbox badge, or the acked style when no match is in the inbox ([Phase 3 plan §6.1](query_model_phase3_saved_searches.md#61-badge-semantics-by-triage-scope-u12-u14-p21)).
