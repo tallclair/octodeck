@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useDashboardFilters } from '../useDashboardFilters';
-import { DEFAULT_FILTER_STATE } from '../../types/filters';
+import { Field } from '../../api/octodeck/v1/query_pb';
+import { DEFAULT_FILTER_CONTROLS } from '../../types/filters';
 
 describe('useDashboardFilters hook', () => {
   beforeEach(() => {
@@ -11,7 +12,7 @@ describe('useDashboardFilters hook', () => {
 
   it('initializes with default filters when URL search is empty', () => {
     const { result } = renderHook(() => useDashboardFilters());
-    expect(result.current.filters).toEqual(DEFAULT_FILTER_STATE);
+    expect(result.current.filters).toEqual(DEFAULT_FILTER_CONTROLS);
     expect(result.current.isDefault).toBe(true);
     expect(result.current.activeCount).toBe(0);
   });
@@ -49,7 +50,7 @@ describe('useDashboardFilters hook', () => {
       result.current.applyWorkflowShortcut('inbox');
     });
 
-    expect(result.current.filters).toEqual(DEFAULT_FILTER_STATE);
+    expect(result.current.filters).toEqual(DEFAULT_FILTER_CONTROLS);
     expect(window.location.search).toBe('');
   });
 
@@ -75,7 +76,7 @@ describe('useDashboardFilters hook', () => {
       result.current.resetFilters();
     });
 
-    expect(result.current.filters).toEqual(DEFAULT_FILTER_STATE);
+    expect(result.current.filters).toEqual(DEFAULT_FILTER_CONTROLS);
     expect(window.location.search).toBe('');
   });
 
@@ -117,7 +118,7 @@ describe('useDashboardFilters hook', () => {
     });
 
     expect(result.current.filters.label).toBe('kind/bug');
-    expect(window.location.search).toContain('label=kind%2Fbug');
+    expect(window.location.search).toContain('label=kind/bug');
 
     act(() => {
       result.current.setFilter('label', null);
@@ -182,5 +183,116 @@ describe('useDashboardFilters hook', () => {
     });
 
     expect(result.current.filters.tracking).toBe('untracked');
+  });
+
+  it('initializes the predicate list from the legacy example URL, in URL order', () => {
+    window.history.pushState(null, '', '/?repo=a/b&author=x&triage=acked&state=closed&label=bug');
+    const { result } = renderHook(() => useDashboardFilters());
+
+    expect(result.current.query.predicates).toEqual([
+      { field: Field.REPO, values: ['a/b'], negated: false },
+      { field: Field.AUTHOR, values: ['x'], negated: false },
+      { field: Field.TRIAGE, values: ['acked'], negated: false },
+      { field: Field.STATE, values: ['closed'], negated: false },
+      { field: Field.LABEL, values: ['bug'], negated: false },
+    ]);
+    expect(result.current.filters).toMatchObject({ repo: 'a/b', author: 'x', triage: 'acked', state: 'closed', label: 'bug' });
+    expect(result.current.extraPredicates).toEqual([]);
+  });
+
+  it('keeps the remaining parameter order when a control is cleared', () => {
+    window.history.pushState(null, '', '/?repo=a/b&author=x&triage=acked&state=closed&label=bug');
+    const pushStateSpy = vi.spyOn(window.history, 'pushState');
+    const { result } = renderHook(() => useDashboardFilters());
+
+    act(() => {
+      result.current.setFilter('label', null);
+    });
+
+    expect(pushStateSpy).toHaveBeenCalledWith(null, '', '/?repo=a/b&author=x&triage=acked&state=closed');
+    pushStateSpy.mockRestore();
+  });
+
+  it('keeps raw search text in state and writes it trimmed with replaceState', () => {
+    const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
+    const { result } = renderHook(() => useDashboardFilters());
+
+    act(() => {
+      result.current.setFilter('q', 'foo ', true);
+    });
+
+    expect(result.current.filters.q).toBe('foo ');
+    expect(result.current.query.q).toBe('foo ');
+    expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/?q=foo');
+    replaceStateSpy.mockRestore();
+  });
+
+  it('stores the New tab as new:any and writes triage=activity', () => {
+    const { result } = renderHook(() => useDashboardFilters());
+
+    act(() => {
+      result.current.setFilter('triage', 'activity');
+    });
+
+    expect(window.location.search).toBe('?triage=activity');
+    expect(result.current.query.predicates).toEqual([{ field: Field.NEW, values: ['any'], negated: false }]);
+    expect(result.current.filters.triage).toBe('activity');
+  });
+
+  it('reports repeated and negated parameters as extra predicates and removes them by index', () => {
+    window.history.pushState(null, '', '/?-label=bug&label=a&label=b');
+    const { result } = renderHook(() => useDashboardFilters());
+
+    expect(result.current.filters.label).toBeNull();
+    expect(result.current.extraPredicates).toEqual([
+      { predicate: { field: Field.LABEL, values: ['bug'], negated: true }, index: 0 },
+      { predicate: { field: Field.LABEL, values: ['a', 'b'], negated: false }, index: 1 },
+    ]);
+    expect(result.current.activeCount).toBe(2);
+
+    act(() => {
+      result.current.removePredicateAt(0);
+    });
+
+    expect(window.location.search).toBe('?label=a&label=b');
+    expect(result.current.extraPredicates).toHaveLength(1);
+  });
+
+  it('clears secondary filters but keeps the triage tab, type and search text', () => {
+    window.history.pushState(null, '', '/?triage=acked&type=pr&repo=a/b&-label=x&q=foo');
+    const { result } = renderHook(() => useDashboardFilters());
+
+    act(() => {
+      result.current.clearSecondaryFilters();
+    });
+
+    expect(window.location.search).toBe('?triage=acked&type=pr&q=foo');
+    expect(result.current.extraPredicates).toEqual([]);
+  });
+
+  it('re-parses repeated and negated parameters on popstate', () => {
+    const { result } = renderHook(() => useDashboardFilters());
+
+    act(() => {
+      window.history.pushState(null, '', '/?author=a&author=b&-repo=x/y');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    expect(result.current.query.predicates).toEqual([
+      { field: Field.AUTHOR, values: ['a', 'b'], negated: false },
+      { field: Field.REPO, values: ['x/y'], negated: true },
+    ]);
+  });
+
+  it('does not touch browser history on mount', () => {
+    window.history.pushState(null, '', '/?repo=a%2Fb&triage=inbox');
+    const pushStateSpy = vi.spyOn(window.history, 'pushState');
+    const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
+    renderHook(() => useDashboardFilters());
+
+    expect(pushStateSpy).not.toHaveBeenCalled();
+    expect(replaceStateSpy).not.toHaveBeenCalled();
+    pushStateSpy.mockRestore();
+    replaceStateSpy.mockRestore();
   });
 });

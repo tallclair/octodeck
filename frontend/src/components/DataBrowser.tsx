@@ -32,6 +32,10 @@ import { client } from '../api/client';
 import { type Item, type SyncTrace } from '../api/octodeck/v1/resources_pb';
 import { formatExactDateTime, formatCompactTime } from '../utils/time';
 import { UNKNOWN_LOGIN } from '../logic/timeline';
+import { ALL_ITEMS_QUERY } from '../logic/query/expr';
+
+// The data browser shows every stored item, acked included (GetItems is inbox-scoped by default).
+const ALL_ITEMS_REQUEST = { query: ALL_ITEMS_QUERY };
 
 interface DataBrowserProps {
   onBack: (targetItemId?: string) => void;
@@ -149,7 +153,7 @@ export function DataBrowser({ onBack, initialSelectedItemId, initialTab = 'items
     isLoading: isProtoItemsLoading,
     error: protoItemsError,
     refetch: refetchItems,
-  } = useQuery(getItems, {});
+  } = useQuery(getItems, ALL_ITEMS_REQUEST);
 
   const { data: protoConfigData, refetch: refetchConfig } = useQuery(getConfig, {});
 

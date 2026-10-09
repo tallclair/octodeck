@@ -27,7 +27,6 @@ import {
 import { useQuery, useMutation } from '@connectrpc/connect-query';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  getItems,
   ackItem,
   starItem,
   setNotes,
@@ -37,10 +36,8 @@ import {
   updateSubscription,
 } from '../api/octodeck/v1/service-OctoDeckService_connectquery';
 import {
-  ItemStatus as ProtoItemStatus,
   SubscriptionState,
   type Item,
-  type Label,
 } from '../api/octodeck/v1/resources_pb';
 import { client, checkStatus } from '../api/client';
 import { PullRequestCard } from './PullRequestCard';
@@ -49,29 +46,16 @@ import { SyncStatusDisplay } from './SyncStatusDisplay';
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
 import { Settings } from '../Settings';
 import { useDashboardFilters } from '../hooks/useDashboardFilters';
+import { useDashboardData } from '../hooks/useDashboardData';
 import { useScrollAnchoring } from '../hooks/useScrollAnchoring';
 import { useKeyboardNavigation } from '../hooks/useKeyboardNavigation';
-import {
-  applyFilters,
-  extractUniqueOrgsAndRepos,
-  extractUniqueAuthors,
-  extractUniqueMilestones,
-  extractUniqueLabels,
-} from '../logic/filterEngine';
+import { formatPredicateChip } from '../logic/query/predicates';
 
 interface DashboardProps {
   onOpenDebug?: (targetItemId?: string) => void;
 }
 
 export function Dashboard({ onOpenDebug }: DashboardProps) {
-  const { data: itemsData, isLoading: itemsLoading, isError: isItemsError, refetch: refetchItems } = useQuery(
-    getItems,
-    {},
-    {
-      refetchInterval: 3000,
-      staleTime: 1000,
-    }
-  );
   const { data: configData, isError: isConfigError, refetch: refetchConfig } = useQuery(getConfig, {});
   const { data: syncStatusData, isError: isSyncStatusError, refetch: refetchSyncStatus } = useQuery(
     getSyncStatus,
@@ -82,7 +66,6 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
     }
   );
 
-  const isDisconnected = isItemsError || isConfigError || isSyncStatusError;
   const queryClient = useQueryClient();
   const { mutateAsync: ackItemMutate } = useMutation(ackItem);
   const { mutateAsync: starItemMutate } = useMutation(starItem);
@@ -149,11 +132,15 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   });
 
   const {
+    query,
     filters,
+    extraPredicates,
     setFilter,
     setFilters,
     applyWorkflowShortcut,
     toggleRepo,
+    clearSecondaryFilters,
+    removePredicateAt,
   } = useDashboardFilters();
 
   const selectedItemId = filters.item;
@@ -172,15 +159,22 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
     }
   };
 
-  const items: Item[] = useMemo(() => itemsData?.items || [], [itemsData?.items]);
   const configPinnedRepos = configData?.config?.pinnedRepos;
   const pinnedRepos = useMemo(() => configPinnedRepos || [], [configPinnedRepos]);
   const currentUser = configData?.currentUserLogin || null;
 
-  const { pinnedList, otherList, activeOtherList, hiddenOtherList } = useMemo(
-    () => extractUniqueOrgsAndRepos(items, pinnedRepos),
-    [items, pinnedRepos]
-  );
+  // Items, dropdown options and sidebar counts, all filtered and counted by the daemon.
+  const data = useDashboardData({
+    query,
+    filters,
+    pinnedRepos,
+    showAll: { repos: showAllRepos, authors: showAllAuthors, milestones: showAllMilestones, labels: showAllLabels },
+  });
+  const { items, refreshAll } = data;
+  // An invalid query is reported inline; only connectivity failures mean "disconnected".
+  const isDisconnected = data.hasConnectivityError || isConfigError || isSyncStatusError;
+
+  const { pinnedList, otherList, activeOtherList, hiddenOtherList } = data.sidebar;
 
   const hasActiveChips = useMemo(() => {
     return (
@@ -191,34 +185,17 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
       Boolean(filters.author) ||
       Boolean(filters.milestone) ||
       Boolean(filters.label) ||
-      filters.assigned === 'me'
+      filters.assigned === 'me' ||
+      extraPredicates.length > 0
     );
-  }, [filters.state, filters.tracking, filters.repo, filters.org, filters.author, filters.milestone, filters.label, filters.assigned]);
+  }, [filters.state, filters.tracking, filters.repo, filters.org, filters.author, filters.milestone, filters.label, filters.assigned, extraPredicates.length]);
 
-  const clearSecondaryFilters = () => {
-    setFilters({
-      state: 'all',
-      tracking: 'all',
-      repo: null,
-      org: null,
-      author: null,
-      milestone: null,
-      label: null,
-      assigned: 'all',
-    });
-  };
-
-  const filteredItems = useMemo(
-    () => applyFilters(items, filters, currentUser),
-    [items, filters, currentUser]
-  );
-
-  const filteredItemIds = useMemo(() => filteredItems.map(i => i.id), [filteredItems]);
-  const filterKey = `${filters.triage}|${filters.state}|${filters.tracking}|${filters.type}|${filters.repo || ''}|${filters.org || ''}|${filters.author || ''}|${filters.milestone || ''}|${filters.label || ''}|${filters.assigned}|${filters.q}|${filters.sort}|${filters.order}`;
+  const itemIds = useMemo(() => items.map(i => i.id), [items]);
 
   const { scrollContainerRef } = useScrollAnchoring({
-    itemIds: filteredItemIds,
-    filterKey,
+    itemIds,
+    // The key of the result on screen, so a filter change resets the scroll when its result arrives.
+    filterKey: data.settledKey,
     animationDurationMs: 400,
   });
 
@@ -236,10 +213,10 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   useEffect(() => {
     if (prevSyncingRef.current && !daemonIsSyncing) {
       // Daemon just finished syncing, immediately refresh items
-      refetchItems();
+      refreshAll();
     }
     prevSyncingRef.current = daemonIsSyncing;
-  }, [daemonIsSyncing, refetchItems]);
+  }, [daemonIsSyncing, refreshAll]);
 
   const prevTimestampsRef = useRef<{ updateKey: string; syncKey: string } | null>(null);
   useEffect(() => {
@@ -255,152 +232,27 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
       (lastSyncKey && lastSyncKey !== prevTimestampsRef.current.syncKey)
     ) {
       prevTimestampsRef.current = { updateKey: lastUpdateKey, syncKey: lastSyncKey };
-      refetchItems();
+      refreshAll();
     }
-  }, [lastUpdateKey, lastSyncKey, refetchItems]);
+  }, [lastUpdateKey, lastSyncKey, refreshAll]);
 
-  // Author filter options (filtered to displayed items by default, with show-all toggle)
-  const displayedAuthors = useMemo(() => {
-    const authors = new Set(extractUniqueAuthors(filteredItems));
-    if (filters.author) {
-      authors.add(filters.author);
-    }
-    return Array.from(authors).sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: 'base' })
-    );
-  }, [filteredItems, filters.author]);
-
-  const allAuthors = useMemo(() => {
-    const authors = new Set(extractUniqueAuthors(items));
-    if (filters.author) {
-      authors.add(filters.author);
-    }
-    return Array.from(authors).sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: 'base' })
-    );
-  }, [items, filters.author]);
-
-  const hasMoreAuthors = useMemo(() => {
-    return allAuthors.length > displayedAuthors.length || allAuthors.some(a => !displayedAuthors.includes(a));
-  }, [allAuthors, displayedAuthors]);
-
-  const currentAuthorsList = showAllAuthors ? allAuthors : displayedAuthors;
+  // Dropdown options from the daemon's facets: values with matches by default, every known
+  // value with "Show all", and the selected value always.
+  const { list: currentAuthorsList, hasMore: hasMoreAuthors } = data.options.authors;
 
   const authorDropdownList = useMemo(() => {
-    const hasCurrentUser = currentUser && currentAuthorsList.includes(currentUser);
-    const otherAuthors = currentAuthorsList.filter(a => a !== currentUser);
+    const isCurrentUser = (a: string) => Boolean(currentUser) && a.toLowerCase() === currentUser?.toLowerCase();
+    const listedCurrentUser = currentAuthorsList.find(isCurrentUser) ?? null;
+    const otherAuthors = currentAuthorsList.filter(a => !isCurrentUser(a));
     return {
-      currentUser: hasCurrentUser ? currentUser : null,
+      currentUser: listedCurrentUser,
       otherAuthors,
     };
   }, [currentAuthorsList, currentUser]);
 
-  // Milestone filter options (filtered to displayed items by default, with show-all toggle)
-  const displayedMilestones = useMemo(() => {
-    const milestones = new Set(extractUniqueMilestones(filteredItems));
-    if (filters.milestone) {
-      milestones.add(filters.milestone);
-    }
-    return Array.from(milestones).sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: 'base' })
-    );
-  }, [filteredItems, filters.milestone]);
-
-  const allMilestones = useMemo(() => {
-    const milestones = new Set(extractUniqueMilestones(items));
-    if (filters.milestone) {
-      milestones.add(filters.milestone);
-    }
-    return Array.from(milestones).sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: 'base' })
-    );
-  }, [items, filters.milestone]);
-
-  const hasMoreMilestones = useMemo(() => {
-    return allMilestones.length > displayedMilestones.length || allMilestones.some(m => !displayedMilestones.includes(m));
-  }, [allMilestones, displayedMilestones]);
-
-  const currentMilestonesList = showAllMilestones ? allMilestones : displayedMilestones;
-
-  // Label filter options (filtered to displayed items by default, with show-all toggle)
-  const displayedLabels = useMemo(() => {
-    const labels = extractUniqueLabels(filteredItems);
-    if (filters.label && !labels.some(l => l.name?.toLowerCase() === filters.label?.toLowerCase())) {
-      labels.push({ name: filters.label, color: '', description: '' } as Label);
-      labels.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-    }
-    return labels;
-  }, [filteredItems, filters.label]);
-
-  const allLabels = useMemo(() => {
-    const labels = extractUniqueLabels(items);
-    if (filters.label && !labels.some(l => l.name?.toLowerCase() === filters.label?.toLowerCase())) {
-      labels.push({ name: filters.label, color: '', description: '' } as Label);
-      labels.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
-    }
-    return labels;
-  }, [items, filters.label]);
-
-  const hasMoreLabels = useMemo(() => {
-    return allLabels.length > displayedLabels.length || allLabels.some(l => !displayedLabels.some(d => d.name === l.name));
-  }, [allLabels, displayedLabels]);
-
-  const currentLabelsList = showAllLabels ? allLabels : displayedLabels;
-
-  // Repository & Org filter options (filtered to displayed items by default, with show-all toggle)
-  const displayedOrgsAndRepos = useMemo(() => {
-    const { orgs, reposByOrg } = extractUniqueOrgsAndRepos(filteredItems);
-    if (filters.repo && filters.repo.includes('/')) {
-      const [org] = filters.repo.split('/');
-      if (!orgs.includes(org)) {
-        orgs.push(org);
-        orgs.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-      }
-      if (!reposByOrg[org]) {
-        reposByOrg[org] = [];
-      }
-      if (!reposByOrg[org].includes(filters.repo)) {
-        reposByOrg[org].push(filters.repo);
-        reposByOrg[org].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-      }
-    } else if (filters.org) {
-      if (!orgs.includes(filters.org)) {
-        orgs.push(filters.org);
-        orgs.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-        if (!reposByOrg[filters.org]) {
-          reposByOrg[filters.org] = [];
-        }
-      }
-    }
-    return { orgs, reposByOrg };
-  }, [filteredItems, filters.repo, filters.org]);
-
-  const allDropdownOrgsAndRepos = useMemo(
-    () => extractUniqueOrgsAndRepos(items, pinnedRepos),
-    [items, pinnedRepos]
-  );
-
-  const hasMoreRepos = useMemo(() => {
-    const displayedRepoCount = Object.values(displayedOrgsAndRepos.reposByOrg).reduce(
-      (acc, repos) => acc + repos.length,
-      0
-    );
-    const allRepoCount = Object.values(allDropdownOrgsAndRepos.reposByOrg).reduce(
-      (acc, repos) => acc + repos.length,
-      0
-    );
-    if (allRepoCount > displayedRepoCount) return true;
-    if (allDropdownOrgsAndRepos.orgs.some(org => !displayedOrgsAndRepos.orgs.includes(org))) return true;
-    for (const org of allDropdownOrgsAndRepos.orgs) {
-      const allR = allDropdownOrgsAndRepos.reposByOrg[org] || [];
-      const dispR = displayedOrgsAndRepos.reposByOrg[org] || [];
-      if (allR.some(r => !dispR.includes(r))) return true;
-    }
-    return false;
-  }, [displayedOrgsAndRepos, allDropdownOrgsAndRepos]);
-
-  const dropdownOrgs = showAllRepos ? allDropdownOrgsAndRepos.orgs : displayedOrgsAndRepos.orgs;
-  const dropdownReposByOrg = showAllRepos ? allDropdownOrgsAndRepos.reposByOrg : displayedOrgsAndRepos.reposByOrg;
+  const { list: currentMilestonesList, hasMore: hasMoreMilestones } = data.options.milestones;
+  const { list: currentLabelsList, hasMore: hasMoreLabels } = data.options.labels;
+  const { orgs: dropdownOrgs, reposByOrg: dropdownReposByOrg, hasMore: hasMoreRepos } = data.options.repos;
 
   const handleManualSync = async () => {
     setIsSyncing(true);
@@ -410,7 +262,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
           console.debug('Sync progress:', res.message);
         }
       }
-      await refetchItems();
+      await refreshAll();
       await refetchSyncStatus();
     } catch (err) {
       console.error('Failed to trigger manual sync from GitHub:', err);
@@ -437,7 +289,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
       } else {
         await mutationPromise;
       }
-      await refetchItems();
+      await refreshAll();
     } catch (err) {
       console.error('Failed to ack item:', err);
       showError(err, 'Failed to acknowledge item');
@@ -454,7 +306,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   const handleUnack = async (id: string) => {
     try {
       await ackItemMutate({ itemId: id, acked: false });
-      await refetchItems();
+      await refreshAll();
     } catch (err) {
       console.error('Failed to unack item:', err);
       showError(err, 'Failed to un-acknowledge item');
@@ -464,7 +316,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   const handleStar = async (id: string, starred: boolean) => {
     try {
       await starItemMutate({ itemId: id, starred });
-      await refetchItems();
+      await refreshAll();
     } catch (err) {
       console.error('Failed to star item:', err);
       showError(err, `Failed to ${starred ? 'star' : 'unstar'} item`);
@@ -474,7 +326,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   const handleSetNotes = async (id: string, notes: string) => {
     try {
       await setNotesMutate({ itemId: id, notes });
-      await refetchItems();
+      await refreshAll();
     } catch (err) {
       console.error('Failed to set notes for item:', id, err);
       showError(err, 'Failed to save notes');
@@ -509,7 +361,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
       if (queryClient?.invalidateQueries) {
         await queryClient.invalidateQueries();
       }
-      await refetchItems();
+      await refreshAll();
     } catch (err) {
       console.error('Failed to subscribe to item:', id, err);
       showError(err, 'Failed to subscribe to item on GitHub');
@@ -518,15 +370,8 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
 
 
 
-  const selectedItem = useMemo(
-    () =>
-      items.find(
-        i =>
-          i.id === selectedItemId ||
-          (selectedItemId && `${i.repo}#${i.number}` === selectedItemId)
-      ) || null,
-    [items, selectedItemId]
-  );
+  // From the current result, or fetched directly when it is outside the query.
+  const selectedItem = data.selectedItem;
 
   const [prevSelectedItem, setPrevSelectedItem] = useState<Item | null>(null);
   const [recentItem, setRecentItem] = useState<Item | null>(selectedItem);
@@ -538,10 +383,10 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   useEffect(() => {
     if (selectedItemId) {
       viewItemMutate({ itemId: selectedItemId })
-        .then(() => refetchItems())
+        .then(() => refreshAll())
         .catch(err => console.error('Failed to record view for item:', selectedItemId, err));
     }
-  }, [selectedItemId, viewItemMutate, refetchItems]);
+  }, [selectedItemId, viewItemMutate, refreshAll]);
 
   const anyMenuOpen =
     statusMenuOpen ||
@@ -557,7 +402,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
     showShortcutsModal,
     setShowShortcutsModal,
   } = useKeyboardNavigation({
-    items: filteredItems,
+    items,
     selectedItemId,
     onSelectItem: (id) => setFilter('item', id),
     onAckItem: handleAck,
@@ -624,56 +469,21 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [statusMenuOpen, stateMenuOpen, repoMenuOpen, authorMenuOpen, milestoneMenuOpen, labelMenuOpen, sortMenuOpen]);
 
-  // Activity & inbox counts for sidebar badges
-  const { repoInboxCounts, repoHasUnread } = useMemo(() => {
-    const inboxCounts: Record<string, number> = {};
-    const hasUnread: Record<string, boolean> = {};
+  // Sidebar badges: per-repo inbox counts (GetFacets({}, [repo])) and the unread dot
+  // (GetFacets(new:any, [repo])), keyed by lower-cased repo name.
+  const { repoInboxCounts, repoHasUnread, totals: sidebarTotals } = data;
+  const repoBadge = (repo: string) => ({
+    inboxCount: repoInboxCounts[repo.toLowerCase()] || 0,
+    hasUnread: repoHasUnread.has(repo.toLowerCase()),
+  });
 
-    items.forEach(item => {
-      if (!item.repo) return;
-      const status = item.local?.computedStatus;
-      if (status !== ProtoItemStatus.ACKED) {
-        inboxCounts[item.repo] = (inboxCounts[item.repo] || 0) + 1;
-        if (status !== ProtoItemStatus.IDLE && status !== ProtoItemStatus.NOISE) {
-          hasUnread[item.repo] = true;
-        }
-      }
-    });
-
-    return { repoInboxCounts: inboxCounts, repoHasUnread: hasUnread };
-  }, [items]);
-
-  // Determine active workflow shortcut
-  const isInboxActive =
-    filters.triage === 'inbox' &&
-    !filters.repo &&
-    !filters.org &&
-    !filters.author &&
-    filters.state === 'all' &&
-    filters.tracking === 'all' &&
-    filters.type === 'all' &&
-    filters.assigned === 'all' &&
-    !filters.q;
-  const isActivityActive =
-    filters.triage === 'activity' &&
-    !filters.repo &&
-    !filters.org &&
-    !filters.author &&
-    filters.state === 'all' &&
-    filters.tracking === 'all' &&
-    filters.type === 'all' &&
-    filters.assigned === 'all' &&
-    !filters.q;
-  const isAckedActive =
-    filters.triage === 'acked' &&
-    !filters.repo &&
-    !filters.org &&
-    !filters.author &&
-    filters.state === 'all' &&
-    filters.tracking === 'all' &&
-    filters.type === 'all' &&
-    filters.assigned === 'all' &&
-    !filters.q;
+  // Determine active workflow shortcut (no secondary filters, type=all, no search text)
+  const hasNoSecondaryFilters = !hasActiveChips && filters.type === 'all' && !filters.q.trim();
+  const isInboxActive = filters.triage === 'inbox' && hasNoSecondaryFilters;
+  const isActivityActive = filters.triage === 'activity' && hasNoSecondaryFilters;
+  const isAckedActive = filters.triage === 'acked' && hasNoSecondaryFilters;
+  const eqCi = (a: string | null | undefined, b: string | null | undefined) =>
+    Boolean(a && b && a.toLowerCase() === b.toLowerCase());
 
   const handleOrgRepoChange = (value: string) => {
     if (!value) {
@@ -705,7 +515,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
       <Layers size={18} className="text-slate-400" />
     );
 
-  if (itemsLoading && !isDisconnected) {
+  if (data.isInitialLoading && !isDisconnected) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center text-slate-500">
         <div className="animate-pulse flex flex-col items-center">
@@ -734,7 +544,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
           <button
             type="button"
             onClick={async () => {
-              await Promise.allSettled([refetchItems(), refetchConfig(), refetchSyncStatus()]);
+              await Promise.allSettled([refreshAll(), refetchConfig(), refetchSyncStatus()]);
             }}
             className="px-3 py-1 bg-white text-red-700 hover:bg-red-50 active:bg-red-100 rounded-md text-xs font-bold shrink-0 transition-colors shadow-xs cursor-pointer flex items-center gap-1.5"
           >
@@ -760,7 +570,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
           <Search size={14} className="absolute left-3 top-2.5 text-slate-400 dark:text-slate-500" />
           <input
             type="text"
-            placeholder="Search items, repo, author..."
+            placeholder="Search title and body..."
             value={filters.q}
             onChange={(e) => setFilter('q', e.target.value, true)}
             className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full py-1.5 pl-9 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-800 dark:text-slate-300 placeholder:text-slate-400 dark:placeholder:text-slate-500"
@@ -783,7 +593,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
         <Settings
           onClose={() => setShowSettings(false)}
           onSave={() => {
-            refetchItems();
+            refreshAll();
             refetchConfig();
             refetchSyncStatus();
           }}
@@ -826,7 +636,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
               <span>Inbox</span>
             </div>
             <span className={`px-1.5 rounded text-xs font-mono ${isInboxActive ? 'bg-blue-700 text-white' : 'bg-slate-200 dark:bg-slate-800/50 text-slate-700 dark:text-slate-300'}`}>
-              {items.filter(i => i.local?.computedStatus !== ProtoItemStatus.ACKED).length}
+              {sidebarTotals.inbox}
             </span>
           </button>
 
@@ -844,7 +654,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
               <span>New</span>
             </div>
             <span className={`px-1.5 rounded text-xs font-mono ${isActivityActive ? 'bg-blue-700 text-white' : 'bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300'}`}>
-              {items.filter(i => i.local?.computedStatus !== ProtoItemStatus.ACKED && i.local?.computedStatus !== ProtoItemStatus.IDLE && i.local?.computedStatus !== ProtoItemStatus.NOISE).length}
+              {sidebarTotals.new}
             </span>
           </button>
 
@@ -862,7 +672,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
               <span>Acked</span>
             </div>
             <span className={`px-1.5 rounded text-xs font-mono ${isAckedActive ? 'bg-blue-700 text-white' : 'bg-slate-200 dark:bg-slate-800/50 text-slate-700 dark:text-slate-300'}`}>
-              {items.filter(i => i.local?.computedStatus === ProtoItemStatus.ACKED).length}
+              {sidebarTotals.acked}
             </span>
           </button>
 
@@ -875,15 +685,14 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
               </div>
               <div className="space-y-0.5">
                 {pinnedList.map(repo => {
-                  const inboxCount = repoInboxCounts[repo] || 0;
-                  const hasUnread = Boolean(repoHasUnread[repo]);
+                  const { inboxCount, hasUnread } = repoBadge(repo);
                   return (
                     <button
                       key={repo}
                       type="button"
                       onClick={() => toggleRepo(repo)}
                       className={`w-full group px-3 py-1.5 text-sm flex items-center justify-between rounded cursor-pointer transition-colors ${
-                        filters.repo === repo
+                        eqCi(filters.repo, repo)
                           ? 'bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-slate-200 font-medium'
                           : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-900 hover:text-slate-900 dark:hover:text-slate-100'
                       }`}
@@ -917,15 +726,14 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
             </div>
             <div className="space-y-0.5">
               {activeOtherList.map(repo => {
-                const inboxCount = repoInboxCounts[repo] || 0;
-                const hasUnread = Boolean(repoHasUnread[repo]);
+                const { inboxCount, hasUnread } = repoBadge(repo);
                 return (
                   <button
                     key={repo}
                     type="button"
                     onClick={() => toggleRepo(repo)}
                     className={`w-full group px-3 py-1.5 text-sm flex items-center justify-between rounded cursor-pointer transition-colors ${
-                      filters.repo === repo
+                      eqCi(filters.repo, repo)
                         ? 'bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-slate-200 font-medium'
                         : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-900 hover:text-slate-900 dark:hover:text-slate-200'
                     }`}
@@ -961,15 +769,14 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                   {showHiddenRepos && (
                     <div className="space-y-0.5 mt-0.5" data-testid="hidden-repos-list">
                       {hiddenOtherList.map(repo => {
-                        const inboxCount = repoInboxCounts[repo] || 0;
-                        const hasUnread = Boolean(repoHasUnread[repo]);
+                        const { inboxCount, hasUnread } = repoBadge(repo);
                         return (
                           <button
                             key={repo}
                             type="button"
                             onClick={() => toggleRepo(repo)}
                             className={`w-full group px-3 py-1.5 text-sm flex items-center justify-between rounded cursor-pointer transition-colors ${
-                              filters.repo === repo
+                              eqCi(filters.repo, repo)
                                 ? 'bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-slate-200 font-medium'
                                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-900 hover:text-slate-900 dark:hover:text-slate-200'
                             }`}
@@ -1319,13 +1126,13 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                                     setShowAllRepos(false);
                                   }}
                                   className={`w-full px-3 py-1.5 text-xs text-left font-bold uppercase tracking-wider flex items-center justify-between transition-colors cursor-pointer ${
-                                    filters.org === org && !filters.repo
+                                    eqCi(filters.org, org) && !filters.repo
                                       ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300'
                                       : 'text-slate-500 dark:text-slate-400 bg-slate-100/50 dark:bg-slate-950/40 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
                                   }`}
                                 >
                                   <span className="truncate">{org}</span>
-                                  {filters.org === org && !filters.repo && (
+                                  {eqCi(filters.org, org) && !filters.repo && (
                                     <Check size={13} className="text-blue-600 dark:text-blue-400" />
                                   )}
                                 </button>
@@ -1339,13 +1146,13 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                                       setShowAllRepos(false);
                                     }}
                                     className={`w-full pl-6 pr-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                                      filters.repo === r
+                                      eqCi(filters.repo, r)
                                         ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
                                         : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
                                     }`}
                                   >
                                     <span className="truncate">{r}</span>
-                                    {filters.repo === r && <Check size={13} className="text-blue-600 dark:text-blue-400" />}
+                                    {eqCi(filters.repo, r) && <Check size={13} className="text-blue-600 dark:text-blue-400" />}
                                   </button>
                                 ))}
                               </div>
@@ -1404,13 +1211,13 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                                     setShowAllAuthors(false);
                                   }}
                                   className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                                    filters.author === authorDropdownList.currentUser
+                                    eqCi(filters.author, authorDropdownList.currentUser)
                                       ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
                                       : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
                                   }`}
                                 >
                                   <span className="truncate font-medium">@{authorDropdownList.currentUser} (you)</span>
-                                  {filters.author === authorDropdownList.currentUser && (
+                                  {eqCi(filters.author, authorDropdownList.currentUser) && (
                                     <Check size={13} className="text-blue-600 dark:text-blue-400" />
                                   )}
                                 </button>
@@ -1429,13 +1236,13 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                                   setShowAllAuthors(false);
                                 }}
                                 className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                                  filters.author === author
+                                  eqCi(filters.author, author)
                                     ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
                                     : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
                                 }`}
                               >
                                 <span className="truncate">@{author}</span>
-                                {filters.author === author && <Check size={13} className="text-blue-600 dark:text-blue-400" />}
+                                {eqCi(filters.author, author) && <Check size={13} className="text-blue-600 dark:text-blue-400" />}
                               </button>
                             ))}
                             {!authorDropdownList.currentUser && authorDropdownList.otherAuthors.length === 0 && (
@@ -1492,13 +1299,13 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                                   setShowAllMilestones(false);
                                 }}
                                 className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                                  filters.milestone === milestone
+                                  eqCi(filters.milestone, milestone)
                                     ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
                                     : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
                                 }`}
                               >
                                 <span className="truncate">{milestone}</span>
-                                {filters.milestone === milestone && <Check size={13} className="text-blue-600 dark:text-blue-400" />}
+                                {eqCi(filters.milestone, milestone) && <Check size={13} className="text-blue-600 dark:text-blue-400" />}
                               </button>
                             ))}
                             {currentMilestonesList.length === 0 && (
@@ -1747,6 +1554,32 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                             </button>
                           </span>
                         )}
+
+                        {/* Predicates from the URL that no control can show (multiple values, negation, other fields) */}
+                        {extraPredicates.map(({ predicate, index }) => {
+                          const chip = formatPredicateChip(predicate);
+                          return (
+                            <span
+                              key={`${index}-${chip.label}-${chip.value}`}
+                              data-testid="extra-filter-chip"
+                              className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium"
+                            >
+                              <span className="text-blue-600 dark:text-blue-400/80">
+                                {chip.negated ? 'Not ' : ''}{chip.label}:
+                              </span>
+                              <span className="font-semibold">{chip.value}</span>
+                              <button
+                                type="button"
+                                onClick={() => removePredicateAt(index)}
+                                className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
+                                title={`Remove ${chip.label.toLowerCase()} filter`}
+                                aria-label={`Remove ${chip.negated ? 'negated ' : ''}${chip.label.toLowerCase()} filter ${chip.value}`}
+                              >
+                                <X size={12} />
+                              </button>
+                            </span>
+                          );
+                        })}
                       </div>
 
                       {/* Right-aligned Clear filters button */}
@@ -1775,7 +1608,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                   {/* Top of list row: Item count left-aligned, subtle borderless sort control right-aligned */}
                   <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200/70 dark:border-slate-800/40 text-xs select-none">
                     <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
-                      {filteredItems.length} {filteredItems.length === 1 ? 'item' : 'items'}
+                      {items.length} {items.length === 1 ? 'item' : 'items'}
                     </span>
 
                     <div className="relative" ref={sortMenuRef}>
@@ -1889,7 +1722,16 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                       )}
                     </div>
                   </div>
-                  {filteredItems.map(item => (
+                  {data.invalidQuery && (
+                    <div
+                      role="alert"
+                      data-testid="invalid-query"
+                      className="m-4 px-3 py-2 text-xs rounded border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300"
+                    >
+                      Invalid filter: {data.invalidQuery.message}
+                    </div>
+                  )}
+                  {items.map(item => (
                     <div
                       key={item.id}
                       data-item-id={item.id}
@@ -1923,7 +1765,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                         OctoDeck daemon is currently unreachable. Please run <code className="bg-red-100 dark:bg-red-900/60 px-1 py-0.5 rounded font-mono text-xs">octodeck serve</code> to start the backend server.
                       </p>
                     </div>
-                  ) : filteredItems.length === 0 ? (
+                  ) : items.length === 0 && !data.invalidQuery ? (
                     <div className="p-12 text-center text-slate-400 dark:text-slate-500">
                       <CheckCircle size={48} className="mx-auto mb-4 text-slate-300 dark:text-slate-700" />
                       <p>No items found matching the current filters.</p>

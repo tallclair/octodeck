@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TransportProvider } from '@connectrpc/connect-query';
 import { transport, onAuthError } from './api/client';
+import { retryUnlessInvalid } from './api/errors';
 import { ThemeProvider } from './context/ThemeContext';
 import { ToastProvider } from './context/ToastContext';
 import { Dashboard } from './components/Dashboard';
@@ -13,6 +14,8 @@ const queryClient = new QueryClient({
     queries: {
       refetchOnWindowFocus: true,
       staleTime: 5000,
+      // An invalid query (InvalidArgument) fails the same way every time; show it at once.
+      retry: retryUnlessInvalid,
     },
   },
 });

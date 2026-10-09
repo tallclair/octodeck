@@ -387,12 +387,6 @@ describe('Extension Background Service Worker', () => {
             json: () => Promise.resolve({ version: '2.0.0', gh_authenticated: true }),
           });
         }
-        if (url.endsWith('/GetItems')) {
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({ items: [] }),
-          });
-        }
         return Promise.reject(new Error(`Unexpected fetch URL: ${url}`));
       });
 
@@ -435,7 +429,7 @@ describe('Extension Background Service Worker', () => {
               }),
           });
         }
-        if (url.endsWith('/status') || url.endsWith('/GetItems')) {
+        if (url.endsWith('/status')) {
           return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
         }
         return Promise.reject(new Error(`Unexpected fetch URL: ${url}`));

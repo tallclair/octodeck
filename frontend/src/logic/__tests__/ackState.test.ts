@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  getAckedActionMs,
   getAckedActivityMs,
   isAfterWatermark,
   isLocalAcked,
@@ -43,35 +42,30 @@ describe('ackState', () => {
       expect(isLocalAcked(undefined)).toBe(false);
       expect(isLocalAcked({})).toBe(false);
       expect(getAckedActivityMs({})).toBeNull();
-      expect(getAckedActionMs({})).toBeNull();
     });
 
     it('falls back to ackedAt for legacy items', () => {
       const local = { ackedAt: watermark };
       expect(isLocalAcked(local)).toBe(true);
       expect(getAckedActivityMs(local)).toBe(1700000500000);
-      expect(getAckedActionMs(local)).toBe(1700000500000);
     });
 
     it('uses ackedActivityAt as the watermark when both are set', () => {
       const local = { ackedAt: action, ackedActivityAt: watermark };
       expect(isLocalAcked(local)).toBe(true);
       expect(getAckedActivityMs(local)).toBe(1700000500000);
-      expect(getAckedActionMs(local)).toBe(1700000900000);
     });
 
     it('treats only ackedActivityAt as acked', () => {
       const local = { ackedActivityAt: watermark };
       expect(isLocalAcked(local)).toBe(true);
       expect(getAckedActivityMs(local)).toBe(1700000500000);
-      expect(getAckedActionMs(local)).toBeNull();
     });
 
     it('accepts JSON string shapes from the extension bridge', () => {
       const local = { ackedAt: '2026-08-12T16:00:00Z', ackedActivityAt: '2026-08-12T15:00:00Z' };
       expect(isLocalAcked(local)).toBe(true);
       expect(getAckedActivityMs(local)).toBe(Date.parse('2026-08-12T15:00:00Z'));
-      expect(getAckedActionMs(local)).toBe(Date.parse('2026-08-12T16:00:00Z'));
     });
   });
 

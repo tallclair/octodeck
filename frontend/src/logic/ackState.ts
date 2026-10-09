@@ -45,11 +45,6 @@ export function getAckedActivityMs(local?: AckStateLike | null): number | null {
   return parseLocalTimestampMs(local?.ackedActivityAt) ?? parseLocalTimestampMs(local?.ackedAt);
 }
 
-/** When the item was acknowledged, in epoch ms. Used for "Last Acked" ordering. */
-export function getAckedActionMs(local?: AckStateLike | null): number | null {
-  return parseLocalTimestampMs(local?.ackedAt);
-}
-
 /**
  * Whether a timeline entry at entryMs is newer than the watermark. GitHub timestamps have
  * second precision, so the comparison is on whole seconds: an entry in the same second as the
