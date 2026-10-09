@@ -78,3 +78,7 @@ export const DEFAULT_FILTER_CONTROLS: Readonly<FilterControls> = Object.freeze({
   order: 'desc',
   item: null,
 });
+
+/** Controls backed by predicates (every FilterControls key except the non-query tail). */
+export type ControlKey = Exclude<keyof FilterControls, 'q' | 'sort' | 'order' | 'item'>;
+

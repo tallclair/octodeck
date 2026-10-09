@@ -30,7 +30,11 @@ const AC = parseQueryParams('?repo=a/b&author=x&triage=acked&state=closed&label=
 
 describe('projectControls', () => {
   it('shows the defaults for the empty state', () => {
-    expect(projectControls(DEFAULT_QUERY_STATE)).toEqual({ controls: DEFAULT_FILTER_CONTROLS, extras: [] });
+    expect(projectControls(DEFAULT_QUERY_STATE)).toEqual({
+      controls: DEFAULT_FILTER_CONTROLS,
+      owners: {},
+      extras: [],
+    });
   });
 
   // Same expectations as the former parseFilterParams tests: legacy URLs show the same controls.
@@ -86,8 +90,9 @@ describe('projectControls', () => {
     expect(extras('?triage=acked&new=any')).toEqual([p(Field.NEW, ['any'])]);
   });
 
-  it('keeps the list index of each extra', () => {
-    const { extras: found } = projectControls(parseQueryParams('?-label=bug&repo=a/b&draft=true'));
+  it('keeps the list index of each owner and extra', () => {
+    const { owners, extras: found } = projectControls(parseQueryParams('?-label=bug&repo=a/b&draft=true'));
+    expect(owners).toEqual({ repo: 1 });
     expect(found.map((e) => e.index)).toEqual([0, 2]);
   });
 });
@@ -121,8 +126,29 @@ describe('setControl', () => {
     expect(url(setControl(AC, 'triage', 'inbox'))).toBe('repo=a/b&author=x&state=closed&label=bug');
   });
 
-  it('replaces every predicate of the field, including extras', () => {
-    expect(url(setControl(parseQueryParams('?label=a&label=b&-label=c'), 'label', 'd'))).toBe('label=d');
+  it('keeps negated predicates when selecting, changing or clearing a control', () => {
+    const initial = parseQueryParams('?-label=bug');
+    const selected = setControl(initial, 'label', 'a');
+    expect(url(selected)).toBe('-label=bug&label=a');
+    const changed = setControl(selected, 'label', 'd');
+    expect(url(changed)).toBe('-label=bug&label=d');
+    const cleared = setControl(changed, 'label', null);
+    expect(url(cleared)).toBe('-label=bug');
+  });
+
+  it('edits only the displayed predicate when a second predicate for the same field exists', () => {
+    const twoLabels: DashboardQueryState = {
+      ...DEFAULT_QUERY_STATE,
+      predicates: [p(Field.LABEL, ['a']), p(Field.LABEL, ['b'])],
+    };
+    expect(projectControls(twoLabels).controls.label).toBe('a');
+    expect(projectControls(twoLabels).extras).toEqual([{ predicate: p(Field.LABEL, ['b']), index: 1 }]);
+
+    const edited = setControl(twoLabels, 'label', 'd');
+    expect(edited.predicates).toEqual([p(Field.LABEL, ['d']), p(Field.LABEL, ['b'])]);
+
+    const cleared = setControl(edited, 'label', null);
+    expect(cleared.predicates).toEqual([p(Field.LABEL, ['b'])]);
   });
 
   it('strips @ from author and maps tracking to booleans', () => {

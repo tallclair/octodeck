@@ -116,13 +116,18 @@ export function useDashboardFilters() {
   // Removes one predicate shown as a generic chip, by its index in query.predicates.
   const removePredicateAt = useCallback((index: number) => update(s => removePredicate(s, index)), [update]);
 
-  const { controls: filters, extras: extraPredicates } = useMemo(() => projectControls(query), [query]);
+  const {
+    controls: filters,
+    owners,
+    extras: extraPredicates,
+  } = useMemo(() => projectControls(query), [query]);
   const isDefault = useMemo(() => isDefaultQuery(query), [query]);
   const activeCount = useMemo(() => activeQueryCount(query), [query]);
 
   return {
     query,
     filters,
+    owners,
     extraPredicates,
     setFilter,
     setFilters,

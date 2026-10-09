@@ -472,6 +472,28 @@ describe('Dashboard (RPC-level)', () => {
       expect(window.location.search).toBe('?label=a&label=b');
     });
 
+    it('keeps a negated filter when picking a value from the same selector', async () => {
+      window.history.pushState(null, '', '/?-label=bug');
+      const { daemon } = render({
+        getItems: itemsByQuery({
+          '-label:bug': [item('PR_1', 'Not bug 1'), item('PR_2', 'Not bug 2')],
+          '-label:bug label:a': [item('PR_1', 'Not bug 1')],
+        }),
+        getFacets: facets({
+          selector: { [Field.LABEL]: [['a', 1], ['b', 1]] },
+        }),
+      });
+
+      expect(await screen.findByText('Not bug 2')).toBeDefined();
+      expect(lastItemsQuery(daemon)).toBe('-label:bug');
+
+      fireEvent.click(screen.getByRole('button', { name: /Filter by label/i }));
+      fireEvent.click(await screen.findByRole('button', { name: /^a$/i }));
+      await waitFor(() => expect(screen.queryByText('Not bug 2')).toBeNull());
+      expect(lastItemsQuery(daemon)).toBe('-label:bug label:a');
+      expect(window.location.search).toBe('?-label=bug&label=a');
+    });
+
     it('debounces search typing into one TEXT predicate per word or phrase', async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       const { daemon } = render({

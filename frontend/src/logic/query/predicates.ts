@@ -5,6 +5,7 @@ import { Field } from '../../api/octodeck/v1/query_pb';
 import {
   DEFAULT_FILTER_CONTROLS,
   DEFAULT_QUERY_STATE,
+  type ControlKey,
   type DashboardQueryState,
   type FilterControls,
   type FilterPredicate,
@@ -18,8 +19,12 @@ export interface ExtraPredicate {
   readonly index: number;
 }
 
-/** Controls backed by predicates (every FilterControls key except the non-query tail). */
-type PredicateControl = Exclude<keyof FilterControls, 'q' | 'sort' | 'order' | 'item'>;
+export interface Projection {
+  controls: FilterControls;
+  /** Index in state.predicates of the predicate each control displays. */
+  owners: Partial<Record<ControlKey, number>>;
+  extras: ExtraPredicate[];
+}
 
 /** Field-owning controls and the (single) model value each control value stands for. */
 interface ControlSpec {
@@ -28,8 +33,8 @@ interface ControlSpec {
   readonly toModel: (value: string | null) => string | null;
   /** Model value -> control value, or undefined if the control cannot show it. */
   readonly fromModel: (value: string) => string | undefined;
-  /** Whether a predicate belongs to (is replaced by) this control. */
-  readonly owns: (p: FilterPredicate) => boolean;
+  /** Whether a predicate can be displayed by this control. */
+  readonly matches: (p: FilterPredicate) => boolean;
 }
 
 const mapping = (pairs: Record<string, string>) => ({
@@ -43,19 +48,19 @@ const openText = (strip: boolean) => ({
   },
   fromModel: (model: string) => model,
 });
-const ownsField = (field: Field) => (p: FilterPredicate) => p.field === field;
+const matchesField = (field: Field) => (p: FilterPredicate) => p.field === field;
 
-const CONTROLS: Readonly<Record<Exclude<PredicateControl, 'triage'>, ControlSpec>> = {
-  state: { field: Field.STATE, ...mapping({ open: 'open', closed: 'closed' }), owns: ownsField(Field.STATE) },
-  type: { field: Field.TYPE, ...mapping({ pr: 'pr', issue: 'issue' }), owns: ownsField(Field.TYPE) },
+const CONTROLS: Readonly<Record<Exclude<ControlKey, 'triage'>, ControlSpec>> = {
+  state: { field: Field.STATE, ...mapping({ open: 'open', closed: 'closed' }), matches: matchesField(Field.STATE) },
+  type: { field: Field.TYPE, ...mapping({ pr: 'pr', issue: 'issue' }), matches: matchesField(Field.TYPE) },
   // Only the "Assigned to me" predicate belongs to the toggle; assignee=bob from a URL survives it.
-  assigned: { field: Field.ASSIGNEE, ...mapping({ me: ME_VALUE }), owns: isAssignedToMePredicate },
-  tracking: { field: Field.TRACKING, ...mapping({ tracked: 'true', untracked: 'false' }), owns: ownsField(Field.TRACKING) },
-  repo: { field: Field.REPO, ...openText(false), owns: ownsField(Field.REPO) },
-  org: { field: Field.ORG, ...openText(false), owns: ownsField(Field.ORG) },
-  author: { field: Field.AUTHOR, ...openText(true), owns: ownsField(Field.AUTHOR) },
-  milestone: { field: Field.MILESTONE, ...openText(false), owns: ownsField(Field.MILESTONE) },
-  label: { field: Field.LABEL, ...openText(false), owns: ownsField(Field.LABEL) },
+  assigned: { field: Field.ASSIGNEE, ...mapping({ me: ME_VALUE }), matches: isAssignedToMePredicate },
+  tracking: { field: Field.TRACKING, ...mapping({ tracked: 'true', untracked: 'false' }), matches: matchesField(Field.TRACKING) },
+  repo: { field: Field.REPO, ...openText(false), matches: matchesField(Field.REPO) },
+  org: { field: Field.ORG, ...openText(false), matches: matchesField(Field.ORG) },
+  author: { field: Field.AUTHOR, ...openText(true), matches: matchesField(Field.AUTHOR) },
+  milestone: { field: Field.MILESTONE, ...openText(false), matches: matchesField(Field.MILESTONE) },
+  label: { field: Field.LABEL, ...openText(false), matches: matchesField(Field.LABEL) },
 };
 
 const TRIAGE_TAB_VALUES: readonly TriageFilter[] = ['acked', 'all'];
@@ -68,7 +73,7 @@ function hasTriagePredicate(predicates: readonly FilterPredicate[]): boolean {
 function controlFor(
   p: FilterPredicate,
   predicates: readonly FilterPredicate[]
-): { key: PredicateControl; value: string } | undefined {
+): { key: ControlKey; value: string } | undefined {
   if (p.negated) return undefined;
   if (isActivityPredicate(p) && !hasTriagePredicate(predicates)) return { key: 'triage', value: 'activity' };
   if (p.values.length !== 1) return undefined;
@@ -77,8 +82,8 @@ function controlFor(
     const tab = TRIAGE_TAB_VALUES.find((t) => t === model);
     return tab ? { key: 'triage', value: tab } : undefined;
   }
-  for (const [key, spec] of Object.entries(CONTROLS) as [Exclude<PredicateControl, 'triage'>, ControlSpec][]) {
-    if (spec.field !== p.field || !spec.owns(p)) continue;
+  for (const [key, spec] of Object.entries(CONTROLS) as [Exclude<ControlKey, 'triage'>, ControlSpec][]) {
+    if (spec.field !== p.field || !spec.matches(p)) continue;
     const value = spec.fromModel(model);
     return value === undefined ? undefined : { key, value };
   }
@@ -86,11 +91,11 @@ function controlFor(
 }
 
 /**
- * Projects the predicates onto the single-select controls. The first predicate a control can
- * display sets it; every other predicate is returned in `extras` (in list order) so that no
- * active filter is ever hidden.
+ * Projects the predicates onto the controls. The first non-negated predicate a control can
+ * display sets it and records its index in `owners`; every other predicate is returned in `extras`
+ * (in list order) so that no active filter is ever hidden.
  */
-export function projectControls(state: DashboardQueryState): { controls: FilterControls; extras: ExtraPredicate[] } {
+export function projectControls(state: DashboardQueryState): Projection {
   const controls: FilterControls = {
     ...DEFAULT_FILTER_CONTROLS,
     q: state.q,
@@ -98,18 +103,18 @@ export function projectControls(state: DashboardQueryState): { controls: FilterC
     order: state.order,
     item: state.item,
   };
-  const taken = new Set<PredicateControl>();
+  const owners: Partial<Record<ControlKey, number>> = {};
   const extras: ExtraPredicate[] = [];
   state.predicates.forEach((predicate, index) => {
     const control = controlFor(predicate, state.predicates);
-    if (control && !taken.has(control.key)) {
-      taken.add(control.key);
+    if (control && owners[control.key] === undefined) {
+      owners[control.key] = index;
       (controls as unknown as Record<string, string>)[control.key] = control.value;
     } else {
       extras.push({ predicate, index });
     }
   });
-  return { controls, extras };
+  return { controls, owners, extras };
 }
 
 /** The triage tab shown for a predicate list. */
@@ -141,6 +146,28 @@ function replacePredicates(
   return [...kept.slice(0, at), next, ...kept.slice(at)];
 }
 
+/**
+ * Replaces or removes the predicate at `ownerIndex` (when defined), or inserts `next` at its
+ * canonical rank when the control currently owns no predicate.
+ */
+function setOwnedPredicate(
+  predicates: readonly FilterPredicate[],
+  ownerIndex: number | undefined,
+  next: FilterPredicate | null
+): FilterPredicate[] {
+  if (ownerIndex !== undefined) {
+    if (!next) {
+      return predicates.filter((_, i) => i !== ownerIndex);
+    }
+    return predicates.map((p, i) => (i === ownerIndex ? next : p));
+  }
+  if (!next) return [...predicates];
+  const rank = rankOf(next);
+  let at = predicates.findIndex((p) => rankOf(p) > rank);
+  if (at < 0) at = predicates.length;
+  return [...predicates.slice(0, at), next, ...predicates.slice(at)];
+}
+
 /** Switches the triage tab: replaces every triage predicate and the "New" tab's new:any. */
 export function setTriageTab(state: DashboardQueryState, tab: TriageFilter): DashboardQueryState {
   const owns = (p: FilterPredicate) => p.field === Field.TRIAGE || isActivityPredicate(p);
@@ -150,7 +177,7 @@ export function setTriageTab(state: DashboardQueryState, tab: TriageFilter): Das
   return { ...state, predicates: replacePredicates(state.predicates, owns, next) };
 }
 
-/** Sets one control, replacing the predicates it owns (single-select semantics). */
+/** Sets one control, editing only the predicate it currently displays (P2). */
 export function setControl<K extends keyof FilterControls>(
   state: DashboardQueryState,
   key: K,
@@ -168,10 +195,12 @@ export function setControl<K extends keyof FilterControls>(
     case 'triage':
       return setTriageTab(state, value as TriageFilter);
   }
-  const spec = CONTROLS[key as Exclude<PredicateControl, 'triage'>];
+  const controlKey = key as Exclude<ControlKey, 'triage'>;
+  const spec = CONTROLS[controlKey];
+  const { owners } = projectControls(state);
   const model = spec.toModel(value as string | null);
   const next = model === null ? null : { field: spec.field, values: [model], negated: false };
-  return { ...state, predicates: replacePredicates(state.predicates, spec.owns, next) };
+  return { ...state, predicates: setOwnedPredicate(state.predicates, owners[controlKey], next) };
 }
 
 /** Applies several control changes in their insertion order. */
@@ -199,18 +228,11 @@ export function removePredicate(state: DashboardQueryState, index: number): Dash
  * and drops every other predicate (including extra predicates).
  */
 export function clearSecondary(state: DashboardQueryState): DashboardQueryState {
-  const kept = state.predicates.filter((p) => {
-    const control = controlFor(p, state.predicates);
-    return control !== undefined && (control.key === 'triage' || control.key === 'type');
-  });
-  // Keep only the first predicate per kept control, as the projection does.
-  const seen = new Set<string>();
-  const predicates = kept.filter((p) => {
-    const key = controlFor(p, state.predicates)?.key ?? '';
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const { owners } = projectControls(state);
+  const keptIndices = new Set<number>();
+  if (owners.triage !== undefined) keptIndices.add(owners.triage);
+  if (owners.type !== undefined) keptIndices.add(owners.type);
+  const predicates = state.predicates.filter((_, index) => keptIndices.has(index));
   return { ...state, predicates };
 }
 
