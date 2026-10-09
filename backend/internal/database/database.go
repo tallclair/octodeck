@@ -249,24 +249,29 @@ func (d *DB) GetAllItemIDs(ctx context.Context) (map[string]struct{}, error) {
 	return idSet, nil
 }
 
-// GetItems retrieves items from the database matching the provided filter.
-func (d *DB) GetItems(ctx context.Context, filter *octodeckv1.Filter) ([]*octodeckv1.Item, error) {
-	query, args := buildGetItemsQuery(filter)
+// ItemFilter narrows GetItems with a SQL condition over the items table columns
+// (repo, type, state, author_login). A nil filter returns every item.
+type ItemFilter struct {
+	// Where is a boolean SQL expression without the WHERE keyword, using "?" placeholders.
+	// Empty means no condition.
+	Where string
+	// Args are bound to the placeholders in Where, in order.
+	Args []any
+}
 
-	// Expand IN clauses
-	query, argsSlice, err := sqlx.Named(query, args)
-	if err != nil {
-		return nil, fmt.Errorf("failed to prepare named query: %w", err)
+// GetItems retrieves items from the database, optionally narrowed by filter, ordered by
+// updated_at descending.
+func (d *DB) GetItems(ctx context.Context, filter *ItemFilter) ([]*octodeckv1.Item, error) {
+	query := "SELECT data FROM items"
+	var args []any
+	if filter != nil && filter.Where != "" {
+		query += " WHERE " + filter.Where
+		args = filter.Args
 	}
-	query, argsSlice, err = sqlx.In(query, argsSlice...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to expand IN clauses: %w", err)
-	}
-	query = d.Rebind(query)
+	query += " ORDER BY updated_at DESC"
 
 	var rows []itemRow
-	err = d.SelectContext(ctx, &rows, query, argsSlice...)
-	if err != nil {
+	if err := d.SelectContext(ctx, &rows, d.Rebind(query), args...); err != nil {
 		return nil, fmt.Errorf("failed to query items: %w", err)
 	}
 
@@ -280,57 +285,6 @@ func (d *DB) GetItems(ctx context.Context, filter *octodeckv1.Filter) ([]*octode
 	}
 
 	return items, nil
-}
-
-func buildGetItemsQuery(filter *octodeckv1.Filter) (string, map[string]any) {
-	query := "SELECT data FROM items"
-	var conditions []string
-	args := map[string]any{}
-
-	if filter != nil {
-		conditions, args = applyFilterConditions(filter, conditions, args)
-	}
-
-	if len(conditions) > 0 {
-		query += " WHERE " + strings.Join(conditions, " AND ")
-	}
-
-	// Always sort by updated_at desc
-	query += " ORDER BY updated_at DESC"
-	return query, args
-}
-
-func applyFilterConditions(filter *octodeckv1.Filter,
-	conditions []string, args map[string]any) ([]string, map[string]any) {
-	if filter.HasIsViewed() {
-		conditions = append(conditions, "is_viewed = :is_viewed")
-		args["is_viewed"] = filter.GetIsViewed()
-	}
-	if filter.HasIsAssigned() {
-		conditions = append(conditions, "is_assigned = :is_assigned")
-		args["is_assigned"] = filter.GetIsAssigned()
-	}
-	if filter.GetType() != octodeckv1.ItemType_ITEM_TYPE_UNSPECIFIED {
-		conditions = append(conditions, "type = :type")
-		args["type"] = filter.GetType()
-	}
-	if filter.GetState() != octodeckv1.ItemState_ITEM_STATE_UNSPECIFIED {
-		conditions = append(conditions, "state = :state")
-		args["state"] = filter.GetState()
-	}
-	if len(filter.GetRepos()) > 0 {
-		conditions = append(conditions, "repo IN (:repos)")
-		args["repos"] = filter.GetRepos()
-	}
-	if len(filter.GetAuthors()) > 0 {
-		conditions = append(conditions, "author_login IN (:authors)")
-		args["authors"] = filter.GetAuthors()
-	}
-	if filter.GetQuery() != "" {
-		conditions = append(conditions, "repo LIKE :query")
-		args["query"] = "%" + filter.GetQuery() + "%"
-	}
-	return conditions, args
 }
 
 const maxIDParts = 2

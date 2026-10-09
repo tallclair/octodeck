@@ -384,9 +384,45 @@ func TestGetItems_Filters(t *testing.T) {
 	assert.Len(t, got, 2)
 
 	// Test with empty filter
-	got, err = db.GetItems(t.Context(), &octodeckv1.Filter{})
+	got, err = db.GetItems(t.Context(), &ItemFilter{})
 	require.NoError(t, err)
 	assert.Len(t, got, 2)
+
+	// A condition narrows the rows; the repo column compares case-insensitively.
+	got, err = db.GetItems(t.Context(), &ItemFilter{Where: "repo IN (?)", Args: []any{"A/B"}})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "1", got[0].GetId())
+}
+
+func TestGetItems_NilFilterIncludesAcked(t *testing.T) {
+	db := setupTestDB(t)
+	now := time.Now()
+	acked := octodeckv1.Item_builder{
+		Id:        config.Ptr("acked"),
+		Repo:      config.Ptr("a/b"),
+		UpdatedAt: timestamppb.New(now.Add(-time.Hour)),
+		Local: octodeckv1.ItemLocalState_builder{
+			AckedAt:         timestamppb.New(now),
+			AckedActivityAt: timestamppb.New(now),
+		}.Build(),
+	}.Build()
+	inbox := octodeckv1.Item_builder{
+		Id:        config.Ptr("inbox"),
+		Repo:      config.Ptr("a/b"),
+		UpdatedAt: timestamppb.New(now),
+	}.Build()
+	require.NoError(t, db.SaveItems(t.Context(), []*octodeckv1.Item{acked, inbox}))
+
+	// Internal callers pass nil and must see every item: the implicit triage scope is applied only
+	// by the RPC handlers.
+	got, err := db.GetItems(t.Context(), nil)
+	require.NoError(t, err)
+	gotIDs := make([]string, 0, len(got))
+	for _, it := range got {
+		gotIDs = append(gotIDs, it.GetId())
+	}
+	assert.ElementsMatch(t, []string{"acked", "inbox"}, gotIDs)
 }
 
 func TestMigrationDownAndUp(t *testing.T) {
