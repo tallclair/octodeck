@@ -12,9 +12,10 @@ import {
   type FilterPredicate,
   type TriageFilter,
 } from '../../types/filters';
+import type { ParsedQuery } from './syntax';
 import { ME_VALUE, encodeLegacyValue, isActivityPredicate, rankOf, specForField } from './vocabulary';
 
-/** A predicate that no control can display, with its index in the predicate list. */
+/** A predicate that no control can display, with its index in the predicate or clause list. */
 export interface ExtraPredicate {
   readonly predicate: FilterPredicate;
   readonly index: number;
@@ -22,7 +23,7 @@ export interface ExtraPredicate {
 
 export interface Projection {
   controls: FilterControls;
-  /** Index in state.predicates of the predicate each control displays. */
+  /** Index of the predicate or clause each control displays. */
   owners: Partial<Record<ControlKey, number>>;
   extras: ExtraPredicate[];
 }
@@ -74,12 +75,7 @@ const trimNonEmpty = (value: string): string | null => {
   return v || null;
 };
 
-const stripAt = (value: string): string | null => {
-  const v = value.trim().replace(/^@/, '');
-  return v || null;
-};
-
-const normalizeAssignee = (value: string): string | null => {
+const normalizeUser = (value: string): string | null => {
   const v = value.trim();
   if (!v) return null;
   if (v.toLowerCase() === ME_VALUE) return ME_VALUE;
@@ -104,8 +100,8 @@ const SINGLE_CONTROLS: {
 const MULTI_CONTROLS: Readonly<Record<MultiControlKey, MultiControlSpec>> = {
   repo: { field: Field.REPO, normalize: trimNonEmpty },
   org: { field: Field.ORG, normalize: trimNonEmpty },
-  author: { field: Field.AUTHOR, normalize: stripAt },
-  assignee: { field: Field.ASSIGNEE, normalize: normalizeAssignee },
+  author: { field: Field.AUTHOR, normalize: normalizeUser },
+  assignee: { field: Field.ASSIGNEE, normalize: normalizeUser },
   milestone: { field: Field.MILESTONE, normalize: trimNonEmpty },
   label: { field: Field.LABEL, normalize: trimNonEmpty },
   activity: { field: Field.NEW, normalize: normalizeActivity },
@@ -115,6 +111,63 @@ const TRIAGE_TAB_VALUES: readonly TriageFilter[] = ['acked', 'all'];
 
 function hasTriagePredicate(predicates: readonly FilterPredicate[]): boolean {
   return predicates.some((p) => p.field === Field.TRIAGE);
+}
+
+/**
+ * Resolves a next activity selection against `prev`, enforcing Any vs specific exclusivity (§3.4):
+ * - Ticking `any` removes `item`, `mention`, `comment`, `code` (keeping `noise` if present).
+ * - Ticking any of `item`, `mention`, `comment`, `code` while `any` is ticked removes `any`.
+ */
+export function resolveActivityValues(
+  prev: readonly ActivityValue[],
+  values: readonly string[]
+): ActivityValue[] {
+  const normalized: ActivityValue[] = [];
+  for (const raw of values) {
+    const v = normalizeActivity(raw);
+    if (v && !normalized.includes(v)) {
+      normalized.push(v);
+    }
+  }
+
+  const hasAny = normalized.includes('any');
+  const hasSpecific = normalized.some((v) => SPECIFIC_ACTIVITY_VALUES.includes(v));
+  if (!hasAny || !hasSpecific) {
+    return normalized;
+  }
+
+  const added = normalized.filter((v) => !prev.includes(v));
+  if (added.includes('any')) {
+    return normalized.filter((v) => !SPECIFIC_ACTIVITY_VALUES.includes(v));
+  }
+  if (added.some((v) => SPECIFIC_ACTIVITY_VALUES.includes(v))) {
+    return normalized.filter((v) => v !== 'any');
+  }
+  return normalized.filter((v) => !SPECIFIC_ACTIVITY_VALUES.includes(v));
+}
+
+/** Converts a non-triage control value to its corresponding FilterPredicate (or null when empty/default). */
+export function controlToPredicate<K extends Exclude<ControlKey, 'triage'>>(
+  key: K,
+  value: FilterControls[K],
+  prevActivity: readonly ActivityValue[] = []
+): FilterPredicate | null {
+  if (key === 'activity') {
+    const resolved = resolveActivityValues(prevActivity, value as readonly string[]);
+    return resolved.length === 0 ? null : { field: Field.NEW, values: resolved, negated: false };
+  }
+  if (Object.hasOwn(SINGLE_CONTROLS, key)) {
+    const singleKey = key as SingleControlKey;
+    const spec = SINGLE_CONTROLS[singleKey];
+    const model = spec.toModel(value as string);
+    return model === null ? null : { field: spec.field, values: [model], negated: false };
+  }
+  const multiKey = key as MultiControlKey;
+  const spec = MULTI_CONTROLS[multiKey];
+  const values = (value as readonly string[])
+    .map(spec.normalize)
+    .filter((v): v is string => v !== null);
+  return values.length === 0 ? null : { field: spec.field, values, negated: false };
 }
 
 /** The control a predicate is displayed by, if any, with the control value. */
@@ -152,6 +205,50 @@ function controlFor(p: FilterPredicate): ProjectedControlValue | undefined {
     return { key: key as StringMultiControlKey, value: [...p.values] };
   }
   return undefined;
+}
+
+/**
+ * Projects parsed clauses onto the dashboard's filter controls (§4, §5).
+ * Only `ok` clauses have a predicate; `owners` and `extras[].index` store the clause index in
+ * `parsed.clauses`.
+ */
+export function projectClauses(
+  parsed: ParsedQuery,
+  tail?: Partial<Pick<FilterControls, 'q' | 'sort' | 'order' | 'item'>>
+): Projection {
+  const controls: FilterControls = {
+    ...DEFAULT_FILTER_CONTROLS,
+    ...(tail?.q !== undefined ? { q: tail.q } : {}),
+    ...(tail?.sort !== undefined ? { sort: tail.sort } : {}),
+    ...(tail?.order !== undefined ? { order: tail.order } : {}),
+    ...(tail?.item !== undefined ? { item: tail.item } : {}),
+  };
+  const owners: Partial<Record<ControlKey, number>> = {};
+  const extras: ExtraPredicate[] = [];
+
+  parsed.clauses.forEach((clause, clauseIndex) => {
+    if (!clause.predicate) return;
+    const predicate = clause.predicate;
+    const control = controlFor(predicate);
+    if (control && owners[control.key] === undefined) {
+      owners[control.key] = clauseIndex;
+      setProjectedControl(controls, control);
+    } else {
+      extras.push({ predicate, index: clauseIndex });
+    }
+  });
+
+  if (
+    owners.triage === undefined &&
+    !hasTriagePredicate(parsed.predicates) &&
+    controls.activity.length === 1 &&
+    controls.activity[0] === 'any'
+  ) {
+    controls.triage = 'activity';
+    owners.triage = owners.activity;
+  }
+
+  return { controls, owners, extras };
 }
 
 /**

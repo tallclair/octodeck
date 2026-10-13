@@ -15,6 +15,7 @@ import {
   getTriageTab,
   hasActiveFilterChips,
   isDefaultQuery,
+  projectClauses,
   projectControls,
   removePredicate,
   setActivity,
@@ -25,6 +26,7 @@ import {
   toggleRepo,
   workflowState,
 } from '../predicates';
+import { formatPredicates, parseQuery } from '../syntax';
 
 const p = (field: Field, values: string[], negated = false): FilterPredicate => ({ field, values, negated });
 const controls = (search: string) => projectControls(parseQueryParams(search)).controls;
@@ -398,3 +400,42 @@ describe('hasActiveFilterChips', () => {
     expect(hasActiveFilterChips(negated.controls, negated.extras)).toBe(true);
   });
 });
+
+describe('projectClauses', () => {
+  it('agrees with projectControls on equivalent predicate lists', () => {
+    const sampleSearches = [
+      '',
+      '?triage=activity',
+      '?triage=acked',
+      '?triage=all',
+      '?state=open&type=pr&tracking=tracked&assigned=me',
+      '?repo=kubernetes/kubernetes&repo=kubernetes/website&author=alice&milestone=v1.32&label=bug',
+      '?-label=bug&repo=a/b&draft=true',
+      '?triage=acked&new=any',
+      '?new=mention&new=code',
+    ];
+
+    for (const search of sampleSearches) {
+      const state = parseQueryParams(search);
+      const fromState = projectControls(state);
+      const text = formatPredicates(state.predicates);
+      const fromClauses = projectClauses(parseQuery(text), state);
+      expect(fromClauses).toEqual(fromState);
+    }
+  });
+
+  it('projects is: shorthands and records clause indices (skipping error/incomplete clauses)', () => {
+    const parsed = parseQuery('lable:bad is:open -label:wontfix is:pr label: display');
+    const projected = projectClauses(parsed);
+
+    expect(projected.controls.state).toBe('open');
+    expect(projected.controls.type).toBe('pr');
+    // Clauses: 0=lable:bad (error), 1=is:open (ok), 2=-label:wontfix (ok extra), 3=is:pr (ok), 4=label: (incomplete), 5=display (ok term extra)
+    expect(projected.owners).toEqual({ state: 1, type: 3 });
+    expect(projected.extras).toEqual([
+      { predicate: p(Field.LABEL, ['wontfix'], true), index: 2 },
+      { predicate: p(Field.TEXT, ['display'], false), index: 5 },
+    ]);
+  });
+});
+
