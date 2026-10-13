@@ -8,7 +8,7 @@ import {
   type SortSchema,
 } from '../../api/octodeck/v1/query_pb';
 import type { FilterPredicate, SortOption, SortOrder } from '../../types/filters';
-import { tokenizeSearch } from './textTerms';
+import type { ParsedQuery } from './syntax/types';
 
 export type ExprInit = MessageInitShape<typeof ExprSchema>;
 export type SortInit = MessageInitShape<typeof SortSchema>;
@@ -22,13 +22,13 @@ export function andExpr(predicates: readonly FilterPredicate[]): ExprInit {
 }
 
 /**
- * The dashboard query as an Expr: an AND of the list predicates followed by one TEXT predicate
- * per search term. With no triage predicate the daemon applies the implicit triage:inbox scope.
- * The order is deterministic, so identical states give identical requests (and cache keys).
+ * The dashboard query as an Expr: an AND of the valid predicates in clause order.
+ * Incomplete and error clauses are omitted from parsed.predicates so the remaining
+ * valid clauses still execute against the daemon. With no triage predicate the daemon
+ * applies the implicit triage:inbox scope.
  */
-export function toExpr(predicates: readonly FilterPredicate[], q: string): ExprInit {
-  const text: FilterPredicate[] = tokenizeSearch(q).map((term) => ({ field: Field.TEXT, values: [term], negated: false }));
-  return andExpr([...predicates, ...text]);
+export function toExpr(parsed: ParsedQuery): ExprInit {
+  return andExpr(parsed.predicates);
 }
 
 const SORT_KEYS: Readonly<Record<SortOption, SortKey>> = {

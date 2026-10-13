@@ -9,7 +9,8 @@ import { Field, type FacetValue } from '../api/octodeck/v1/query_pb';
 import type { Item } from '../api/octodeck/v1/resources_pb';
 import type { DashboardQueryState } from '../types/filters';
 import { NEW_ANY_EXPR, toExpr, toSort } from '../logic/query/expr';
-import { serializeQueryParams } from '../logic/query/urlCodec';
+import { formatPredicates, parseQuery } from '../logic/query/syntax';
+import { serializeDashboardUrl } from '../logic/query/urlCodec';
 import {
   buildSidebar,
   countOf,
@@ -17,7 +18,6 @@ import {
   facetValues,
 } from '../logic/query/facets';
 import { exprErrorOf, isConnectivityError } from '../api/errors';
-import { useDebouncedValue } from './useDebouncedValue';
 
 /** Polling cadence for every list/facet query (the list's cadence before the migration). */
 const POLL = { refetchInterval: 3000, staleTime: 1000 } as const;
@@ -53,6 +53,7 @@ export interface SelectorFacets {
 
 export interface DashboardDataOptions {
   query: DashboardQueryState;
+  requestText?: string;
   pinnedRepos: readonly string[];
 }
 
@@ -60,14 +61,22 @@ function matchesSelection(item: Item, selectedId: string): boolean {
   return item.id === selectedId || `${item.repo}#${item.number}` === selectedId;
 }
 
-export function useDashboardData({ query, pinnedRepos }: DashboardDataOptions) {
-  const debouncedQ = useDebouncedValue(query.q, SEARCH_DEBOUNCE_MS);
-  const expr = useMemo(() => toExpr(query.predicates, debouncedQ), [query.predicates, debouncedQ]);
+export function useDashboardData({ query, requestText, pinnedRepos }: DashboardDataOptions) {
+  const effectiveText = requestText ?? query.text;
+  const requestParsed = useMemo(() => parseQuery(effectiveText), [effectiveText]);
+  const expr = useMemo(() => toExpr(requestParsed), [requestParsed]);
   const sort = useMemo(() => toSort(query.sort, query.order), [query.sort, query.order]);
-  // Identifies the request (query + sort), independent of the selected item.
+  // Identifies the request (valid predicates + sort), independent of the selected item
+  // and independent of incomplete/error clauses (design §8.5).
   const requestKey = useMemo(
-    () => serializeQueryParams({ ...query, q: debouncedQ, item: null }),
-    [query, debouncedQ]
+    () =>
+      serializeDashboardUrl({
+        text: formatPredicates(requestParsed.predicates),
+        sort: query.sort,
+        order: query.order,
+        item: null,
+      }),
+    [requestParsed.predicates, query.sort, query.order]
   );
 
   // Keep showing the previous result while a changed query is in flight (no loading flash).

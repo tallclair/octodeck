@@ -19,13 +19,11 @@ export interface FilterPredicate {
 }
 
 /**
- * The dashboard query state of record. Predicates are ANDed and keep the order in which they
- * appeared in the URL (new predicates are inserted at their canonical position).
+ * The dashboard query state of record (Phase 2 §4).
+ * `text` is the query string written to `?q=`; predicates, Expr, and control states are derived from it.
  */
 export interface DashboardQueryState {
-  readonly predicates: readonly FilterPredicate[];
-  /** Raw search-box text. It is split into one TEXT predicate per word or quoted phrase. */
-  readonly q: string;
+  readonly text: string;
   readonly sort: SortOption;
   readonly order: SortOrder;
   /** Selected item (details pane). Not part of the query. */
@@ -33,8 +31,7 @@ export interface DashboardQueryState {
 }
 
 export const DEFAULT_QUERY_STATE: Readonly<DashboardQueryState> = Object.freeze({
-  predicates: Object.freeze([]) as readonly FilterPredicate[],
-  q: '',
+  text: '',
   sort: 'updated',
   order: 'desc',
   item: null,
@@ -44,8 +41,8 @@ const EMPTY_STRINGS: readonly string[] = Object.freeze([]);
 const EMPTY_ACTIVITIES: readonly ActivityValue[] = Object.freeze([]);
 
 /**
- * Read-only projection of the predicate list onto the dashboard's filter controls.
- * Predicates that no control can display (negation, second predicate of the same field, or
+ * Read-only projection of the parsed query clauses onto the dashboard's filter controls.
+ * Clauses that no control can display (negation, second clause of the same field, or
  * fields without a control) are reported separately as extra predicates.
  */
 export interface FilterControls {
@@ -60,7 +57,6 @@ export interface FilterControls {
   milestone: readonly string[];
   label: readonly string[];
   activity: readonly ActivityValue[];
-  q: string;
   sort: SortOption;
   order: SortOrder;
   item: string | null;
@@ -78,11 +74,10 @@ export const DEFAULT_FILTER_CONTROLS: Readonly<FilterControls> = Object.freeze({
   milestone: EMPTY_STRINGS,
   label: EMPTY_STRINGS,
   activity: EMPTY_ACTIVITIES,
-  q: '',
   sort: 'updated',
   order: 'desc',
   item: null,
 });
 
-/** Controls backed by predicates (every FilterControls key except the non-query tail). */
-export type ControlKey = Exclude<keyof FilterControls, 'q' | 'sort' | 'order' | 'item'>;
+/** Controls backed by clauses (every FilterControls key except the non-query tail). */
+export type ControlKey = Exclude<keyof FilterControls, 'sort' | 'order' | 'item'>;

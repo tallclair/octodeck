@@ -3,8 +3,8 @@ import { create } from '@bufbuild/protobuf';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { FacetValueSchema } from '../../../api/octodeck/v1/query_pb';
-import { setActivity } from '../../../logic/query/predicates';
-import { DEFAULT_FILTER_CONTROLS, DEFAULT_QUERY_STATE, type FilterControls } from '../../../types/filters';
+import { resolveActivityValues } from '../../../logic/query/predicates';
+import { DEFAULT_FILTER_CONTROLS, type FilterControls } from '../../../types/filters';
 import { StateMenu } from '../StateMenu';
 import { filterTriggerClass } from '../menuStyles';
 
@@ -27,19 +27,10 @@ function Harness({
   ) => {
     setFiltersState((prev) => {
       if (key === 'activity') {
-        const nextState = setActivity(
-          {
-            ...DEFAULT_QUERY_STATE,
-            predicates:
-              prev.activity.length > 0
-                ? [{ field: 7, values: [...prev.activity], negated: false }]
-                : [],
-          },
-          value as FilterControls['activity']
-        );
-        const nextActivity =
-          (nextState.predicates[0]?.values as FilterControls['activity']) ?? [];
-        return { ...prev, activity: nextActivity };
+        return {
+          ...prev,
+          activity: resolveActivityValues(prev.activity, value as FilterControls['activity']),
+        };
       }
       return { ...prev, [key]: value };
     });

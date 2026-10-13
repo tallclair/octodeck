@@ -12,6 +12,7 @@ import {
   getSyncStatus,
   updateSubscription,
 } from '../api/octodeck/v1/service-OctoDeckService_connectquery';
+import { Field } from '../api/octodeck/v1/query_pb';
 import { SubscriptionState, type Item } from '../api/octodeck/v1/resources_pb';
 import { client, checkStatus } from '../api/client';
 import { PullRequestCard } from './PullRequestCard';
@@ -19,7 +20,7 @@ import { DetailsPane } from './DetailsPane';
 import { SyncStatusDisplay } from './SyncStatusDisplay';
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
 import { Settings } from '../Settings';
-import { hasActiveFilterChips } from '../logic/query/predicates';
+import { hasActiveFilterChips, resolveQueryErrors } from '../logic/query/predicates';
 import { useDashboardFilters } from '../hooks/useDashboardFilters';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { useScrollAnchoring } from '../hooks/useScrollAnchoring';
@@ -95,8 +96,11 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
 
   const {
     query,
+    parsed,
     filters,
     extraPredicates,
+    requestText,
+    setText,
     setFilter,
     setFilters,
     setOrgOrRepo,
@@ -129,11 +133,17 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   // Items, dropdown options and sidebar counts, all filtered and counted by the daemon.
   const data = useDashboardData({
     query,
+    requestText,
     pinnedRepos,
   });
   const { items, refreshAll } = data;
   // An invalid query is reported inline; only connectivity failures mean "disconnected".
   const isDisconnected = data.hasConnectivityError || isConfigError || isSyncStatusError;
+
+  const resolvedErrors = useMemo(
+    () => resolveQueryErrors(parsed, data.invalidQuery),
+    [parsed, data.invalidQuery]
+  );
 
   const hasActiveChips = useMemo(
     () => hasActiveFilterChips(filters, extraPredicates),
@@ -323,7 +333,11 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   });
 
   // Determine active workflow shortcut (no secondary filters, type=all, no search text)
-  const hasNoSecondaryFilters = !hasActiveChips && filters.type === 'all' && !filters.q.trim();
+  const hasSearchTerms = useMemo(
+    () => parsed.predicates.some((p) => p.field === Field.TEXT),
+    [parsed.predicates]
+  );
+  const hasNoSecondaryFilters = !hasActiveChips && filters.type === 'all' && !hasSearchTerms;
 
   if (data.isInitialLoading && !isDisconnected) {
     return (
@@ -383,8 +397,8 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
           <input
             type="text"
             placeholder="Search title and body..."
-            value={filters.q}
-            onChange={(e) => setFilter('q', e.target.value, true)}
+            value={query.text}
+            onChange={(e) => setText(e.target.value, 'typing')}
             className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full py-1.5 pl-9 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-800 dark:text-slate-300 placeholder:text-slate-400 dark:placeholder:text-slate-500"
           />
         </div>
@@ -517,13 +531,14 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                       menuRef={menus.refFor('sort')}
                     />
                   </div>
-                  {data.invalidQuery && (
+                  {resolvedErrors.summary && (
                     <div
                       role="alert"
                       data-testid="invalid-query"
-                      className="m-4 px-3 py-2 text-xs rounded border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300"
+                      className="m-4 px-3 py-2 text-xs rounded border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 flex items-center gap-2"
                     >
-                      Invalid filter: {data.invalidQuery.message}
+                      <AlertTriangle size={14} className="shrink-0" aria-hidden="true" />
+                      <span>{resolvedErrors.summary}</span>
                     </div>
                   )}
                   {items.map((item) => (

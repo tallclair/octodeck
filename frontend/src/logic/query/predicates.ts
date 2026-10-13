@@ -1,6 +1,6 @@
-// Pure operations on the dashboard's predicate list. The predicate list is the state of record;
-// the filter controls (triage tab, state, type, repo, ...) are a read-only projection of
-// it, and control changes are translated back into predicate edits here.
+// Pure operations on the dashboard's query clauses and filter controls.
+// The filter controls (triage tab, state, type, repo, ...) are a read-only projection of
+// the parsed query clauses, and control changes are translated back into text edits via textEdit.ts.
 import { Field } from '../../api/octodeck/v1/query_pb';
 import {
   DEFAULT_FILTER_CONTROLS,
@@ -12,7 +12,7 @@ import {
   type FilterPredicate,
   type TriageFilter,
 } from '../../types/filters';
-import type { ParsedQuery } from './syntax';
+import { parseQuery, type ParsedQuery } from './syntax';
 import { ME_VALUE, encodeLegacyValue, isActivityPredicate, rankOf, specForField } from './vocabulary';
 
 /** A predicate that no control can display, with its index in the predicate or clause list. */
@@ -26,6 +26,30 @@ export interface Projection {
   /** Index of the predicate or clause each control displays. */
   owners: Partial<Record<ControlKey, number>>;
   extras: ExtraPredicate[];
+}
+
+export interface ServerInvalidQuery {
+  readonly message: string;
+  readonly path?: string;
+}
+
+export interface ResolvedQueryErrors {
+  /** Map from clauseIndex (in parsed.clauses) to a server ExprError message. */
+  readonly serverClauseErrors: ReadonlyMap<number, string>;
+  /** Server ExprError message when path does not map to a specific clause. */
+  readonly serverRootError: string | null;
+  /** Ordered list of all active issue/error messages (after excluding excludedClauseIndex). */
+  readonly messages: readonly string[];
+  /** Formatted summary line ("1 part of the query is ignored: ..."), or null when no errors. */
+  readonly summary: string | null;
+}
+
+/** Legacy predicate-list state retained until Commit 2.4b removes the predicate-list editors. */
+export interface PredicateListState {
+  readonly predicates: readonly FilterPredicate[];
+  readonly sort: DashboardQueryState['sort'];
+  readonly order: DashboardQueryState['order'];
+  readonly item: string | null;
 }
 
 type SingleControlKey = 'state' | 'type' | 'tracking';
@@ -214,11 +238,10 @@ function controlFor(p: FilterPredicate): ProjectedControlValue | undefined {
  */
 export function projectClauses(
   parsed: ParsedQuery,
-  tail?: Partial<Pick<FilterControls, 'q' | 'sort' | 'order' | 'item'>>
+  tail?: Partial<Pick<FilterControls, 'sort' | 'order' | 'item'>>
 ): Projection {
   const controls: FilterControls = {
     ...DEFAULT_FILTER_CONTROLS,
-    ...(tail?.q !== undefined ? { q: tail.q } : {}),
     ...(tail?.sort !== undefined ? { sort: tail.sort } : {}),
     ...(tail?.order !== undefined ? { order: tail.order } : {}),
     ...(tail?.item !== undefined ? { item: tail.item } : {}),
@@ -256,10 +279,9 @@ export function projectClauses(
  * display sets it and records its index in `owners`; every other predicate is returned in `extras`
  * (in list order) so that no active filter is ever hidden.
  */
-export function projectControls(state: DashboardQueryState): Projection {
+export function projectControls(state: PredicateListState): Projection {
   const controls: FilterControls = {
     ...DEFAULT_FILTER_CONTROLS,
-    q: state.q,
     sort: state.sort,
     order: state.order,
     item: state.item,
@@ -345,7 +367,7 @@ function setOwnedPredicate(
  * Switching to New ('activity') replaces the activity control's predicate with `new:any`;
  * switching to Inbox/Acked/All removes the activity predicate only if it is `new:any`.
  */
-export function setTriageTab(state: DashboardQueryState, tab: TriageFilter): DashboardQueryState {
+export function setTriageTab(state: PredicateListState, tab: TriageFilter): PredicateListState {
   const { owners } = projectControls(state);
   if (tab === 'activity') {
     const owns = (p: FilterPredicate, index: number) =>
@@ -368,33 +390,11 @@ export function setTriageTab(state: DashboardQueryState, tab: TriageFilter): Das
  * - Ticking any of `item`, `mention`, `comment`, `code` while `any` is ticked removes `any`.
  */
 export function setActivity(
-  state: DashboardQueryState,
+  state: PredicateListState,
   values: readonly string[]
-): DashboardQueryState {
+): PredicateListState {
   const { controls, owners } = projectControls(state);
-  const prev = controls.activity;
-  const normalized: ActivityValue[] = [];
-  for (const raw of values) {
-    const v = normalizeActivity(raw);
-    if (v && !normalized.includes(v)) {
-      normalized.push(v);
-    }
-  }
-
-  const hasAny = normalized.includes('any');
-  const hasSpecific = normalized.some((v) => SPECIFIC_ACTIVITY_VALUES.includes(v));
-  let resolved = normalized;
-  if (hasAny && hasSpecific) {
-    const added = normalized.filter((v) => !prev.includes(v));
-    if (added.includes('any')) {
-      resolved = normalized.filter((v) => !SPECIFIC_ACTIVITY_VALUES.includes(v));
-    } else if (added.some((v) => SPECIFIC_ACTIVITY_VALUES.includes(v))) {
-      resolved = normalized.filter((v) => v !== 'any');
-    } else {
-      resolved = normalized.filter((v) => !SPECIFIC_ACTIVITY_VALUES.includes(v));
-    }
-  }
-
+  const resolved = resolveActivityValues(controls.activity, values);
   const next =
     resolved.length === 0 ? null : { field: Field.NEW, values: resolved, negated: false };
   return { ...state, predicates: setOwnedPredicate(state.predicates, owners.activity, next) };
@@ -402,13 +402,11 @@ export function setActivity(
 
 /** Sets one control, editing only the predicate it currently displays (P2). */
 export function setControl<K extends keyof FilterControls>(
-  state: DashboardQueryState,
+  state: PredicateListState,
   key: K,
   value: FilterControls[K]
-): DashboardQueryState {
+): PredicateListState {
   switch (key) {
-    case 'q':
-      return { ...state, q: value as string };
     case 'sort':
       return { ...state, sort: value as DashboardQueryState['sort'] };
     case 'order':
@@ -438,7 +436,7 @@ export function setControl<K extends keyof FilterControls>(
 }
 
 /** Applies several control changes in their insertion order. */
-export function applyControls(state: DashboardQueryState, partial: Partial<FilterControls>): DashboardQueryState {
+export function applyControls(state: PredicateListState, partial: Partial<FilterControls>): PredicateListState {
   return (Object.keys(partial) as (keyof FilterControls)[]).reduce(
     (s, key) => setControl(s, key, partial[key] as FilterControls[typeof key]),
     state
@@ -450,10 +448,10 @@ export function applyControls(state: DashboardQueryState, partial: Partial<Filte
  * selection clears the repo control's predicate, and vice versa.
  */
 export function setOrgOrRepo(
-  state: DashboardQueryState,
+  state: PredicateListState,
   kind: 'org' | 'repo',
   values: readonly string[]
-): DashboardQueryState {
+): PredicateListState {
   if (kind === 'org') {
     const base = values.length > 0 ? setControl(state, 'repo', []) : state;
     return setControl(base, 'org', values);
@@ -465,7 +463,7 @@ export function setOrgOrRepo(
 /**
  * Toggles `@me` in the assignee selection (P19), keeping any other selected assignees.
  */
-export function toggleAssignedToMe(state: DashboardQueryState): DashboardQueryState {
+export function toggleAssignedToMe(state: PredicateListState): PredicateListState {
   const current = projectControls(state).controls.assignee;
   const hasMe = current.some((v) => v.toLowerCase() === ME_VALUE);
   const next = hasMe ? current.filter((v) => v.toLowerCase() !== ME_VALUE) : [ME_VALUE, ...current];
@@ -473,22 +471,22 @@ export function toggleAssignedToMe(state: DashboardQueryState): DashboardQuerySt
 }
 
 /** Sidebar repo shortcut: if repo is exactly `[repo]`, clear it; otherwise set `[repo]` and clear org. */
-export function toggleRepo(state: DashboardQueryState, repo: string): DashboardQueryState {
+export function toggleRepo(state: PredicateListState, repo: string): PredicateListState {
   const current = projectControls(state).controls.repo;
   const isSameSingle = current.length === 1 && current[0].toLowerCase() === repo.toLowerCase();
   return setOrgOrRepo(state, 'repo', isSameSingle ? [] : [repo]);
 }
 
 /** Removes the predicate at `index` (a generic chip's remove button). */
-export function removePredicate(state: DashboardQueryState, index: number): DashboardQueryState {
+export function removePredicate(state: PredicateListState, index: number): PredicateListState {
   return { ...state, predicates: state.predicates.filter((_, i) => i !== index) };
 }
 
 /**
- * "Clear filters": keeps the triage tab, the type control, the search text, sort and selection,
+ * "Clear filters": keeps the triage tab, the type control, sort and selection,
  * and drops every other predicate (including extra predicates).
  */
-export function clearSecondary(state: DashboardQueryState): DashboardQueryState {
+export function clearSecondary(state: PredicateListState): PredicateListState {
   const { owners } = projectControls(state);
   const keptIndices = new Set<number>();
   if (owners.triage !== undefined) keptIndices.add(owners.triage);
@@ -499,23 +497,90 @@ export function clearSecondary(state: DashboardQueryState): DashboardQueryState 
 
 /** Sidebar workflow shortcut: everything back to defaults, on the given triage tab. */
 export function workflowState(tab: TriageFilter): DashboardQueryState {
-  return setTriageTab(DEFAULT_QUERY_STATE, tab);
+  const text =
+    tab === 'activity'
+      ? 'new:any'
+      : tab === 'acked' || tab === 'all'
+      ? `triage:${tab}`
+      : '';
+  return { ...DEFAULT_QUERY_STATE, text };
 }
 
 export function isDefaultQuery(state: DashboardQueryState): boolean {
   return (
-    state.predicates.length === 0 &&
-    state.q.trim() === '' &&
+    state.text.trim() === '' &&
     state.sort === DEFAULT_QUERY_STATE.sort &&
     state.order === DEFAULT_QUERY_STATE.order &&
     !state.item
   );
 }
 
-/** Number of active filter dimensions: predicates, the search text, and a non-default sort. */
-export function activeQueryCount(state: DashboardQueryState): number {
-  const sortChanged = state.sort !== DEFAULT_QUERY_STATE.sort || state.order !== DEFAULT_QUERY_STATE.order;
-  return state.predicates.length + (state.q.trim() ? 1 : 0) + (sortChanged ? 1 : 0);
+/** Number of active filter dimensions: qualifier predicates, free-text search, and non-default sort. */
+export function activeQueryCount(
+  state: DashboardQueryState,
+  parsed: ParsedQuery = parseQuery(state.text)
+): number {
+  const nonTextPredicates = parsed.predicates.filter((p) => p.field !== Field.TEXT).length;
+  const hasText = parsed.predicates.some((p) => p.field === Field.TEXT);
+  const sortChanged =
+    state.sort !== DEFAULT_QUERY_STATE.sort || state.order !== DEFAULT_QUERY_STATE.order;
+  return nonTextPredicates + (hasText ? 1 : 0) + (sortChanged ? 1 : 0);
+}
+
+const SERVER_PATH_RE = /^and\.exprs\[(\d+)\]/;
+
+/**
+ * Combines client parse issues with a server ExprError (mapped via `and.exprs[i]` -> `clauseOfPredicate[i]`)
+ * and builds the muted summary line (§7).
+ */
+export function resolveQueryErrors(
+  parsed: ParsedQuery,
+  invalidQuery?: ServerInvalidQuery | null,
+  options?: { excludedClauseIndex?: number | null }
+): ResolvedQueryErrors {
+  const serverClauseErrors = new Map<number, string>();
+  let serverRootError: string | null = null;
+
+  if (invalidQuery) {
+    const match = invalidQuery.path ? SERVER_PATH_RE.exec(invalidQuery.path) : null;
+    const predIndex = match ? Number(match[1]) : -1;
+    const clauseIndex =
+      predIndex >= 0 && predIndex < parsed.clauseOfPredicate.length
+        ? parsed.clauseOfPredicate[predIndex]
+        : undefined;
+    if (clauseIndex !== undefined) {
+      serverClauseErrors.set(clauseIndex, invalidQuery.message);
+    } else {
+      serverRootError = invalidQuery.message;
+    }
+  }
+
+  const excluded = options?.excludedClauseIndex ?? null;
+  const messages: string[] = [];
+  parsed.clauses.forEach((clause, index) => {
+    if (index === excluded) return;
+    const msg = clause.issue?.message ?? serverClauseErrors.get(index);
+    if (msg) {
+      messages.push(msg);
+    }
+  });
+  if (serverRootError) {
+    messages.push(serverRootError);
+  }
+
+  let summary: string | null = null;
+  if (messages.length === 1) {
+    summary = `1 part of the query is ignored: ${messages[0]}`;
+  } else if (messages.length > 1) {
+    summary = `${messages.length} parts of the query are ignored: ${messages[0]}`;
+  }
+
+  return {
+    serverClauseErrors,
+    serverRootError,
+    messages,
+    summary,
+  };
 }
 
 /** Label and values for a generic filter chip. */

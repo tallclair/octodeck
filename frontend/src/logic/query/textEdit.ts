@@ -34,6 +34,16 @@ export function removeClause(text: string, clause: Span): string {
   return before.slice(0, before.length - leadingWsLen) + after.slice(trailingWsLen);
 }
 
+/** Removes the clause at `index` in `parsed.clauses` from `text`. */
+export function removeClauseInText(
+  text: string,
+  parsed: ParsedQuery,
+  index: number
+): string {
+  const clause = parsed.clauses[index];
+  return clause ? removeClause(text, clause) : text;
+}
+
 /**
  * Inserts `raw` before the first `ok` clause whose canonical rank (`rankOf`) is greater than
  * `rank` (free-text terms rank after every qualifier), separated by a single space.

@@ -91,6 +91,15 @@ function facets(spec: { selector?: FacetMap | ((query: string) => FacetMap); sid
 const lastItemsQuery = (daemon: { lastRequest<T>(n: string): T | undefined }) =>
   describeQuery(daemon.lastRequest<GetItemsRequest>('GetItems')?.query);
 
+const ALLOWED_URL_KEYS = new Set(['q', 'sort', 'order', 'item']);
+
+function assertNoLegacyUrlKeys(search = window.location.search): void {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+  for (const key of params.keys()) {
+    expect(ALLOWED_URL_KEYS.has(key)).toBe(true);
+  }
+}
+
 function render(handlers: OctoDeckHandlers) {
   return renderWithDaemon(<Dashboard />, defaultHandlers(handlers));
 }
@@ -122,7 +131,7 @@ describe('Dashboard (RPC-level)', () => {
       expect(req.sort).toMatchObject({ key: SortKey.UPDATED, order: SortOrder.DESC });
     });
 
-    it('sends the legacy example URL as the equivalent structured query, in URL order', async () => {
+    it('sends the legacy example URL as the equivalent structured query, in URL order, and rewrites to ?q=', async () => {
       window.history.pushState(null, '', '/?repo=a/b&author=x&triage=acked&state=closed&label=bug');
       const { daemon } = render({
         getItems: itemsByQuery({ 'repo:a/b author:x triage:acked state:closed label:bug': [item('PR_1', 'Matching PR')] }),
@@ -136,7 +145,8 @@ describe('Dashboard (RPC-level)', () => {
         { field: Field.STATE, values: ['closed'], negated: false },
         { field: Field.LABEL, values: ['bug'], negated: false },
       ]);
-      expect(window.location.search).toBe('?repo=a/b&author=x&triage=acked&state=closed&label=bug');
+      expect(window.location.search).toBe('?q=repo:a/b+author:x+triage:acked+state:closed+label:bug');
+      assertNoLegacyUrlKeys();
     });
 
     it('sends the sort as a separate field and keeps the daemon order', async () => {
@@ -227,11 +237,14 @@ describe('Dashboard (RPC-level)', () => {
       fireEvent.click(within(typeGroup).getByRole('button', { name: /PRs/i }));
       await waitFor(() => expect(screen.queryByText('Open feature issue')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('type:pr');
-      expect(window.location.search).toBe('?type=pr');
+      expect(window.location.search).toBe('?q=type:pr');
+      assertNoLegacyUrlKeys();
 
       fireEvent.click(within(typeGroup).getByRole('button', { name: /Issues/i }));
       await waitFor(() => expect(screen.queryByText('Fix bug PR')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('type:issue');
+      expect(window.location.search).toBe('?q=type:issue');
+      assertNoLegacyUrlKeys();
 
       fireEvent.click(within(typeGroup).getByRole('button', { name: /^All$/i }));
       expect(await screen.findByText('Fix bug PR')).toBeDefined();
@@ -251,7 +264,8 @@ describe('Dashboard (RPC-level)', () => {
       fireEvent.click(screen.getByRole('button', { name: /^New/i }));
       await waitFor(() => expect(screen.queryByText('Idle PR')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('new:any');
-      expect(window.location.search).toBe('?triage=activity');
+      expect(window.location.search).toBe('?q=new:any');
+      assertNoLegacyUrlKeys();
 
       const titleDropdown = screen.getByLabelText(/Select triage status/i);
       fireEvent.click(titleDropdown);
@@ -259,7 +273,8 @@ describe('Dashboard (RPC-level)', () => {
       expect(await screen.findByText('Acked PR')).toBeDefined();
       expect(screen.queryByText('New PR')).toBeNull();
       expect(lastItemsQuery(daemon)).toBe('triage:acked');
-      expect(window.location.search).toBe('?triage=acked');
+      expect(window.location.search).toBe('?q=triage:acked');
+      assertNoLegacyUrlKeys();
 
       fireEvent.click(titleDropdown);
       fireEvent.click(screen.getAllByRole('button', { name: /Inbox/i })[1]);
@@ -286,18 +301,22 @@ describe('Dashboard (RPC-level)', () => {
       fireEvent.click(screen.getByRole('button', { name: /^Closed$/i }));
       await waitFor(() => expect(screen.queryByText('Open PR')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('state:closed');
+      expect(window.location.search).toBe('?q=state:closed');
+      assertNoLegacyUrlKeys();
 
       fireEvent.click(stateTrigger);
       fireEvent.click(within(stateTrigger.parentElement!).getByRole('button', { name: /^Merged$/i }));
       await waitFor(() => expect(screen.queryByText('Closed PR')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('state:merged');
-      expect(window.location.search).toBe('?state=merged');
+      expect(window.location.search).toBe('?q=state:merged');
+      assertNoLegacyUrlKeys();
 
       fireEvent.click(stateTrigger);
       fireEvent.click(within(stateTrigger.parentElement!).getByRole('button', { name: /^Open$/i }));
       await waitFor(() => expect(screen.queryByText('Merged PR')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('state:open');
-      expect(window.location.search).toBe('?state=open');
+      expect(window.location.search).toBe('?q=state:open');
+      assertNoLegacyUrlKeys();
     });
 
     it('filters by tracking and removes the filter with its chip', async () => {
@@ -313,13 +332,16 @@ describe('Dashboard (RPC-level)', () => {
       fireEvent.click(within(stateTrigger.parentElement!).getByRole('button', { name: /^Untracked$/i }));
       await waitFor(() => expect(screen.queryByText('Tracked PR')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('tracking:false');
-      expect(window.location.search).toBe('?tracking=untracked');
+      expect(window.location.search).toBe('?q=tracking:false');
+      assertNoLegacyUrlKeys();
       expect(screen.getByText('Tracking:')).toBeDefined();
 
       fireEvent.click(stateTrigger);
       fireEvent.click(within(stateTrigger.parentElement!).getByRole('button', { name: /^Tracked$/i }));
       await waitFor(() => expect(screen.queryByText('Untracked PR')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('tracking:true');
+      expect(window.location.search).toBe('?q=tracking:true');
+      assertNoLegacyUrlKeys();
 
       fireEvent.click(screen.getByRole('button', { name: /Remove tracking filter/i }));
       expect(await screen.findByText('Untracked PR')).toBeDefined();
@@ -338,7 +360,8 @@ describe('Dashboard (RPC-level)', () => {
       fireEvent.click(toggle);
       await waitFor(() => expect(screen.queryByText('Unassigned PR')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('assignee:@me');
-      expect(window.location.search).toBe('?assigned=me');
+      expect(window.location.search).toBe('?q=assignee:@me');
+      assertNoLegacyUrlKeys();
 
       fireEvent.click(toggle);
       expect(await screen.findByText('Unassigned PR')).toBeDefined();
@@ -369,7 +392,8 @@ describe('Dashboard (RPC-level)', () => {
       // Menu remains open after first toggle
       fireEvent.click(screen.getByRole('option', { name: /^@bob$/i }));
       await waitFor(() => expect(lastItemsQuery(daemon)).toBe('assignee:alice,bob'));
-      expect(window.location.search).toBe('?assignee=alice&assignee=bob');
+      expect(window.location.search).toBe('?q=assignee:alice,bob');
+      assertNoLegacyUrlKeys();
     });
 
     it('filters by author from the facet options and clears with Reset filters', async () => {
@@ -385,7 +409,8 @@ describe('Dashboard (RPC-level)', () => {
       fireEvent.click(await screen.findByRole('option', { name: /@alice/i }));
       await waitFor(() => expect(screen.queryByText('Bob PR')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('author:alice');
-      expect(window.location.search).toBe('?author=alice');
+      expect(window.location.search).toBe('?q=author:alice');
+      assertNoLegacyUrlKeys();
 
       fireEvent.click(screen.getByRole('button', { name: /Reset filters/i }));
       expect(await screen.findByText('Bob PR')).toBeDefined();
@@ -417,13 +442,15 @@ describe('Dashboard (RPC-level)', () => {
       fireEvent.click(within(repoMenu).getByRole('option', { name: /^kubernetes$/i }));
       await waitFor(() => expect(screen.queryByText('Go lang')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('org:kubernetes');
-      expect(window.location.search).toBe('?org=kubernetes');
+      expect(window.location.search).toBe('?q=org:kubernetes');
+      assertNoLegacyUrlKeys();
 
       // Menu stays open; selecting a repo clears the org selection (P3)
       fireEvent.click(within(repoMenu).getByRole('option', { name: /kubernetes\/minikube/i }));
       await waitFor(() => expect(screen.queryByText('K8s core')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('repo:kubernetes/minikube');
-      expect(window.location.search).toBe('?repo=kubernetes/minikube');
+      expect(window.location.search).toBe('?q=repo:kubernetes/minikube');
+      assertNoLegacyUrlKeys();
     });
 
     it('renders "Repo: a/b +2" chip with full title when 3+ repos are selected and removes the predicate on ×', async () => {
@@ -462,7 +489,8 @@ describe('Dashboard (RPC-level)', () => {
       await waitFor(() => expect(screen.queryByText('Milestone 1.33 PR')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('milestone:v1.32');
       expect(screen.getByText('Milestone:')).toBeDefined();
-      expect(window.location.search).toBe('?milestone=v1.32');
+      expect(window.location.search).toBe('?q=milestone:v1.32');
+      assertNoLegacyUrlKeys();
 
       fireEvent.click(screen.getByRole('button', { name: /Remove milestone filter/i }));
       expect(await screen.findByText('Milestone 1.33 PR')).toBeDefined();
@@ -500,12 +528,14 @@ describe('Dashboard (RPC-level)', () => {
       await waitFor(() => expect(screen.queryByText('Docs 3')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('label:kind/bug');
       expect(screen.getByText('Label:')).toBeDefined();
-      expect(window.location.search).toBe('?label=kind/bug');
+      expect(window.location.search).toBe('?q=label:kind/bug');
+      assertNoLegacyUrlKeys();
 
       // Menu stays open; tick a second label
       fireEvent.click(screen.getByRole('option', { name: /kind\/feature/i }));
       await waitFor(() => expect(lastItemsQuery(daemon)).toBe('label:kind/bug,kind/feature'));
-      expect(window.location.search).toBe('?label=kind/bug&label=kind/feature');
+      expect(window.location.search).toBe('?q=label:kind/bug,kind/feature');
+      assertNoLegacyUrlKeys();
 
       fireEvent.click(screen.getByRole('button', { name: /Remove label filter/i }));
       expect(await screen.findByText('Docs 3')).toBeDefined();
@@ -540,7 +570,8 @@ describe('Dashboard (RPC-level)', () => {
       fireEvent.click(stateTrigger);
       fireEvent.click(screen.getByRole('option', { name: /^Mentions$/i }));
       await waitFor(() => expect(lastItemsQuery(daemon)).toBe('new:mention'));
-      expect(window.location.search).toBe('?new=mention');
+      expect(window.location.search).toBe('?q=new:mention');
+      assertNoLegacyUrlKeys();
       expect(screen.getByText('Activity:')).toBeDefined();
       expect(screen.getByRole('button', { name: 'Remove activity filter Mentions' })).toBeDefined();
 
@@ -548,7 +579,8 @@ describe('Dashboard (RPC-level)', () => {
       fireEvent.click(screen.getByLabelText(/Select triage status/i));
       fireEvent.click(screen.getAllByRole('button', { name: /Acked/i })[1]);
       await waitFor(() => expect(lastItemsQuery(daemon)).toBe('triage:acked new:mention'));
-      expect(window.location.search).toBe('?triage=acked&new=mention');
+      expect(window.location.search).toBe('?q=triage:acked+new:mention');
+      assertNoLegacyUrlKeys();
       expect(screen.getByText('Activity:')).toBeDefined();
       expect(screen.getByRole('button', { name: 'Remove activity filter Mentions' })).toBeDefined();
 
@@ -556,7 +588,8 @@ describe('Dashboard (RPC-level)', () => {
       const sidebarNew = screen.getAllByRole('button', { name: /^New/i })[0];
       fireEvent.click(sidebarNew);
       await waitFor(() => expect(lastItemsQuery(daemon)).toBe('new:any'));
-      expect(window.location.search).toBe('?triage=activity');
+      expect(window.location.search).toBe('?q=new:any');
+      assertNoLegacyUrlKeys();
       expect(screen.queryByText('Activity:')).toBeNull();
       expect(sidebarNew.className).toContain('bg-blue-600');
 
@@ -587,7 +620,8 @@ describe('Dashboard (RPC-level)', () => {
       fireEvent.click(within(titleMenu).getByRole('button', { name: /^New$/i }));
       expect(await screen.findByText('New bug')).toBeDefined();
       expect(lastItemsQuery(daemon)).toBe('new:any label:bug');
-      expect(window.location.search).toBe('?triage=activity&label=bug&sort=created&order=asc');
+      expect(window.location.search).toBe('?q=new:any+label:bug&sort=created&order=asc');
+      assertNoLegacyUrlKeys();
       expect(daemon.lastRequest<GetItemsRequest>('GetItems')!.sort).toMatchObject({
         key: SortKey.CREATED,
         order: SortOrder.ASC,
@@ -598,7 +632,8 @@ describe('Dashboard (RPC-level)', () => {
       fireEvent.click(sidebarNew);
       expect(await screen.findByText('All new items')).toBeDefined();
       expect(lastItemsQuery(daemon)).toBe('new:any');
-      expect(window.location.search).toBe('?triage=activity');
+      expect(window.location.search).toBe('?q=new:any');
+      assertNoLegacyUrlKeys();
       expect(daemon.lastRequest<GetItemsRequest>('GetItems')!.sort).toMatchObject({
         key: SortKey.UPDATED,
         order: SortOrder.DESC,
@@ -647,7 +682,8 @@ describe('Dashboard (RPC-level)', () => {
       fireEvent.click(within(chips[0]).getByRole('button'));
       expect(await screen.findByText('Wider result')).toBeDefined();
       expect(lastItemsQuery(daemon)).toBe('label:a,b');
-      expect(window.location.search).toBe('?label=a&label=b');
+      expect(window.location.search).toBe('?q=label:a,b');
+      assertNoLegacyUrlKeys();
     });
 
     it('keeps a negated filter when picking a value from the same selector', async () => {
@@ -669,7 +705,8 @@ describe('Dashboard (RPC-level)', () => {
       fireEvent.click(await screen.findByRole('option', { name: /^a$/i }));
       await waitFor(() => expect(screen.queryByText('Not bug 2')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('-label:bug label:a');
-      expect(window.location.search).toBe('?-label=bug&label=a');
+      expect(window.location.search).toBe('?q=-label:bug+label:a');
+      assertNoLegacyUrlKeys();
     });
 
     it('debounces search typing into one TEXT predicate per word or phrase', async () => {
@@ -876,7 +913,8 @@ describe('Dashboard (RPC-level)', () => {
       fireEvent.click(screen.getAllByRole('button', { name: /kubernetes\/kubernetes/i })[0]);
       expect(await screen.findByText('Repo-scoped PR')).toBeDefined();
       expect(lastItemsQuery(daemon)).toBe('repo:kubernetes/kubernetes');
-      expect(window.location.search).toBe('?repo=kubernetes/kubernetes');
+      expect(window.location.search).toBe('?q=repo:kubernetes/kubernetes');
+      assertNoLegacyUrlKeys();
 
       fireEvent.click(screen.getByLabelText(/Remove repository filter/i));
       expect(await screen.findByText('Inbox PR')).toBeDefined();
@@ -885,20 +923,89 @@ describe('Dashboard (RPC-level)', () => {
   });
 
   describe('errors and the selected item', () => {
-    it('reports an invalid query inline instead of as a disconnection', async () => {
-      window.history.pushState(null, '', '/?state=merged');
+    it('sends one TEXT predicate for ?q=flaky', async () => {
+      window.history.pushState(null, '', '/?q=flaky');
+      const { daemon } = render({
+        getItems: itemsByQuery({ 'text:flaky': [item('PR_1', 'Flaky test PR')] }),
+      });
+
+      expect(await screen.findByText('Flaky test PR')).toBeDefined();
+      expect(lastItemsQuery(daemon)).toBe('text:flaky');
+      expect(window.location.search).toBe('?q=flaky');
+    });
+
+    it('excludes an invalid clause from the request and reports it in the summary line', async () => {
+      window.history.pushState(null, '', '/?q=lable:bug+state:open');
+      const { daemon } = render({
+        getItems: itemsByQuery({ 'state:open': [item('PR_1', 'Open PR')] }),
+      });
+
+      expect(await screen.findByText('Open PR')).toBeDefined();
+      expect(lastItemsQuery(daemon)).toBe('state:open');
+      const alert = screen.getByTestId('invalid-query');
+      expect(alert.textContent).toContain(
+        '1 part of the query is ignored: lable is not a known filter. Quote it to search for the text: "lable:bug"'
+      );
+      expect(screen.queryByTestId('daemon-disconnected-banner')).toBeNull();
+    });
+
+    it('reports a server ExprError inline and maps its path across skipped invalid clauses', async () => {
+      window.history.pushState(null, '', '/?q=lable:bug+state:merged');
       render({
         getItems: () => {
           throw new ConnectError('invalid query', Code.InvalidArgument, undefined, [
-            { desc: ExprErrorSchema, value: create(ExprErrorSchema, { path: 'and.exprs[0]', message: 'state "merged" is not supported here' }) },
+            {
+              desc: ExprErrorSchema,
+              value: create(ExprErrorSchema, {
+                path: 'and.exprs[0]',
+                message: 'state "merged" is not supported here',
+              }),
+            },
           ]);
         },
       });
 
       const alert = await screen.findByTestId('invalid-query');
-      expect(alert.textContent).toContain('state "merged" is not supported here');
+      expect(alert.textContent).toContain('2 parts of the query are ignored:');
+      expect(alert.textContent).toContain('lable is not a known filter');
       expect(screen.queryByTestId('daemon-disconnected-banner')).toBeNull();
       expect(screen.queryByTestId('daemon-offline-empty-state')).toBeNull();
+    });
+
+    it('does not reset scroll anchoring when editing only an error clause', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      window.history.pushState(null, '', '/?q=state:open+lable:x');
+      render({
+        getItems: itemsByQuery({
+          'state:open': [item('PR_1', 'Open PR 1'), item('PR_2', 'Open PR 2')],
+          'state:closed': [item('PR_3', 'Closed PR 3')],
+        }),
+      });
+
+      const pr1 = await screen.findByText('Open PR 1');
+      const scrollContainer = pr1.closest('.overflow-y-auto') as HTMLDivElement;
+      scrollContainer.scrollTop = 120;
+
+      const input = screen.getByPlaceholderText(/Search title and body/i) as HTMLInputElement;
+      act(() => {
+        fireEvent.change(input, { target: { value: 'state:open lable:xy' } });
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+
+      // Editing only the error clause leaves the valid predicate list unchanged, so scrollTop is preserved
+      expect(scrollContainer.scrollTop).toBe(120);
+
+      // Editing the valid clause changes settledKey and resets scrollTop to 0
+      act(() => {
+        fireEvent.change(input, { target: { value: 'state:closed lable:xy' } });
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+      await screen.findByText('Closed PR 3');
+      expect(scrollContainer.scrollTop).toBe(0);
     });
 
     it('shows the offline state when the daemon is unreachable', async () => {
