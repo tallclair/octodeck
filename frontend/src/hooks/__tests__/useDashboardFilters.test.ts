@@ -22,8 +22,8 @@ describe('useDashboardFilters hook', () => {
     const { result } = renderHook(() => useDashboardFilters());
 
     expect(result.current.filters.triage).toBe('activity');
-    expect(result.current.filters.repo).toBe('kubernetes/kubernetes');
-    expect(result.current.filters.assigned).toBe('me');
+    expect(result.current.filters.repo).toEqual(['kubernetes/kubernetes']);
+    expect(result.current.filters.assignee).toEqual(['@me']);
     expect(result.current.isDefault).toBe(false);
     expect(result.current.activeCount).toBe(3);
   });
@@ -60,12 +60,12 @@ describe('useDashboardFilters hook', () => {
     act(() => {
       result.current.toggleRepo('kubernetes/kubernetes');
     });
-    expect(result.current.filters.repo).toBe('kubernetes/kubernetes');
+    expect(result.current.filters.repo).toEqual(['kubernetes/kubernetes']);
 
     act(() => {
       result.current.toggleRepo('kubernetes/kubernetes');
     });
-    expect(result.current.filters.repo).toBeNull();
+    expect(result.current.filters.repo).toEqual([]);
   });
 
   it('resets all filters when resetFilters is called', () => {
@@ -89,43 +89,59 @@ describe('useDashboardFilters hook', () => {
     });
 
     expect(result.current.filters.triage).toBe('activity');
-    expect(result.current.filters.repo).toBe('golang/go');
+    expect(result.current.filters.repo).toEqual(['golang/go']);
   });
 
   it('updates milestone filter and pushes to URL search params', () => {
     const { result } = renderHook(() => useDashboardFilters());
 
     act(() => {
-      result.current.setFilter('milestone', 'v1.32');
+      result.current.setFilter('milestone', ['v1.32']);
     });
 
-    expect(result.current.filters.milestone).toBe('v1.32');
+    expect(result.current.filters.milestone).toEqual(['v1.32']);
     expect(window.location.search).toContain('milestone=v1.32');
 
     act(() => {
-      result.current.setFilter('milestone', null);
+      result.current.setFilter('milestone', []);
     });
 
-    expect(result.current.filters.milestone).toBeNull();
+    expect(result.current.filters.milestone).toEqual([]);
     expect(window.location.search).not.toContain('milestone=');
   });
 
-  it('updates label filter and pushes to URL search params', () => {
+  it('updates label filter (including multiple values) and round-trips through URL search params', () => {
     const { result } = renderHook(() => useDashboardFilters());
 
     act(() => {
-      result.current.setFilter('label', 'kind/bug');
+      result.current.setFilter('label', ['a', 'b']);
     });
 
-    expect(result.current.filters.label).toBe('kind/bug');
-    expect(window.location.search).toContain('label=kind/bug');
+    expect(result.current.filters.label).toEqual(['a', 'b']);
+    expect(window.location.search).toBe('?label=a&label=b');
 
     act(() => {
-      result.current.setFilter('label', null);
+      result.current.setFilter('label', []);
     });
 
-    expect(result.current.filters.label).toBeNull();
-    expect(window.location.search).not.toContain('label=');
+    expect(result.current.filters.label).toEqual([]);
+    expect(window.location.search).toBe('');
+  });
+
+  it('writes assigned=me for exactly assignee:@me and assignee=@me&assignee=alice otherwise', () => {
+    const { result } = renderHook(() => useDashboardFilters());
+
+    act(() => {
+      result.current.toggleAssignedToMe();
+    });
+    expect(result.current.filters.assignee).toEqual(['@me']);
+    expect(window.location.search).toBe('?assigned=me');
+
+    act(() => {
+      result.current.setFilter('assignee', ['@me', 'alice']);
+    });
+    expect(result.current.filters.assignee).toEqual(['@me', 'alice']);
+    expect(window.location.search).toBe('?assignee=@me&assignee=alice');
   });
 
   it('initializes tracking filter from URL query parameter', () => {
@@ -196,7 +212,13 @@ describe('useDashboardFilters hook', () => {
       { field: Field.STATE, values: ['closed'], negated: false },
       { field: Field.LABEL, values: ['bug'], negated: false },
     ]);
-    expect(result.current.filters).toMatchObject({ repo: 'a/b', author: 'x', triage: 'acked', state: 'closed', label: 'bug' });
+    expect(result.current.filters).toMatchObject({
+      repo: ['a/b'],
+      author: ['x'],
+      triage: 'acked',
+      state: 'closed',
+      label: ['bug'],
+    });
     expect(result.current.extraPredicates).toEqual([]);
   });
 
@@ -206,7 +228,7 @@ describe('useDashboardFilters hook', () => {
     const { result } = renderHook(() => useDashboardFilters());
 
     act(() => {
-      result.current.setFilter('label', null);
+      result.current.setFilter('label', []);
     });
 
     expect(pushStateSpy).toHaveBeenCalledWith(null, '', '/?repo=a/b&author=x&triage=acked&state=closed');
@@ -239,14 +261,13 @@ describe('useDashboardFilters hook', () => {
     expect(result.current.filters.triage).toBe('activity');
   });
 
-  it('reports repeated and negated parameters as extra predicates and removes them by index', () => {
+  it('projects repeated parameters onto the control and reports negated parameters as extra predicates', () => {
     window.history.pushState(null, '', '/?-label=bug&label=a&label=b');
     const { result } = renderHook(() => useDashboardFilters());
 
-    expect(result.current.filters.label).toBeNull();
+    expect(result.current.filters.label).toEqual(['a', 'b']);
     expect(result.current.extraPredicates).toEqual([
       { predicate: { field: Field.LABEL, values: ['bug'], negated: true }, index: 0 },
-      { predicate: { field: Field.LABEL, values: ['a', 'b'], negated: false }, index: 1 },
     ]);
     expect(result.current.activeCount).toBe(2);
 
@@ -255,7 +276,7 @@ describe('useDashboardFilters hook', () => {
     });
 
     expect(window.location.search).toBe('?label=a&label=b');
-    expect(result.current.extraPredicates).toHaveLength(1);
+    expect(result.current.extraPredicates).toEqual([]);
   });
 
   it('clears secondary filters but keeps the triage tab, type and search text', () => {

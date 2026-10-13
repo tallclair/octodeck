@@ -14,6 +14,8 @@ import {
   projectControls,
   removePredicate,
   setControl,
+  setOrgOrRepo as setOrgOrRepoOp,
+  toggleAssignedToMe as toggleAssignedToMeOp,
   toggleRepo as toggleRepoOp,
   workflowState,
 } from '../logic/query/predicates';
@@ -27,7 +29,7 @@ function getInitialQuery(): DashboardQueryState {
 
 /**
  * Dashboard filter state, kept in sync with the URL. The state of record is a list of predicates
- * (`query`); `filters` is a read-only projection onto the single-select controls, and
+ * (`query`); `filters` is a read-only projection onto the filter controls, and
  * `extraPredicates` lists the predicates no control can show (e.g. from hand-written URLs).
  */
 export function useDashboardFilters() {
@@ -99,6 +101,20 @@ export function useDashboardFilters() {
     [update]
   );
 
+  const setOrgOrRepo = useCallback(
+    (kind: 'org' | 'repo', values: readonly string[], replaceHistory = false) => {
+      update(s => setOrgOrRepoOp(s, kind, values), replaceHistory);
+    },
+    [update]
+  );
+
+  const toggleAssignedToMe = useCallback(
+    (replaceHistory = false) => {
+      update(toggleAssignedToMeOp, replaceHistory);
+    },
+    [update]
+  );
+
   const resetFilters = useCallback(() => replaceAll(DEFAULT_QUERY_STATE), [replaceAll]);
 
   // Sidebar shortcut for top-level workflow: resets other filters to defaults
@@ -118,7 +134,6 @@ export function useDashboardFilters() {
 
   const {
     controls: filters,
-    owners,
     extras: extraPredicates,
   } = useMemo(() => projectControls(query), [query]);
   const isDefault = useMemo(() => isDefaultQuery(query), [query]);
@@ -127,10 +142,11 @@ export function useDashboardFilters() {
   return {
     query,
     filters,
-    owners,
     extraPredicates,
     setFilter,
     setFilters,
+    setOrgOrRepo,
+    toggleAssignedToMe,
     resetFilters,
     applyWorkflowShortcut,
     toggleRepo,

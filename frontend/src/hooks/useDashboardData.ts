@@ -5,15 +5,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData } from '@tanstack/react-query';
 import { useQuery } from '@connectrpc/connect-query';
 import { getFacets, getItem, getItems } from '../api/octodeck/v1/service-OctoDeckService_connectquery';
-import { Field } from '../api/octodeck/v1/query_pb';
+import { Field, type FacetValue } from '../api/octodeck/v1/query_pb';
 import type { Item } from '../api/octodeck/v1/resources_pb';
-import type { DashboardQueryState, FilterControls } from '../types/filters';
+import type { DashboardQueryState } from '../types/filters';
 import { NEW_ANY_EXPR, toExpr, toSort } from '../logic/query/expr';
 import { serializeQueryParams } from '../logic/query/urlCodec';
 import {
-  buildLabelOptions,
-  buildOptions,
-  buildRepoDropdown,
   buildSidebar,
   countOf,
   countsByValue,
@@ -28,7 +25,15 @@ const POLL = { refetchInterval: 3000, staleTime: 1000 } as const;
 export const SEARCH_DEBOUNCE_MS = 200;
 
 /** Facets for the dropdowns: one call for every selector field (one evaluation pass in the daemon). */
-const SELECTOR_FIELDS = [Field.REPO, Field.ORG, Field.AUTHOR, Field.MILESTONE, Field.LABEL];
+const SELECTOR_FIELDS = [
+  Field.REPO,
+  Field.ORG,
+  Field.AUTHOR,
+  Field.ASSIGNEE,
+  Field.MILESTONE,
+  Field.LABEL,
+  Field.NEW,
+];
 /** Facets for the sidebar: the repo list with inbox counts, and inbox/acked totals. */
 const SIDEBAR_FIELDS = [Field.REPO, Field.TRIAGE];
 const SIDEBAR_REQUEST = { fields: SIDEBAR_FIELDS };
@@ -36,19 +41,26 @@ const UNREAD_REQUEST = { query: NEW_ANY_EXPR, fields: SIDEBAR_FIELDS };
 
 const NO_ITEMS: Item[] = [];
 
+export interface SelectorFacets {
+  readonly repos: readonly FacetValue[];
+  readonly orgs: readonly FacetValue[];
+  readonly authors: readonly FacetValue[];
+  readonly assignees: readonly FacetValue[];
+  readonly milestones: readonly FacetValue[];
+  readonly labels: readonly FacetValue[];
+  readonly activity: readonly FacetValue[];
+}
+
 export interface DashboardDataOptions {
   query: DashboardQueryState;
-  /** The control projection of `query` (selected values for the dropdowns). */
-  filters: FilterControls;
   pinnedRepos: readonly string[];
-  showAll: { repos: boolean; authors: boolean; milestones: boolean; labels: boolean };
 }
 
 function matchesSelection(item: Item, selectedId: string): boolean {
   return item.id === selectedId || `${item.repo}#${item.number}` === selectedId;
 }
 
-export function useDashboardData({ query, filters, pinnedRepos, showAll }: DashboardDataOptions) {
+export function useDashboardData({ query, pinnedRepos }: DashboardDataOptions) {
   const debouncedQ = useDebouncedValue(query.q, SEARCH_DEBOUNCE_MS);
   const expr = useMemo(() => toExpr(query.predicates, debouncedQ), [query.predicates, debouncedQ]);
   const sort = useMemo(() => toSort(query.sort, query.order), [query.sort, query.order]);
@@ -146,32 +158,17 @@ export function useDashboardData({ query, filters, pinnedRepos, showAll }: Dashb
   };
 
   const selectorData = selectorQ.data;
-  const options = useMemo(
+  const facets: SelectorFacets = useMemo(
     () => ({
-      repos: buildRepoDropdown(
-        facetValues(selectorData, Field.REPO),
-        facetValues(selectorData, Field.ORG),
-        { repo: filters.repo, org: filters.org },
-        pinnedRepos,
-        showAll.repos
-      ),
-      authors: buildOptions(facetValues(selectorData, Field.AUTHOR), filters.author, showAll.authors),
-      milestones: buildOptions(facetValues(selectorData, Field.MILESTONE), filters.milestone, showAll.milestones),
-      labels: buildLabelOptions(facetValues(selectorData, Field.LABEL), filters.label, showAll.labels),
+      repos: facetValues(selectorData, Field.REPO),
+      orgs: facetValues(selectorData, Field.ORG),
+      authors: facetValues(selectorData, Field.AUTHOR),
+      assignees: facetValues(selectorData, Field.ASSIGNEE),
+      milestones: facetValues(selectorData, Field.MILESTONE),
+      labels: facetValues(selectorData, Field.LABEL),
+      activity: facetValues(selectorData, Field.NEW),
     }),
-    [
-      selectorData,
-      filters.repo,
-      filters.org,
-      filters.author,
-      filters.milestone,
-      filters.label,
-      pinnedRepos,
-      showAll.repos,
-      showAll.authors,
-      showAll.milestones,
-      showAll.labels,
-    ]
+    [selectorData]
   );
 
   const queryErrors = [itemsQ.error, selectorQ.error, sidebarQ.error, unreadQ.error];
@@ -189,6 +186,6 @@ export function useDashboardData({ query, filters, pinnedRepos, showAll }: Dashb
     repoInboxCounts,
     repoHasUnread,
     totals,
-    options,
+    facets,
   };
 }

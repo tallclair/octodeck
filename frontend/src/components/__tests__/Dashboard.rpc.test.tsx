@@ -267,10 +267,18 @@ describe('Dashboard (RPC-level)', () => {
       // Back to the unfiltered query: its cached result is shown (the query key includes the request).
     });
 
-    it('filters by state with the state menu', async () => {
+    it('filters by state (open, closed, merged) with the state menu', async () => {
       const open = item('PR_1', 'Open PR');
       const closed = item('PR_2', 'Closed PR', { state: ItemState.CLOSED });
-      const { daemon } = render({ getItems: itemsByQuery({ '': [open, closed], 'state:closed': [closed], 'state:open': [open] }) });
+      const merged = item('PR_3', 'Merged PR', { state: ItemState.MERGED });
+      const { daemon } = render({
+        getItems: itemsByQuery({
+          '': [open, closed, merged],
+          'state:closed': [closed],
+          'state:open': [open],
+          'state:merged': [merged],
+        }),
+      });
       expect(await screen.findByText('Closed PR')).toBeDefined();
       const stateTrigger = screen.getByRole('button', { name: /Filter by state/i });
 
@@ -280,8 +288,14 @@ describe('Dashboard (RPC-level)', () => {
       expect(lastItemsQuery(daemon)).toBe('state:closed');
 
       fireEvent.click(stateTrigger);
-      fireEvent.click(within(stateTrigger.parentElement!).getByRole('button', { name: /^Open$/i }));
+      fireEvent.click(within(stateTrigger.parentElement!).getByRole('button', { name: /^Merged$/i }));
       await waitFor(() => expect(screen.queryByText('Closed PR')).toBeNull());
+      expect(lastItemsQuery(daemon)).toBe('state:merged');
+      expect(window.location.search).toBe('?state=merged');
+
+      fireEvent.click(stateTrigger);
+      fireEvent.click(within(stateTrigger.parentElement!).getByRole('button', { name: /^Open$/i }));
+      await waitFor(() => expect(screen.queryByText('Merged PR')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('state:open');
       expect(window.location.search).toBe('?state=open');
     });
@@ -331,6 +345,33 @@ describe('Dashboard (RPC-level)', () => {
       expect(window.location.search).toBe('');
     });
 
+    it('selects multiple assignees from the overflow Assignee menu', async () => {
+      const a = item('PR_1', 'Alice assigned');
+      const b = item('PR_2', 'Bob assigned');
+      const c = item('PR_3', 'Carol assigned');
+      const { daemon } = render({
+        getItems: itemsByQuery({
+          '': [a, b, c],
+          'assignee:alice': [a],
+          'assignee:alice,bob': [a, b],
+        }),
+        getFacets: facets({
+          selector: { [Field.ASSIGNEE]: [['alice', 1], ['bob', 1], ['carol', 1]] },
+        }),
+      });
+      expect(await screen.findByText('Carol assigned')).toBeDefined();
+
+      fireEvent.click(screen.getByRole('button', { name: /More filters/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Filter by assignee/i }));
+      fireEvent.click(await screen.findByRole('option', { name: /^@alice$/i }));
+      await waitFor(() => expect(lastItemsQuery(daemon)).toBe('assignee:alice'));
+
+      // Menu remains open after first toggle
+      fireEvent.click(screen.getByRole('option', { name: /^@bob$/i }));
+      await waitFor(() => expect(lastItemsQuery(daemon)).toBe('assignee:alice,bob'));
+      expect(window.location.search).toBe('?assignee=alice&assignee=bob');
+    });
+
     it('filters by author from the facet options and clears with Reset filters', async () => {
       const alice = item('PR_1', 'Alice PR', { author: { login: 'alice' } });
       const bob = item('PR_2', 'Bob PR', { author: { login: 'bob' } });
@@ -341,7 +382,7 @@ describe('Dashboard (RPC-level)', () => {
       expect(await screen.findByText('Bob PR')).toBeDefined();
 
       fireEvent.click(screen.getByRole('button', { name: /Filter by author/i }));
-      fireEvent.click(await screen.findByRole('button', { name: /@alice/i }));
+      fireEvent.click(await screen.findByRole('option', { name: /@alice/i }));
       await waitFor(() => expect(screen.queryByText('Bob PR')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('author:alice');
       expect(window.location.search).toBe('?author=alice');
@@ -351,7 +392,7 @@ describe('Dashboard (RPC-level)', () => {
       // Back to the unfiltered query: its cached result is shown (the query key includes the request).
     });
 
-    it('filters by org and then repo from the combined selector', async () => {
+    it('filters by org and then repo from the combined selector, clearing org when repo is selected', async () => {
       const k8s = item('PR_1', 'K8s core');
       const minikube = item('PR_2', 'Minikube', { repo: 'kubernetes/minikube' });
       const go = item('PR_3', 'Go lang', { repo: 'golang/go' });
@@ -373,19 +414,40 @@ describe('Dashboard (RPC-level)', () => {
       const repoMenu = repoTrigger.parentElement!;
 
       fireEvent.click(repoTrigger);
-      fireEvent.click(within(repoMenu).getByRole('button', { name: /^kubernetes$/i }));
+      fireEvent.click(within(repoMenu).getByRole('option', { name: /^kubernetes$/i }));
       await waitFor(() => expect(screen.queryByText('Go lang')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('org:kubernetes');
       expect(window.location.search).toBe('?org=kubernetes');
 
-      fireEvent.click(repoTrigger);
-      fireEvent.click(within(repoMenu).getByRole('button', { name: /kubernetes\/minikube/i }));
+      // Menu stays open; selecting a repo clears the org selection (P3)
+      fireEvent.click(within(repoMenu).getByRole('option', { name: /kubernetes\/minikube/i }));
       await waitFor(() => expect(screen.queryByText('K8s core')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('repo:kubernetes/minikube');
       expect(window.location.search).toBe('?repo=kubernetes/minikube');
     });
 
-    it('filters by milestone and removes it with the chip', async () => {
+    it('renders "Repo: a/b +2" chip with full title when 3+ repos are selected and removes the predicate on ×', async () => {
+      window.history.pushState(null, '', '/?repo=a%2Fb&repo=c%2Fd&repo=e%2Ff');
+      render({
+        getItems: itemsByQuery({
+          'repo:a/b,c/d,e/f': [item('PR_1', 'Multi-repo PR')],
+          '': [item('PR_1', 'Multi-repo PR'), item('PR_2', 'Other PR')],
+        }),
+      });
+
+      expect(await screen.findByText('Multi-repo PR')).toBeDefined();
+      expect(screen.getByText('Repo:')).toBeDefined();
+      const summary = screen.getByText('a/b +2');
+      expect(summary.getAttribute('title')).toBe('a/b, c/d, e/f');
+
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Remove repository filter a/b, c/d, e/f' })
+      );
+      expect(await screen.findByText('Other PR')).toBeDefined();
+      expect(window.location.search).toBe('');
+    });
+
+    it('filters by milestone from the overflow menu and removes it with the chip', async () => {
       const m1 = item('PR_1', 'Milestone 1.32 PR', { milestone: { title: 'v1.32' } });
       const m2 = item('PR_2', 'Milestone 1.33 PR', { milestone: { title: 'v1.33' } });
       const { daemon } = render({
@@ -394,8 +456,9 @@ describe('Dashboard (RPC-level)', () => {
       });
       expect(await screen.findByText('Milestone 1.33 PR')).toBeDefined();
 
+      fireEvent.click(screen.getByRole('button', { name: /More filters/i }));
       fireEvent.click(screen.getByRole('button', { name: /Filter by milestone/i }));
-      fireEvent.click(await screen.findByRole('button', { name: /^v1\.32$/i }));
+      fireEvent.click(await screen.findByRole('option', { name: /^v1\.32$/i }));
       await waitFor(() => expect(screen.queryByText('Milestone 1.33 PR')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('milestone:v1.32');
       expect(screen.getByText('Milestone:')).toBeDefined();
@@ -406,30 +469,140 @@ describe('Dashboard (RPC-level)', () => {
       expect(window.location.search).toBe('');
     });
 
-    it('filters by label, showing the facet label color, and removes it with the chip', async () => {
+    it('filters by multiple labels, showing the facet label color, and removes the predicate with the chip', async () => {
       const bug = item('PR_1', 'Fix issue 1', { labels: [{ name: 'kind/bug', color: 'd73a4a' }] });
       const feature = item('PR_2', 'Feature 2', { labels: [{ name: 'kind/feature', color: 'a2eeef' }] });
+      const docs = item('PR_3', 'Docs 3', { labels: [{ name: 'kind/docs', color: '0075ca' }] });
       const { daemon } = render({
-        getItems: itemsByQuery({ '': [bug, feature], 'label:kind/bug': [bug] }),
+        getItems: itemsByQuery({
+          '': [bug, feature, docs],
+          'label:kind/bug': [bug],
+          'label:kind/bug,kind/feature': [bug, feature],
+        }),
         getFacets: facets({
-          selector: { [Field.LABEL]: [['kind/bug', 1, { color: 'd73a4a' }], ['kind/feature', 1, { color: 'a2eeef' }]] },
+          selector: {
+            [Field.LABEL]: [
+              ['kind/bug', 1, { color: 'd73a4a' }],
+              ['kind/feature', 1, { color: 'a2eeef' }],
+              ['kind/docs', 1, { color: '0075ca' }],
+            ],
+          },
         }),
       });
-      expect(await screen.findByText('Feature 2')).toBeDefined();
+      expect(await screen.findByText('Docs 3')).toBeDefined();
 
       fireEvent.click(screen.getByRole('button', { name: /Filter by label/i }));
-      const bugOption = await screen.findByRole('button', { name: /kind\/bug/i });
+      const bugOption = await screen.findByRole('option', { name: /kind\/bug/i });
       const swatch = bugOption.querySelector('span[style]') as HTMLElement;
       expect(swatch.style.backgroundColor).toBe('rgb(215, 58, 74)');
 
       fireEvent.click(bugOption);
-      await waitFor(() => expect(screen.queryByText('Feature 2')).toBeNull());
+      await waitFor(() => expect(screen.queryByText('Docs 3')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('label:kind/bug');
       expect(screen.getByText('Label:')).toBeDefined();
       expect(window.location.search).toBe('?label=kind/bug');
 
+      // Menu stays open; tick a second label
+      fireEvent.click(screen.getByRole('option', { name: /kind\/feature/i }));
+      await waitFor(() => expect(lastItemsQuery(daemon)).toBe('label:kind/bug,kind/feature'));
+      expect(window.location.search).toBe('?label=kind/bug&label=kind/feature');
+
       fireEvent.click(screen.getByRole('button', { name: /Remove label filter/i }));
-      expect(await screen.findByText('Feature 2')).toBeDefined();
+      expect(await screen.findByText('Docs 3')).toBeDefined();
+    });
+
+    it('filters by activity from the State menu, hides the Activity chip on the New tab, and shows it on Acked + Mentions', async () => {
+      const mentioned = item('PR_1', 'Mentioned PR');
+      const newAny = item('PR_2', 'New activity PR');
+      const allInbox = item('PR_3', 'Idle PR');
+      const { daemon } = render({
+        getItems: itemsByQuery({
+          '': [mentioned, newAny, allInbox],
+          'new:mention': [mentioned],
+          'new:any': [mentioned, newAny],
+          'triage:acked new:mention': [],
+        }),
+        getFacets: facets({
+          selector: {
+            [Field.NEW]: [
+              ['item', 1],
+              ['mention', 2],
+              ['comment', 0],
+              ['code', 3],
+              ['noise', 0],
+            ],
+          },
+        }),
+      });
+      expect(await screen.findByText('Idle PR')).toBeDefined();
+
+      const stateTrigger = screen.getByRole('button', { name: /Filter by state/i });
+      fireEvent.click(stateTrigger);
+      fireEvent.click(screen.getByRole('option', { name: /^Mentions$/i }));
+      await waitFor(() => expect(lastItemsQuery(daemon)).toBe('new:mention'));
+      expect(window.location.search).toBe('?new=mention');
+      expect(screen.getByText('Activity:')).toBeDefined();
+      expect(screen.getByRole('button', { name: 'Remove activity filter Mentions' })).toBeDefined();
+
+      // Switch to Acked via the title menu: new:mention survives and the Activity chip stays visible
+      fireEvent.click(screen.getByLabelText(/Select triage status/i));
+      fireEvent.click(screen.getAllByRole('button', { name: /Acked/i })[1]);
+      await waitFor(() => expect(lastItemsQuery(daemon)).toBe('triage:acked new:mention'));
+      expect(window.location.search).toBe('?triage=acked&new=mention');
+      expect(screen.getByText('Activity:')).toBeDefined();
+      expect(screen.getByRole('button', { name: 'Remove activity filter Mentions' })).toBeDefined();
+
+      // Switch to the New tab via the sidebar: no Activity chip is shown, sidebar New stays highlighted, and Any is ticked in the menu
+      const sidebarNew = screen.getAllByRole('button', { name: /^New/i })[0];
+      fireEvent.click(sidebarNew);
+      await waitFor(() => expect(lastItemsQuery(daemon)).toBe('new:any'));
+      expect(window.location.search).toBe('?triage=activity');
+      expect(screen.queryByText('Activity:')).toBeNull();
+      expect(sidebarNew.className).toContain('bg-blue-600');
+
+      fireEvent.click(stateTrigger);
+      const anyOption = screen.getByRole('option', { name: /^New Activity$/i });
+      expect(anyOption.getAttribute('aria-selected')).toBe('true');
+    });
+
+    it('distinguishes sidebar New (full workflow reset) from title-menu New (in-place tab switch)', async () => {
+      window.history.pushState(null, '', '/?label=bug&sort=created&order=asc');
+      const { daemon } = render({
+        getItems: itemsByQuery({
+          'label:bug': [item('PR_1', 'Bug in inbox')],
+          'new:any label:bug': [item('PR_2', 'New bug')],
+          'new:any': [item('PR_3', 'All new items')],
+        }),
+      });
+      expect(await screen.findByText('Bug in inbox')).toBeDefined();
+      expect(daemon.lastRequest<GetItemsRequest>('GetItems')!.sort).toMatchObject({
+        key: SortKey.CREATED,
+        order: SortOrder.ASC,
+      });
+
+      // Title menu New switches the tab in place: keeps label:bug and sort=created&order=asc
+      const titleDropdown = screen.getByLabelText(/Select triage status/i);
+      fireEvent.click(titleDropdown);
+      const titleMenu = titleDropdown.parentElement!;
+      fireEvent.click(within(titleMenu).getByRole('button', { name: /^New$/i }));
+      expect(await screen.findByText('New bug')).toBeDefined();
+      expect(lastItemsQuery(daemon)).toBe('new:any label:bug');
+      expect(window.location.search).toBe('?triage=activity&label=bug&sort=created&order=asc');
+      expect(daemon.lastRequest<GetItemsRequest>('GetItems')!.sort).toMatchObject({
+        key: SortKey.CREATED,
+        order: SortOrder.ASC,
+      });
+
+      // Sidebar New resets the entire query to new:any and resets sort to default
+      const sidebarNew = screen.getAllByRole('button', { name: /^New/i })[0];
+      fireEvent.click(sidebarNew);
+      expect(await screen.findByText('All new items')).toBeDefined();
+      expect(lastItemsQuery(daemon)).toBe('new:any');
+      expect(window.location.search).toBe('?triage=activity');
+      expect(daemon.lastRequest<GetItemsRequest>('GetItems')!.sort).toMatchObject({
+        key: SortKey.UPDATED,
+        order: SortOrder.DESC,
+      });
     });
 
     it('initializes from the URL and follows popstate', async () => {
@@ -464,7 +637,12 @@ describe('Dashboard (RPC-level)', () => {
 
       expect(await screen.findByText('Narrow result')).toBeDefined();
       const chips = screen.getAllByTestId('extra-filter-chip');
-      expect(chips.map((c) => c.textContent)).toEqual(['Not Label:bug', 'Label:a, b']);
+      expect(chips).toHaveLength(1);
+      expect(chips[0].getAttribute('data-negated')).toBe('true');
+      expect(within(chips[0]).getByText('NOT')).toBeDefined();
+      expect(within(chips[0]).getByText('Label:')).toBeDefined();
+      expect(within(chips[0]).getByText('bug')).toBeDefined();
+      expect(screen.getByText('a, b')).toBeDefined();
 
       fireEvent.click(within(chips[0]).getByRole('button'));
       expect(await screen.findByText('Wider result')).toBeDefined();
@@ -488,7 +666,7 @@ describe('Dashboard (RPC-level)', () => {
       expect(lastItemsQuery(daemon)).toBe('-label:bug');
 
       fireEvent.click(screen.getByRole('button', { name: /Filter by label/i }));
-      fireEvent.click(await screen.findByRole('button', { name: /^a$/i }));
+      fireEvent.click(await screen.findByRole('option', { name: /^a$/i }));
       await waitFor(() => expect(screen.queryByText('Not bug 2')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('-label:bug label:a');
       expect(window.location.search).toBe('?-label=bug&label=a');
@@ -539,7 +717,15 @@ describe('Dashboard (RPC-level)', () => {
         expect(daemon.requestsFor<GetFacetsRequest>('GetFacets').some((r) => r.fields.includes(Field.AUTHOR))).toBe(true)
       );
       const selectorRequests = daemon.requestsFor<GetFacetsRequest>('GetFacets').filter((r) => r.fields.includes(Field.AUTHOR));
-      expect(selectorRequests[0].fields).toEqual([Field.REPO, Field.ORG, Field.AUTHOR, Field.MILESTONE, Field.LABEL]);
+      expect(selectorRequests[0].fields).toEqual([
+        Field.REPO,
+        Field.ORG,
+        Field.AUTHOR,
+        Field.ASSIGNEE,
+        Field.MILESTONE,
+        Field.LABEL,
+        Field.NEW,
+      ]);
       expect(describeQuery(selectorRequests[0].query)).toBe('new:any -label:x');
     });
 
@@ -548,34 +734,35 @@ describe('Dashboard (RPC-level)', () => {
       const authorTrigger = await screen.findByRole('button', { name: /Filter by author/i });
       await waitFor(() => {
         fireEvent.click(authorTrigger);
-        expect(screen.getByRole('button', { name: /@alice/i })).toBeDefined();
+        expect(screen.getByRole('option', { name: /@alice/i })).toBeDefined();
       });
-      expect(screen.getByRole('button', { name: /@bob/i })).toBeDefined();
-      expect(screen.queryByRole('button', { name: /@charlie/i })).toBeNull();
+      expect(screen.getByRole('option', { name: /@bob/i })).toBeDefined();
+      expect(screen.queryByRole('option', { name: /@charlie/i })).toBeNull();
       fireEvent.click(screen.getByRole('button', { name: /^Show all$/i }));
-      expect(screen.getByRole('button', { name: /@charlie/i })).toBeDefined();
+      expect(screen.getByRole('option', { name: /@charlie/i })).toBeDefined();
       // Closing the menu resets it to the default view.
       fireEvent.keyDown(window, { key: 'Escape' });
       fireEvent.click(authorTrigger);
-      expect(screen.queryByRole('button', { name: /@charlie/i })).toBeNull();
+      expect(screen.queryByRole('option', { name: /@charlie/i })).toBeNull();
       fireEvent.keyDown(window, { key: 'Escape' });
 
+      fireEvent.click(screen.getByRole('button', { name: /More filters/i }));
       fireEvent.click(screen.getByRole('button', { name: /Filter by milestone/i }));
-      expect(screen.getByRole('button', { name: /^v1\.0$/i })).toBeDefined();
-      expect(screen.queryByRole('button', { name: /^v2\.0$/i })).toBeNull();
+      expect(screen.getByRole('option', { name: /^v1\.0$/i })).toBeDefined();
+      expect(screen.queryByRole('option', { name: /^v2\.0$/i })).toBeNull();
       fireEvent.click(screen.getByRole('button', { name: /^Show all$/i }));
-      expect(screen.getByRole('button', { name: /^v2\.0$/i })).toBeDefined();
+      expect(screen.getByRole('option', { name: /^v2\.0$/i })).toBeDefined();
       fireEvent.keyDown(window, { key: 'Escape' });
 
       const repoTrigger = screen.getByRole('button', { name: /Filter by repository/i });
       const repoMenu = repoTrigger.parentElement!;
       fireEvent.click(repoTrigger);
-      expect(within(repoMenu).getByRole('button', { name: /kubernetes\/minikube/i })).toBeDefined();
-      expect(within(repoMenu).queryByRole('button', { name: /^golang$/i })).toBeNull();
-      expect(within(repoMenu).queryByRole('button', { name: /golang\/go/i })).toBeNull();
+      expect(within(repoMenu).getByRole('option', { name: /kubernetes\/minikube/i })).toBeDefined();
+      expect(within(repoMenu).queryByRole('option', { name: /^golang$/i })).toBeNull();
+      expect(within(repoMenu).queryByRole('option', { name: /golang\/go/i })).toBeNull();
       fireEvent.click(within(repoMenu).getByRole('button', { name: /^Show all$/i }));
-      expect(within(repoMenu).getByRole('button', { name: /^golang$/i })).toBeDefined();
-      expect(within(repoMenu).getByRole('button', { name: /golang\/go/i })).toBeDefined();
+      expect(within(repoMenu).getByRole('option', { name: /^golang$/i })).toBeDefined();
+      expect(within(repoMenu).getByRole('option', { name: /golang\/go/i })).toBeDefined();
     });
 
     it('hides Show all when every value has matches', async () => {
@@ -587,26 +774,27 @@ describe('Dashboard (RPC-level)', () => {
       const authorTrigger = await screen.findByRole('button', { name: /Filter by author/i });
       await waitFor(() => {
         fireEvent.click(authorTrigger);
-        expect(within(authorTrigger.parentElement!).getByRole('button', { name: /@alice/i })).toBeDefined();
+        expect(within(authorTrigger.parentElement!).getByRole('option', { name: /@alice/i })).toBeDefined();
       });
       expect(within(authorTrigger.parentElement!).queryByRole('button', { name: /^Show all$/i })).toBeNull();
       fireEvent.keyDown(window, { key: 'Escape' });
 
       const repoTrigger = screen.getByRole('button', { name: /Filter by repository/i });
       fireEvent.click(repoTrigger);
-      expect(within(repoTrigger.parentElement!).getByRole('button', { name: /kubernetes\/kubernetes/i })).toBeDefined();
+      expect(within(repoTrigger.parentElement!).getByRole('option', { name: /kubernetes\/kubernetes/i })).toBeDefined();
       expect(within(repoTrigger.parentElement!).queryByRole('button', { name: /^Show all$/i })).toBeNull();
     });
 
-    it('always lists the selected value, even when the facet does not contain it', async () => {
-      window.history.pushState(null, '', '/?author=zed');
-      render({ getItems: itemsByQuery({ 'author:zed': [] }), getFacets: facets({ selector }) });
+    it('always lists the selected value, even when the facet does not contain it or has zero count', async () => {
+      window.history.pushState(null, '', '/?author=zed&author=charlie');
+      render({ getItems: itemsByQuery({ 'author:zed,charlie': [] }), getFacets: facets({ selector }) });
       const authorTrigger = await screen.findByRole('button', { name: /Filter by author/i });
       await waitFor(() => {
         fireEvent.click(authorTrigger);
-        expect(screen.getByRole('button', { name: /@alice/i })).toBeDefined();
+        expect(screen.getByRole('option', { name: /@alice/i })).toBeDefined();
       });
-      expect(screen.getByRole('button', { name: /@zed/i })).toBeDefined();
+      expect(screen.getByRole('option', { name: /@zed/i })).toBeDefined();
+      expect(screen.getByRole('option', { name: /@charlie/i })).toBeDefined();
     });
   });
 

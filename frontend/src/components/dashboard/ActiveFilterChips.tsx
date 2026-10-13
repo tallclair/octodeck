@@ -1,6 +1,12 @@
 import { X } from 'lucide-react';
 import type { FilterControls } from '../../types/filters';
-import { formatPredicateChip, type ExtraPredicate } from '../../logic/query/predicates';
+import {
+  formatPredicateChip,
+  hasActiveFilterChips,
+  type ExtraPredicate,
+} from '../../logic/query/predicates';
+import { ACTIVITY_LABELS } from '../../logic/query/facets';
+import type { DashboardMenuId } from '../../hooks/useMenuGroup';
 
 export interface ActiveFilterChipsProps {
   filters: FilterControls;
@@ -12,22 +18,68 @@ export interface ActiveFilterChipsProps {
   ) => void;
   removePredicateAt: (index: number) => void;
   clearSecondaryFilters: () => void;
+  onOpenMenu?: (id: DashboardMenuId) => void;
 }
 
-function hasActiveFilterChips(
-  filters: FilterControls,
-  extraPredicates: readonly ExtraPredicate[]
-): boolean {
+function formatValuesSummary(values: readonly string[]): {
+  display: string;
+  fullTitle: string;
+} {
+  const fullTitle = values.join(', ');
+  if (values.length <= 2) {
+    return { display: fullTitle, fullTitle };
+  }
+  return {
+    display: `${values[0]} +${values.length - 1}`,
+    fullTitle,
+  };
+}
+
+const withAtPrefix = (v: string) => (v.startsWith('@') ? v : `@${v}`);
+
+interface ControlChipProps {
+  label: string;
+  filterName: string;
+  values: readonly string[];
+  menuId: DashboardMenuId;
+  onOpenMenu?: (id: DashboardMenuId) => void;
+  onRemove: () => void;
+}
+
+function ControlChip({
+  label,
+  filterName,
+  values,
+  menuId,
+  onOpenMenu,
+  onRemove,
+}: ControlChipProps) {
+  const { display, fullTitle } = formatValuesSummary(values);
   return (
-    filters.state !== 'all' ||
-    filters.tracking !== 'all' ||
-    Boolean(filters.repo) ||
-    Boolean(filters.org) ||
-    Boolean(filters.author) ||
-    Boolean(filters.milestone) ||
-    Boolean(filters.label) ||
-    filters.assigned === 'me' ||
-    extraPredicates.length > 0
+    <span
+      title={fullTitle}
+      className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium"
+    >
+      <button
+        type="button"
+        onClick={() => onOpenMenu?.(menuId)}
+        className="inline-flex items-center gap-1.5 cursor-pointer text-left focus:outline-none focus-visible:underline"
+      >
+        <span className="text-blue-600 dark:text-blue-400/80">{label}:</span>
+        <span className="font-semibold" title={fullTitle}>
+          {display}
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
+        title={`Remove ${filterName} filter ${fullTitle}`}
+        aria-label={`Remove ${filterName} filter ${fullTitle}`}
+      >
+        <X size={12} />
+      </button>
+    </span>
   );
 }
 
@@ -37,6 +89,7 @@ export function ActiveFilterChips({
   setFilter,
   removePredicateAt,
   clearSecondaryFilters,
+  onOpenMenu,
 }: ActiveFilterChipsProps) {
   if (!hasActiveFilterChips(filters, extraPredicates)) {
     return null;
@@ -47,156 +100,143 @@ export function ActiveFilterChips({
       {/* Active Filter Chips */}
       <div className="flex flex-wrap items-center gap-1.5 text-xs">
         {filters.state !== 'all' && (
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium">
-            <span className="text-blue-600 dark:text-blue-400/80">State:</span>
-            <span className="font-semibold capitalize">
-              {filters.state === 'open' ? 'Open' : 'Closed'}
-            </span>
-            <button
-              type="button"
-              onClick={() => setFilter('state', 'all')}
-              className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
-              title="Remove state filter"
-              aria-label="Remove state filter"
-            >
-              <X size={12} />
-            </button>
-          </span>
+          <ControlChip
+            label="State"
+            filterName="state"
+            values={[
+              filters.state === 'open'
+                ? 'Open'
+                : filters.state === 'closed'
+                ? 'Closed'
+                : 'Merged',
+            ]}
+            menuId="state"
+            onOpenMenu={onOpenMenu}
+            onRemove={() => setFilter('state', 'all')}
+          />
         )}
 
         {filters.tracking !== 'all' && (
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium">
-            <span className="text-blue-600 dark:text-blue-400/80">Tracking:</span>
-            <span className="font-semibold capitalize">
-              {filters.tracking === 'tracked' ? 'Tracked' : 'Untracked'}
-            </span>
-            <button
-              type="button"
-              onClick={() => setFilter('tracking', 'all')}
-              className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
-              title="Remove tracking filter"
-              aria-label="Remove tracking filter"
-            >
-              <X size={12} />
-            </button>
-          </span>
+          <ControlChip
+            label="Tracking"
+            filterName="tracking"
+            values={[filters.tracking === 'tracked' ? 'Tracked' : 'Untracked']}
+            menuId="state"
+            onOpenMenu={onOpenMenu}
+            onRemove={() => setFilter('tracking', 'all')}
+          />
         )}
 
-        {filters.repo && (
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium">
-            <span className="text-blue-600 dark:text-blue-400/80">Repo:</span>
-            <span className="font-semibold">{filters.repo}</span>
-            <button
-              type="button"
-              onClick={() => setFilter('repo', null)}
-              className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
-              title="Remove repository filter"
-              aria-label="Remove repository filter"
-            >
-              <X size={12} />
-            </button>
-          </span>
+        {filters.repo.length > 0 && (
+          <ControlChip
+            label="Repo"
+            filterName="repository"
+            values={filters.repo}
+            menuId="repo"
+            onOpenMenu={onOpenMenu}
+            onRemove={() => setFilter('repo', [])}
+          />
         )}
 
-        {filters.org && !filters.repo && (
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium">
-            <span className="text-blue-600 dark:text-blue-400/80">Org:</span>
-            <span className="font-semibold">{filters.org}</span>
-            <button
-              type="button"
-              onClick={() => setFilter('org', null)}
-              className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
-              title="Remove organization filter"
-              aria-label="Remove organization filter"
-            >
-              <X size={12} />
-            </button>
-          </span>
+        {filters.org.length > 0 && (
+          <ControlChip
+            label="Org"
+            filterName="organization"
+            values={filters.org}
+            menuId="repo"
+            onOpenMenu={onOpenMenu}
+            onRemove={() => setFilter('org', [])}
+          />
         )}
 
-        {filters.author && (
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium">
-            <span className="text-blue-600 dark:text-blue-400/80">Author:</span>
-            <span className="font-semibold">@{filters.author}</span>
-            <button
-              type="button"
-              onClick={() => setFilter('author', null)}
-              className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
-              title="Remove author filter"
-              aria-label="Remove author filter"
-            >
-              <X size={12} />
-            </button>
-          </span>
+        {filters.author.length > 0 && (
+          <ControlChip
+            label="Author"
+            filterName="author"
+            values={filters.author.map(withAtPrefix)}
+            menuId="author"
+            onOpenMenu={onOpenMenu}
+            onRemove={() => setFilter('author', [])}
+          />
         )}
 
-        {filters.milestone && (
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium">
-            <span className="text-blue-600 dark:text-blue-400/80">Milestone:</span>
-            <span className="font-semibold">{filters.milestone}</span>
-            <button
-              type="button"
-              onClick={() => setFilter('milestone', null)}
-              className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
-              title="Remove milestone filter"
-              aria-label="Remove milestone filter"
-            >
-              <X size={12} />
-            </button>
-          </span>
+        {filters.assignee.length > 0 && (
+          <ControlChip
+            label="Assignee"
+            filterName="assignee"
+            values={filters.assignee.map(withAtPrefix)}
+            menuId="assignee"
+            onOpenMenu={onOpenMenu}
+            onRemove={() => setFilter('assignee', [])}
+          />
         )}
 
-        {filters.label && (
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium">
-            <span className="text-blue-600 dark:text-blue-400/80">Label:</span>
-            <span className="font-semibold">{filters.label}</span>
-            <button
-              type="button"
-              onClick={() => setFilter('label', null)}
-              className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
-              title="Remove label filter"
-              aria-label="Remove label filter"
-            >
-              <X size={12} />
-            </button>
-          </span>
+        {filters.milestone.length > 0 && (
+          <ControlChip
+            label="Milestone"
+            filterName="milestone"
+            values={filters.milestone}
+            menuId="milestone"
+            onOpenMenu={onOpenMenu}
+            onRemove={() => setFilter('milestone', [])}
+          />
         )}
 
-        {filters.assigned === 'me' && (
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium">
-            <span className="text-blue-600 dark:text-blue-400/80">Assigned:</span>
-            <span className="font-semibold">Me</span>
-            <button
-              type="button"
-              onClick={() => setFilter('assigned', 'all')}
-              className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
-              title="Remove assigned filter"
-              aria-label="Remove assigned filter"
-            >
-              <X size={12} />
-            </button>
-          </span>
+        {filters.label.length > 0 && (
+          <ControlChip
+            label="Label"
+            filterName="label"
+            values={filters.label}
+            menuId="label"
+            onOpenMenu={onOpenMenu}
+            onRemove={() => setFilter('label', [])}
+          />
         )}
 
-        {/* Predicates from the URL that no control can show (multiple values, negation, other fields) */}
+        {filters.activity.length > 0 && filters.triage !== 'activity' && (
+          <ControlChip
+            label="Activity"
+            filterName="activity"
+            values={filters.activity.map((v) => ACTIVITY_LABELS[v] ?? v)}
+            menuId="state"
+            onOpenMenu={onOpenMenu}
+            onRemove={() => setFilter('activity', [])}
+          />
+        )}
+
+        {/* Predicates from the URL that no control can show (negation, duplicate field, other fields) */}
         {extraPredicates.map(({ predicate, index }) => {
           const chip = formatPredicateChip(predicate);
+          const { display, fullTitle } = formatValuesSummary(chip.values);
           return (
             <span
-              key={`${index}-${chip.label}-${chip.value}`}
+              key={`${index}-${chip.label}-${fullTitle}`}
               data-testid="extra-filter-chip"
+              data-negated={chip.negated ? 'true' : undefined}
+              title={fullTitle}
               className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300 rounded text-xs font-medium"
             >
-              <span className="text-blue-600 dark:text-blue-400/80">
-                {chip.negated ? 'Not ' : ''}{chip.label}:
+              {chip.negated && (
+                <>
+                  <span className="sr-only">Excluding </span>
+                  <span
+                    aria-hidden="true"
+                    className="rounded bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300 text-[10px] font-semibold uppercase px-1"
+                  >
+                    NOT
+                  </span>
+                </>
+              )}
+              <span className="text-blue-600 dark:text-blue-400/80">{chip.label}:</span>
+              <span className="font-semibold" title={fullTitle}>
+                {display}
               </span>
-              <span className="font-semibold">{chip.value}</span>
               <button
                 type="button"
                 onClick={() => removePredicateAt(index)}
                 className="hover:bg-blue-200/60 dark:hover:bg-blue-900/80 p-0.5 rounded text-blue-600 dark:text-blue-300 hover:text-blue-900 dark:hover:text-white transition-colors cursor-pointer"
-                title={`Remove ${chip.label.toLowerCase()} filter`}
-                aria-label={`Remove ${chip.negated ? 'negated ' : ''}${chip.label.toLowerCase()} filter ${chip.value}`}
+                title={`Remove ${chip.negated ? 'negated ' : ''}${chip.label.toLowerCase()} filter ${fullTitle}`}
+                aria-label={`Remove ${chip.negated ? 'negated ' : ''}${chip.label.toLowerCase()} filter ${fullTitle}`}
               >
                 <X size={12} />
               </button>

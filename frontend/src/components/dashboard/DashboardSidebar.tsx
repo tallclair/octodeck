@@ -55,7 +55,8 @@ export function DashboardSidebar({
     hasUnread: repoHasUnread.has(repo.toLowerCase()),
   });
 
-  const isRepoSelected = (repo: string) => eqCi(filters.repo, repo);
+  const isRepoSelected = (repo: string) =>
+    filters.repo.some((r) => eqCi(r, repo));
 
   return (
     <aside className="w-64 border-r border-slate-200 dark:border-slate-800 p-4 flex flex-col gap-1 overflow-y-auto hidden md:flex shrink-0 bg-slate-50/50 dark:bg-slate-950">

@@ -5,10 +5,10 @@ export type DashboardMenuId =
   | 'state'
   | 'repo'
   | 'author'
+  | 'label'
+  | 'more'
   | 'assignee'
   | 'milestone'
-  | 'label'
-  | 'activity'
   | 'sort';
 
 export interface MenuGroup<T extends string = DashboardMenuId> {

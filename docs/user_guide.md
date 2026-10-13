@@ -56,14 +56,13 @@ The OctoDeck dashboard (`http://127.0.0.1:38274/`) is designed for fast, high-vo
 
 ## 3. Filtering & Search
 
-OctoDeck offers multidimensional filtering and real-time search:
+OctoDeck offers multidimensional filtering with live facet counts, in-menu search boxes, and real-time text search:
 
 * **PRs vs Issues:** Quickly toggle between Pull Requests only, Issues only, or All.
-* **State:** Filter by Open, Closed, or All.
-* **Repository & Organization:** Filter by org (e.g. `kubernetes`) or specific repo (`kubernetes/kubernetes`).
-* **Author:** Filter by author login or select `@me` (items you created).
-* **Assigned to Me:** One-click toggle to view only items assigned to your GitHub username.
-* **Milestone & Labels:** Filter by GitHub milestones and label taxonomies.
+* **State, Tracking & Activity:** From the **State** menu, filter by **Open**, **Closed**, or **Merged**, **Tracked** (subscribed) or **Untracked** items, and one or more **New Activity** types (the **New Activity** header itself is equivalent to the **New** tab, or pick specific types: **New items**, **Mentions**, **Comments & reviews**, **New commits**, or **Noise (bots)**).
+* **Repository & Organization (Multi-Select):** Select one or more organizations (e.g. `kubernetes`, `golang`) or one or more specific repositories (`kubernetes/kubernetes`, `kubernetes/website`). Selecting an organization clears repository selections and vice versa.
+* **Author & Labels (Multi-Select):** Select one or more author logins (including `@your-login (you)` pinned at the top) or multiple GitHub labels (with live counts and label color swatches) to match items carrying any of the selected values.
+* **Assigned to Me & More Filters (`...`):** Use the one-click **Assigned to me** toggle to add/remove `@me` from the assignee filter, or open the **`...` (More filters)** menu on the right to drill into multi-select **Assignee** and **Milestone** filters. When the window is narrow, the **Repository** filter moves into the `...` menu, and on very narrow windows the **Assigned to me** toggle is hidden (use **Assignee** in the `...` menu instead).
 * **Sorting:** Sort by **Latest Activity**, **Last Acked**, or **Creation Date** in ascending or descending order.
 
 ---

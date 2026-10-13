@@ -1,9 +1,9 @@
 import type { Field } from '../api/octodeck/v1/query_pb';
 
 export type TriageFilter = 'inbox' | 'activity' | 'acked' | 'all';
-export type ItemStateFilter = 'open' | 'closed' | 'all';
+export type ActivityValue = 'any' | 'item' | 'mention' | 'comment' | 'code' | 'noise';
+export type ItemStateFilter = 'open' | 'closed' | 'merged' | 'all';
 export type ItemTypeFilter = 'all' | 'pr' | 'issue';
-export type AssignedFilter = 'all' | 'me';
 export type TrackingFilter = 'all' | 'tracked' | 'untracked';
 export type SortOption = 'updated' | 'acked' | 'created';
 export type SortOrder = 'asc' | 'desc';
@@ -40,22 +40,26 @@ export const DEFAULT_QUERY_STATE: Readonly<DashboardQueryState> = Object.freeze(
   item: null,
 });
 
+const EMPTY_STRINGS: readonly string[] = Object.freeze([]);
+const EMPTY_ACTIVITIES: readonly ActivityValue[] = Object.freeze([]);
+
 /**
- * Read-only projection of the predicate list onto the dashboard's single-select controls.
- * Predicates that no control can display (multiple values, negation, fields without a control)
- * are reported separately as extra predicates.
+ * Read-only projection of the predicate list onto the dashboard's filter controls.
+ * Predicates that no control can display (negation, second predicate of the same field, or
+ * fields without a control) are reported separately as extra predicates.
  */
 export interface FilterControls {
   triage: TriageFilter;
   state: ItemStateFilter;
   type: ItemTypeFilter;
-  assigned: AssignedFilter;
   tracking: TrackingFilter;
-  org: string | null;
-  repo: string | null;
-  author: string | null;
-  milestone: string | null;
-  label: string | null;
+  org: readonly string[];
+  repo: readonly string[];
+  author: readonly string[];
+  assignee: readonly string[];
+  milestone: readonly string[];
+  label: readonly string[];
+  activity: readonly ActivityValue[];
   q: string;
   sort: SortOption;
   order: SortOrder;
@@ -66,13 +70,14 @@ export const DEFAULT_FILTER_CONTROLS: Readonly<FilterControls> = Object.freeze({
   triage: 'inbox',
   state: 'all',
   type: 'all',
-  assigned: 'all',
   tracking: 'all',
-  org: null,
-  repo: null,
-  author: null,
-  milestone: null,
-  label: null,
+  org: EMPTY_STRINGS,
+  repo: EMPTY_STRINGS,
+  author: EMPTY_STRINGS,
+  assignee: EMPTY_STRINGS,
+  milestone: EMPTY_STRINGS,
+  label: EMPTY_STRINGS,
+  activity: EMPTY_ACTIVITIES,
   q: '',
   sort: 'updated',
   order: 'desc',
@@ -81,4 +86,3 @@ export const DEFAULT_FILTER_CONTROLS: Readonly<FilterControls> = Object.freeze({
 
 /** Controls backed by predicates (every FilterControls key except the non-query tail). */
 export type ControlKey = Exclude<keyof FilterControls, 'q' | 'sort' | 'order' | 'item'>;
-

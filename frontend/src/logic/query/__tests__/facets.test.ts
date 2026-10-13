@@ -4,13 +4,19 @@ import { timestampFromMs } from '@bufbuild/protobuf/wkt';
 import { FacetValueSchema, Field, type FacetValue } from '../../../api/octodeck/v1/query_pb';
 import { GetFacetsResponseSchema } from '../../../api/octodeck/v1/service_pb';
 import {
+  buildActivityOptions,
+  buildAssigneeMenuOptions,
+  buildAuthorMenuOptions,
   buildLabelOptions,
   buildOptions,
   buildRepoDropdown,
+  buildRepoMenuOptions,
   buildSidebar,
   countOf,
   countsByValue,
   facetValues,
+  isAssigneeOptionSelected,
+  toggleAssigneeOption,
 } from '../facets';
 
 const fv = (value: string, count: number, extra: { color?: string; latestMs?: number } = {}): FacetValue =>
@@ -38,36 +44,73 @@ describe('facetValues', () => {
 describe('buildOptions', () => {
   const authors = [fv('Bob', 2), fv('alice', 1), fv('Charlie', 0), fv('Dave', 0)];
 
-  it('shows values with matches by default, sorted case-insensitively', () => {
-    expect(buildOptions(authors, null, false)).toEqual({ list: ['alice', 'Bob'], hasMore: true });
+  it('shows values with matches by default, sorted case-insensitively with counts', () => {
+    expect(buildOptions(authors, [], false)).toEqual({
+      list: [
+        { value: 'alice', count: 1 },
+        { value: 'Bob', count: 2 },
+      ],
+      hasMore: true,
+    });
   });
 
   it('shows zero-count values with Show all', () => {
-    expect(buildOptions(authors, null, true).list).toEqual(['alice', 'Bob', 'Charlie', 'Dave']);
+    expect(buildOptions(authors, [], true).list).toEqual([
+      { value: 'alice', count: 1 },
+      { value: 'Bob', count: 2 },
+      { value: 'Charlie', count: 0 },
+      { value: 'Dave', count: 0 },
+    ]);
   });
 
   it('reports no more options when every value has matches', () => {
-    expect(buildOptions([fv('a', 1), fv('b', 3)], null, false).hasMore).toBe(false);
+    expect(buildOptions([fv('a', 1), fv('b', 3)], [], false).hasMore).toBe(false);
   });
 
-  it('always lists the selected value, without duplicating a differently cased match', () => {
-    expect(buildOptions(authors, 'zed', false).list).toEqual(['alice', 'Bob', 'zed']);
-    expect(buildOptions(authors, 'Charlie', false).list).toEqual(['alice', 'Bob', 'Charlie']);
-    expect(buildOptions(authors, 'BOB', false).list).toEqual(['alice', 'Bob']);
+  it('always lists all selected values with their counts, without duplicating differently cased matches', () => {
+    expect(buildOptions(authors, ['zed', 'Charlie'], false).list).toEqual([
+      { value: 'alice', count: 1 },
+      { value: 'Bob', count: 2 },
+      { value: 'Charlie', count: 0 },
+      { value: 'zed', count: 0 },
+    ]);
+    expect(buildOptions(authors, ['BOB'], false).list).toEqual([
+      { value: 'alice', count: 1 },
+      { value: 'Bob', count: 2 },
+    ]);
   });
 });
 
 describe('buildLabelOptions', () => {
-  it('carries the label color, and an empty color for an unknown selected label', () => {
-    const labels = [fv('kind/bug', 2, { color: 'd73a4a' }), fv('area/api', 1, { color: 'ededed' }), fv('size/L', 0, { color: '0075ca' })];
-    expect(buildLabelOptions(labels, 'needs-triage', false)).toEqual({
+  it('carries the label count and color, and an empty color for an unknown selected label', () => {
+    const labels = [
+      fv('kind/bug', 2, { color: 'd73a4a' }),
+      fv('area/api', 1, { color: 'ededed' }),
+      fv('size/L', 0, { color: '0075ca' }),
+    ];
+    expect(buildLabelOptions(labels, ['needs-triage', 'size/L'], false)).toEqual({
       list: [
-        { name: 'area/api', color: 'ededed' },
-        { name: 'kind/bug', color: 'd73a4a' },
-        { name: 'needs-triage', color: '' },
+        { value: 'area/api', count: 1, color: 'ededed' },
+        { value: 'kind/bug', count: 2, color: 'd73a4a' },
+        { value: 'needs-triage', count: 0, color: '' },
+        { value: 'size/L', count: 0, color: '0075ca' },
       ],
-      hasMore: true,
+      hasMore: false,
     });
+  });
+});
+
+describe('buildActivityOptions', () => {
+  it('returns a New Activity group header for any (count null) with the five flags indented beneath it', () => {
+    const activityValues = [fv('item', 4), fv('mention', 2), fv('code', 5)];
+    expect(buildActivityOptions(activityValues)).toEqual([
+      { value: 'any', label: 'New Activity', count: null, isGroupHeader: true },
+      { value: 'item', label: 'New items', count: 4, indented: true },
+      { value: 'mention', label: 'Mentions', count: 2, indented: true },
+      { value: 'comment', label: 'Comments & reviews', count: 0, indented: true },
+      { value: 'code', label: 'New commits', count: 5, indented: true },
+      { value: 'noise', label: 'Noise (bots)', count: 0, indented: true },
+    ]);
   });
 });
 
@@ -75,21 +118,27 @@ describe('buildRepoDropdown', () => {
   const repos = [fv('kubernetes/kubernetes', 3), fv('kubernetes/minikube', 0), fv('golang/go', 1)];
   const orgs = [fv('kubernetes', 3), fv('golang', 1)];
 
-  it('groups repos with matches under their orgs', () => {
-    expect(buildRepoDropdown(repos, orgs, { repo: null, org: null }, [], false)).toEqual({
+  it('groups repos with matches under their orgs with counts', () => {
+    expect(buildRepoDropdown(repos, orgs, { repos: [], orgs: [] }, [], false)).toEqual({
       orgs: ['golang', 'kubernetes'],
-      reposByOrg: { golang: ['golang/go'], kubernetes: ['kubernetes/kubernetes'] },
+      reposByOrg: {
+        golang: [{ value: 'golang/go', count: 1 }],
+        kubernetes: [{ value: 'kubernetes/kubernetes', count: 3 }],
+      },
       hasMore: true,
     });
   });
 
   it('adds zero-count and pinned repos with Show all', () => {
-    const d = buildRepoDropdown(repos, orgs, { repo: null, org: null }, ['octocat/hello'], true);
+    const d = buildRepoDropdown(repos, orgs, { repos: [], orgs: [] }, ['octocat/hello'], true);
     expect(d.orgs).toEqual(['golang', 'kubernetes', 'octocat']);
     expect(d.reposByOrg).toEqual({
-      golang: ['golang/go'],
-      kubernetes: ['kubernetes/kubernetes', 'kubernetes/minikube'],
-      octocat: ['octocat/hello'],
+      golang: [{ value: 'golang/go', count: 1 }],
+      kubernetes: [
+        { value: 'kubernetes/kubernetes', count: 3 },
+        { value: 'kubernetes/minikube', count: 0 },
+      ],
+      octocat: [{ value: 'octocat/hello', count: 0 }],
     });
   });
 
@@ -98,34 +147,133 @@ describe('buildRepoDropdown', () => {
     const d = buildRepoDropdown(
       [fv('kubernetes/kubernetes', 2), fv('golang/go', 1)],
       [fv('kubernetes', 0), fv('golang', 1)],
-      { repo: 'golang/go', org: null },
+      { repos: ['golang/go'], orgs: [] },
       [],
       false
     );
     expect(d.orgs).toEqual(['golang', 'kubernetes']);
-    expect(d.reposByOrg).toEqual({ golang: ['golang/go'], kubernetes: ['kubernetes/kubernetes'] });
+    expect(d.reposByOrg).toEqual({
+      golang: [{ value: 'golang/go', count: 1 }],
+      kubernetes: [{ value: 'kubernetes/kubernetes', count: 2 }],
+    });
   });
 
   it('lists every org with matches when an org is selected', () => {
     const d = buildRepoDropdown(
       [fv('kubernetes/kubernetes', 0), fv('golang/go', 1)],
       [fv('kubernetes', 3), fv('golang', 1)],
-      { repo: null, org: 'golang' },
+      { repos: [], orgs: ['golang'] },
       [],
       false
     );
     expect(d.orgs).toEqual(['golang', 'kubernetes']);
-    expect(d.reposByOrg).toEqual({ golang: ['golang/go'], kubernetes: [] });
+    expect(d.reposByOrg).toEqual({
+      golang: [{ value: 'golang/go', count: 1 }],
+      kubernetes: [],
+    });
   });
 
-  it('injects the selected repo or org even when the daemon does not know it', () => {
-    const d = buildRepoDropdown([], [], { repo: 'new/repo', org: null }, [], false);
-    expect(d).toEqual({ orgs: ['new'], reposByOrg: { new: ['new/repo'] }, hasMore: false });
-    expect(buildRepoDropdown([], [], { repo: null, org: 'neworg' }, [], false).orgs).toEqual(['neworg']);
+  it('injects all selected repos and orgs even when the daemon does not know them', () => {
+    const d = buildRepoDropdown(
+      [],
+      [],
+      { repos: ['new/repo', 'other/repo'], orgs: ['neworg'] },
+      [],
+      false
+    );
+    expect(d).toEqual({
+      orgs: ['new', 'neworg', 'other'],
+      reposByOrg: {
+        new: [{ value: 'new/repo', count: 0 }],
+        neworg: [],
+        other: [{ value: 'other/repo', count: 0 }],
+      },
+      hasMore: false,
+    });
   });
 
   it('reports no more options when everything is displayed', () => {
-    expect(buildRepoDropdown([fv('a/b', 1)], [fv('a', 1)], { repo: null, org: null }, [], false).hasMore).toBe(false);
+    expect(
+      buildRepoDropdown([fv('a/b', 1)], [fv('a', 1)], { repos: [], orgs: [] }, [], false).hasMore
+    ).toBe(false);
+  });
+
+  it('groups a selected repo under its org header when owner casing differs from the org facet', () => {
+    const d = buildRepoDropdown(
+      [],
+      [fv('kubernetes', 3)],
+      { repos: ['Kubernetes/foo'], orgs: [] },
+      [],
+      false
+    );
+    expect(d.orgs).toEqual(['kubernetes']);
+    expect(d.reposByOrg).toEqual({
+      kubernetes: [{ value: 'Kubernetes/foo', count: 0 }],
+    });
+
+    const menuOpts = buildRepoMenuOptions(
+      [],
+      [fv('kubernetes', 3)],
+      { repos: ['Kubernetes/foo'], orgs: [] },
+      [],
+      false
+    );
+    expect(menuOpts.list).toEqual([
+      { value: 'kubernetes', count: null, group: 'kubernetes', isGroupHeader: true },
+      { value: 'Kubernetes/foo', count: 0, group: 'kubernetes', indented: true },
+    ]);
+  });
+});
+
+describe('buildAuthorMenuOptions and buildAssigneeMenuOptions', () => {
+  it('pins the current user first in Author options as @<login> (you)', () => {
+    const authors = [fv('bob', 2), fv('alice', 4)];
+    const built = buildAuthorMenuOptions(authors, [], 'alice', false);
+    expect(built.list).toEqual([
+      { value: 'alice', label: '@alice (you)', count: 4, pinned: true },
+      { value: 'bob', count: 2 },
+    ]);
+  });
+
+  it('shows a single @alice (you) row with alice count and ticked when selection is [@me]', () => {
+    const assignees = [fv('bob', 2), fv('alice', 5)];
+    const selected = ['@me'];
+    const built = buildAssigneeMenuOptions(assignees, selected, 'alice', false);
+    expect(built.list).toEqual([
+      { value: '@me', label: '@alice (you)', count: 5, pinned: true },
+      { value: 'bob', count: 2 },
+    ]);
+    expect(isAssigneeOptionSelected(built.list[0], selected, 'alice')).toBe(true);
+  });
+
+  it('also ticks the @alice (you) row when selection is [alice]', () => {
+    const assignees = [fv('bob', 2), fv('alice', 5)];
+    const selected = ['alice'];
+    const built = buildAssigneeMenuOptions(assignees, selected, 'alice', false);
+    expect(built.list).toEqual([
+      { value: '@me', label: '@alice (you)', count: 5, pinned: true },
+      { value: 'bob', count: 2 },
+    ]);
+    expect(isAssigneeOptionSelected(built.list[0], selected, 'alice')).toBe(true);
+  });
+
+  it('removes both @me and alice when unticking the (you) row', () => {
+    expect(toggleAssigneeOption({ value: '@me' }, true, ['@me', 'alice', 'bob'], 'alice')).toEqual([
+      'bob',
+    ]);
+    expect(toggleAssigneeOption({ value: '@me' }, true, ['alice'], 'alice')).toEqual([]);
+    expect(toggleAssigneeOption({ value: '@me' }, true, ['@me'], 'alice')).toEqual([]);
+  });
+
+  it('shows one @me (you) row when selection is [@me] and there is no current user', () => {
+    const assignees = [fv('bob', 2)];
+    const selected = ['@me'];
+    const built = buildAssigneeMenuOptions(assignees, selected, null, false);
+    expect(built.list).toEqual([
+      { value: '@me', label: '@me (you)', count: 0, pinned: true },
+      { value: 'bob', count: 2 },
+    ]);
+    expect(isAssigneeOptionSelected(built.list[0], selected, null)).toBe(true);
   });
 });
 

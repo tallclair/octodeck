@@ -1,6 +1,17 @@
-import type { RefObject } from 'react';
+import { useRef, type RefObject } from 'react';
 import { ChevronDown, Check } from 'lucide-react';
+import { MENU_ITEM_PROPS, useMenuPanelKeyboard } from '../../hooks/useMenuPanelKeyboard';
 import type { SortOption, SortOrder } from '../../types/filters';
+import {
+  CHEVRON_SIZE,
+  MENU_DIVIDER_CLASS,
+  MENU_ICON_SIZE,
+  MENU_PANEL_BELOW_RIGHT,
+  MENU_PANEL_CLASS,
+  MENU_ROW_CHECK_CLASS,
+  chevronClass,
+  menuRowClass,
+} from './menuStyles';
 
 export interface SortMenuProps {
   sort: SortOption;
@@ -13,6 +24,19 @@ export interface SortMenuProps {
   menuRef: RefObject<HTMLDivElement | null>;
 }
 
+const SORT_LABELS: Record<SortOption, string> = {
+  updated: 'Latest Activity',
+  acked: 'Last Acked',
+  created: 'Creation Date',
+};
+
+const SORT_ROWS: readonly SortOption[] = ['updated', 'acked', 'created'];
+
+const ORDER_ROWS: readonly { readonly value: SortOrder; readonly label: string }[] = [
+  { value: 'asc', label: 'Ascending' },
+  { value: 'desc', label: 'Descending' },
+];
+
 export function SortMenu({
   sort,
   order,
@@ -23,114 +47,70 @@ export function SortMenu({
   onClose,
   menuRef,
 }: SortMenuProps) {
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const handlePanelKeyDown = useMenuPanelKeyboard({ open: isOpen, panelRef, triggerRef, onClose });
+
+  const pick = (select: () => void) => {
+    select();
+    triggerRef.current?.focus();
+    onClose();
+  };
+
   return (
     <div className="relative" ref={menuRef}>
+      {/* Deliberately borderless and quieter than the filter toolbar triggers: it sits in the list body. */}
       <button
+        ref={triggerRef}
         type="button"
         onClick={onToggle}
         aria-label="Sort options"
-        aria-haspopup="true"
+        aria-haspopup="dialog"
         aria-expanded={isOpen}
-        className="flex items-center gap-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 px-1 py-0.5 rounded transition-colors cursor-pointer text-xs"
+        className="flex items-center gap-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 px-1 py-0.5 rounded transition-colors cursor-pointer text-xs select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
       >
-        <span>
-          {sort === 'updated'
-            ? 'Latest Activity'
-            : sort === 'acked'
-            ? 'Last Acked'
-            : 'Creation Date'}
-        </span>
-        <ChevronDown
-          size={12}
-          className={`text-slate-400 dark:text-slate-500 transition-transform duration-150 ${
-            isOpen ? 'rotate-180 text-blue-600 dark:text-blue-400' : ''
-          }`}
-        />
+        <span>{SORT_LABELS[sort]}</span>
+        <ChevronDown size={CHEVRON_SIZE} className={chevronClass(isOpen)} />
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-1 w-36 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl py-1 z-30 animate-in fade-in zoom-in-95 duration-100">
-          <button
-            type="button"
-            onClick={() => {
-              onSelectSort('updated');
-              onClose();
-            }}
-            className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-              sort === 'updated'
-                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <span>Latest Activity</span>
-            {sort === 'updated' && <Check size={12} className="text-blue-600 dark:text-blue-400" />}
-          </button>
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-label="Sort options"
+          tabIndex={-1}
+          onKeyDown={handlePanelKeyDown}
+          className={`${MENU_PANEL_CLASS} ${MENU_PANEL_BELOW_RIGHT} w-36 py-1`}
+        >
+          {SORT_ROWS.map((value) => (
+            <button
+              {...MENU_ITEM_PROPS}
+              key={value}
+              type="button"
+              tabIndex={-1}
+              onClick={() => pick(() => onSelectSort(value))}
+              className={menuRowClass(sort === value)}
+            >
+              <span>{SORT_LABELS[value]}</span>
+              {sort === value && <Check size={MENU_ICON_SIZE} className={MENU_ROW_CHECK_CLASS} />}
+            </button>
+          ))}
 
-          <button
-            type="button"
-            onClick={() => {
-              onSelectSort('acked');
-              onClose();
-            }}
-            className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-              sort === 'acked'
-                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <span>Last Acked</span>
-            {sort === 'acked' && <Check size={12} className="text-blue-600 dark:text-blue-400" />}
-          </button>
+          <div aria-hidden="true" className={MENU_DIVIDER_CLASS} />
 
-          <button
-            type="button"
-            onClick={() => {
-              onSelectSort('created');
-              onClose();
-            }}
-            className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-              sort === 'created'
-                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <span>Creation Date</span>
-            {sort === 'created' && <Check size={12} className="text-blue-600 dark:text-blue-400" />}
-          </button>
-
-          <div className="border-t border-slate-200 dark:border-slate-800 my-1" />
-
-          <button
-            type="button"
-            onClick={() => {
-              onSelectOrder('asc');
-              onClose();
-            }}
-            className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-              order === 'asc'
-                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <span>Ascending</span>
-            {order === 'asc' && <Check size={12} className="text-blue-600 dark:text-blue-400" />}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              onSelectOrder('desc');
-              onClose();
-            }}
-            className={`w-full px-3 py-1.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
-              order === 'desc'
-                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-medium'
-                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <span>Descending</span>
-            {order === 'desc' && <Check size={12} className="text-blue-600 dark:text-blue-400" />}
-          </button>
+          {ORDER_ROWS.map(({ value, label }) => (
+            <button
+              {...MENU_ITEM_PROPS}
+              key={value}
+              type="button"
+              tabIndex={-1}
+              onClick={() => pick(() => onSelectOrder(value))}
+              className={menuRowClass(order === value)}
+            >
+              <span>{label}</span>
+              {order === value && <Check size={MENU_ICON_SIZE} className={MENU_ROW_CHECK_CLASS} />}
+            </button>
+          ))}
         </div>
       )}
     </div>

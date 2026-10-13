@@ -1,17 +1,18 @@
 // Pure operations on the dashboard's predicate list. The predicate list is the state of record;
-// the single-select controls (triage tab, state, type, repo, ...) are a read-only projection of
+// the filter controls (triage tab, state, type, repo, ...) are a read-only projection of
 // it, and control changes are translated back into predicate edits here.
 import { Field } from '../../api/octodeck/v1/query_pb';
 import {
   DEFAULT_FILTER_CONTROLS,
   DEFAULT_QUERY_STATE,
+  type ActivityValue,
   type ControlKey,
   type DashboardQueryState,
   type FilterControls,
   type FilterPredicate,
   type TriageFilter,
 } from '../../types/filters';
-import { ME_VALUE, isActivityPredicate, isAssignedToMePredicate, rankOf, specForField } from './vocabulary';
+import { ME_VALUE, isActivityPredicate, rankOf, specForField } from './vocabulary';
 
 /** A predicate that no control can display, with its index in the predicate list. */
 export interface ExtraPredicate {
@@ -26,41 +27,88 @@ export interface Projection {
   extras: ExtraPredicate[];
 }
 
-/** Field-owning controls and the (single) model value each control value stands for. */
-interface ControlSpec {
-  readonly field: Field;
-  /** Control value -> model value; null means "no filter". */
-  readonly toModel: (value: string | null) => string | null;
-  /** Model value -> control value, or undefined if the control cannot show it. */
-  readonly fromModel: (value: string) => string | undefined;
-  /** Whether a predicate can be displayed by this control. */
-  readonly matches: (p: FilterPredicate) => boolean;
+type SingleControlKey = 'state' | 'type' | 'tracking';
+type MultiControlKey = 'org' | 'repo' | 'author' | 'assignee' | 'milestone' | 'label' | 'activity';
+type StringMultiControlKey = Exclude<MultiControlKey, 'activity'>;
+
+type ProjectedControlValue = {
+  [K in ControlKey]: { key: K; value: FilterControls[K] };
+}[ControlKey];
+
+function setProjectedControl<K extends ControlKey>(
+  controls: FilterControls,
+  entry: { key: K; value: FilterControls[K] }
+): void {
+  controls[entry.key] = entry.value;
 }
 
-const mapping = (pairs: Record<string, string>) => ({
-  toModel: (value: string | null) => (value !== null && Object.hasOwn(pairs, value) ? pairs[value] : null),
-  fromModel: (model: string) => Object.keys(pairs).find((k) => pairs[k] === model),
-});
-const openText = (strip: boolean) => ({
-  toModel: (value: string | null) => {
-    const v = value?.trim() ?? '';
-    return (strip ? v.replace(/^@/, '') : v) || null;
-  },
-  fromModel: (model: string) => model,
-});
-const matchesField = (field: Field) => (p: FilterPredicate) => p.field === field;
+interface SingleControlSpec<V extends string = string> {
+  readonly field: Field;
+  readonly toModel: (value: string) => string | null;
+  readonly fromModel: (value: string) => V | undefined;
+}
 
-const CONTROLS: Readonly<Record<Exclude<ControlKey, 'triage'>, ControlSpec>> = {
-  state: { field: Field.STATE, ...mapping({ open: 'open', closed: 'closed' }), matches: matchesField(Field.STATE) },
-  type: { field: Field.TYPE, ...mapping({ pr: 'pr', issue: 'issue' }), matches: matchesField(Field.TYPE) },
-  // Only the "Assigned to me" predicate belongs to the toggle; assignee=bob from a URL survives it.
-  assigned: { field: Field.ASSIGNEE, ...mapping({ me: ME_VALUE }), matches: isAssignedToMePredicate },
-  tracking: { field: Field.TRACKING, ...mapping({ tracked: 'true', untracked: 'false' }), matches: matchesField(Field.TRACKING) },
-  repo: { field: Field.REPO, ...openText(false), matches: matchesField(Field.REPO) },
-  org: { field: Field.ORG, ...openText(false), matches: matchesField(Field.ORG) },
-  author: { field: Field.AUTHOR, ...openText(true), matches: matchesField(Field.AUTHOR) },
-  milestone: { field: Field.MILESTONE, ...openText(false), matches: matchesField(Field.MILESTONE) },
-  label: { field: Field.LABEL, ...openText(false), matches: matchesField(Field.LABEL) },
+interface MultiControlSpec {
+  readonly field: Field;
+  readonly normalize: (value: string) => string | null;
+}
+
+const ACTIVITY_VALUES: readonly ActivityValue[] = [
+  'any',
+  'item',
+  'mention',
+  'comment',
+  'code',
+  'noise',
+];
+const SPECIFIC_ACTIVITY_VALUES: readonly ActivityValue[] = ['item', 'mention', 'comment', 'code'];
+
+const mapping = <V extends string>(pairs: Record<V, string>) => ({
+  toModel: (value: string) => (Object.hasOwn(pairs, value) ? pairs[value as V] : null),
+  fromModel: (model: string): V | undefined =>
+    (Object.keys(pairs) as V[]).find((k) => pairs[k] === model),
+});
+
+const trimNonEmpty = (value: string): string | null => {
+  const v = value.trim();
+  return v || null;
+};
+
+const stripAt = (value: string): string | null => {
+  const v = value.trim().replace(/^@/, '');
+  return v || null;
+};
+
+const normalizeAssignee = (value: string): string | null => {
+  const v = value.trim();
+  if (!v) return null;
+  if (v.toLowerCase() === ME_VALUE) return ME_VALUE;
+  return v.replace(/^@/, '') || null;
+};
+
+const normalizeActivity = (value: string): ActivityValue | null => {
+  const v = value.trim().toLowerCase() as ActivityValue;
+  return ACTIVITY_VALUES.includes(v) ? v : null;
+};
+
+const SINGLE_CONTROLS: {
+  readonly state: SingleControlSpec<'open' | 'closed' | 'merged'>;
+  readonly type: SingleControlSpec<'pr' | 'issue'>;
+  readonly tracking: SingleControlSpec<'tracked' | 'untracked'>;
+} = {
+  state: { field: Field.STATE, ...mapping({ open: 'open', closed: 'closed', merged: 'merged' }) },
+  type: { field: Field.TYPE, ...mapping({ pr: 'pr', issue: 'issue' }) },
+  tracking: { field: Field.TRACKING, ...mapping({ tracked: 'true', untracked: 'false' }) },
+};
+
+const MULTI_CONTROLS: Readonly<Record<MultiControlKey, MultiControlSpec>> = {
+  repo: { field: Field.REPO, normalize: trimNonEmpty },
+  org: { field: Field.ORG, normalize: trimNonEmpty },
+  author: { field: Field.AUTHOR, normalize: stripAt },
+  assignee: { field: Field.ASSIGNEE, normalize: normalizeAssignee },
+  milestone: { field: Field.MILESTONE, normalize: trimNonEmpty },
+  label: { field: Field.LABEL, normalize: trimNonEmpty },
+  activity: { field: Field.NEW, normalize: normalizeActivity },
 };
 
 const TRIAGE_TAB_VALUES: readonly TriageFilter[] = ['acked', 'all'];
@@ -70,22 +118,38 @@ function hasTriagePredicate(predicates: readonly FilterPredicate[]): boolean {
 }
 
 /** The control a predicate is displayed by, if any, with the control value. */
-function controlFor(
-  p: FilterPredicate,
-  predicates: readonly FilterPredicate[]
-): { key: ControlKey; value: string } | undefined {
+function controlFor(p: FilterPredicate): ProjectedControlValue | undefined {
   if (p.negated) return undefined;
-  if (isActivityPredicate(p) && !hasTriagePredicate(predicates)) return { key: 'triage', value: 'activity' };
-  if (p.values.length !== 1) return undefined;
-  const model = p.values[0];
   if (p.field === Field.TRIAGE) {
-    const tab = TRIAGE_TAB_VALUES.find((t) => t === model);
+    if (p.values.length !== 1) return undefined;
+    const tab = TRIAGE_TAB_VALUES.find((t) => t === p.values[0]);
     return tab ? { key: 'triage', value: tab } : undefined;
   }
-  for (const [key, spec] of Object.entries(CONTROLS) as [Exclude<ControlKey, 'triage'>, ControlSpec][]) {
-    if (spec.field !== p.field || !spec.matches(p)) continue;
-    const value = spec.fromModel(model);
-    return value === undefined ? undefined : { key, value };
+  if (p.field === Field.STATE) {
+    if (p.values.length !== 1) return undefined;
+    const value = SINGLE_CONTROLS.state.fromModel(p.values[0]);
+    return value ? { key: 'state', value } : undefined;
+  }
+  if (p.field === Field.TYPE) {
+    if (p.values.length !== 1) return undefined;
+    const value = SINGLE_CONTROLS.type.fromModel(p.values[0]);
+    return value ? { key: 'type', value } : undefined;
+  }
+  if (p.field === Field.TRACKING) {
+    if (p.values.length !== 1) return undefined;
+    const value = SINGLE_CONTROLS.tracking.fromModel(p.values[0]);
+    return value ? { key: 'tracking', value } : undefined;
+  }
+  if (p.field === Field.NEW) {
+    if (p.values.length === 0) return undefined;
+    const normalized = p.values.map(normalizeActivity);
+    if (normalized.some((v) => v === null)) return undefined;
+    return { key: 'activity', value: normalized as ActivityValue[] };
+  }
+  for (const [key, spec] of Object.entries(MULTI_CONTROLS) as [MultiControlKey, MultiControlSpec][]) {
+    if (key === 'activity' || spec.field !== p.field) continue;
+    if (p.values.length === 0) return undefined;
+    return { key: key as StringMultiControlKey, value: [...p.values] };
   }
   return undefined;
 }
@@ -106,14 +170,25 @@ export function projectControls(state: DashboardQueryState): Projection {
   const owners: Partial<Record<ControlKey, number>> = {};
   const extras: ExtraPredicate[] = [];
   state.predicates.forEach((predicate, index) => {
-    const control = controlFor(predicate, state.predicates);
+    const control = controlFor(predicate);
     if (control && owners[control.key] === undefined) {
       owners[control.key] = index;
-      (controls as unknown as Record<string, string>)[control.key] = control.value;
+      setProjectedControl(controls, control);
     } else {
       extras.push({ predicate, index });
     }
   });
+
+  if (
+    owners.triage === undefined &&
+    !hasTriagePredicate(state.predicates) &&
+    controls.activity.length === 1 &&
+    controls.activity[0] === 'any'
+  ) {
+    controls.triage = 'activity';
+    owners.triage = owners.activity;
+  }
+
   return { controls, owners, extras };
 }
 
@@ -128,11 +203,11 @@ export function getTriageTab(predicates: readonly FilterPredicate[]): TriageFilt
  */
 function replacePredicates(
   predicates: readonly FilterPredicate[],
-  owns: (p: FilterPredicate) => boolean,
+  owns: (p: FilterPredicate, index: number) => boolean,
   next: FilterPredicate | null
 ): FilterPredicate[] {
-  const firstRemoved = predicates.findIndex(owns);
-  const kept = predicates.filter((p) => !owns(p));
+  const firstRemoved = predicates.findIndex((p, i) => owns(p, i));
+  const kept = predicates.filter((p, i) => !owns(p, i));
   if (!next) return kept;
   let at: number;
   if (firstRemoved >= 0) {
@@ -168,13 +243,64 @@ function setOwnedPredicate(
   return [...predicates.slice(0, at), next, ...predicates.slice(at)];
 }
 
-/** Switches the triage tab: replaces every triage predicate and the "New" tab's new:any. */
+/**
+ * Switches the triage tab: removes every triage predicate (negated ones included, §3.4).
+ * Switching to New ('activity') replaces the activity control's predicate with `new:any`;
+ * switching to Inbox/Acked/All removes the activity predicate only if it is `new:any`.
+ */
 export function setTriageTab(state: DashboardQueryState, tab: TriageFilter): DashboardQueryState {
-  const owns = (p: FilterPredicate) => p.field === Field.TRIAGE || isActivityPredicate(p);
-  let next: FilterPredicate | null = null;
-  if (tab === 'activity') next = { field: Field.NEW, values: ['any'], negated: false };
-  else if (tab === 'acked' || tab === 'all') next = { field: Field.TRIAGE, values: [tab], negated: false };
+  const { owners } = projectControls(state);
+  if (tab === 'activity') {
+    const owns = (p: FilterPredicate, index: number) =>
+      p.field === Field.TRIAGE || index === owners.activity;
+    const next: FilterPredicate = { field: Field.NEW, values: ['any'], negated: false };
+    return { ...state, predicates: replacePredicates(state.predicates, owns, next) };
+  }
+  const owns = (p: FilterPredicate, index: number) =>
+    p.field === Field.TRIAGE || (index === owners.activity && isActivityPredicate(p));
+  const next: FilterPredicate | null =
+    tab === 'acked' || tab === 'all'
+      ? { field: Field.TRIAGE, values: [tab], negated: false }
+      : null;
   return { ...state, predicates: replacePredicates(state.predicates, owns, next) };
+}
+
+/**
+ * Sets the activity selection while enforcing Any vs specific exclusivity (§3.4):
+ * - Ticking `any` removes `item`, `mention`, `comment`, `code` (keeping `noise` if present).
+ * - Ticking any of `item`, `mention`, `comment`, `code` while `any` is ticked removes `any`.
+ */
+export function setActivity(
+  state: DashboardQueryState,
+  values: readonly string[]
+): DashboardQueryState {
+  const { controls, owners } = projectControls(state);
+  const prev = controls.activity;
+  const normalized: ActivityValue[] = [];
+  for (const raw of values) {
+    const v = normalizeActivity(raw);
+    if (v && !normalized.includes(v)) {
+      normalized.push(v);
+    }
+  }
+
+  const hasAny = normalized.includes('any');
+  const hasSpecific = normalized.some((v) => SPECIFIC_ACTIVITY_VALUES.includes(v));
+  let resolved = normalized;
+  if (hasAny && hasSpecific) {
+    const added = normalized.filter((v) => !prev.includes(v));
+    if (added.includes('any')) {
+      resolved = normalized.filter((v) => !SPECIFIC_ACTIVITY_VALUES.includes(v));
+    } else if (added.some((v) => SPECIFIC_ACTIVITY_VALUES.includes(v))) {
+      resolved = normalized.filter((v) => v !== 'any');
+    } else {
+      resolved = normalized.filter((v) => !SPECIFIC_ACTIVITY_VALUES.includes(v));
+    }
+  }
+
+  const next =
+    resolved.length === 0 ? null : { field: Field.NEW, values: resolved, negated: false };
+  return { ...state, predicates: setOwnedPredicate(state.predicates, owners.activity, next) };
 }
 
 /** Sets one control, editing only the predicate it currently displays (P2). */
@@ -194,13 +320,24 @@ export function setControl<K extends keyof FilterControls>(
       return { ...state, item: (value as string | null) || null };
     case 'triage':
       return setTriageTab(state, value as TriageFilter);
+    case 'activity':
+      return setActivity(state, value as readonly string[]);
   }
-  const controlKey = key as Exclude<ControlKey, 'triage'>;
-  const spec = CONTROLS[controlKey];
   const { owners } = projectControls(state);
-  const model = spec.toModel(value as string | null);
-  const next = model === null ? null : { field: spec.field, values: [model], negated: false };
-  return { ...state, predicates: setOwnedPredicate(state.predicates, owners[controlKey], next) };
+  if (Object.hasOwn(SINGLE_CONTROLS, key)) {
+    const singleKey = key as SingleControlKey;
+    const spec = SINGLE_CONTROLS[singleKey];
+    const model = spec.toModel(value as string);
+    const next = model === null ? null : { field: spec.field, values: [model], negated: false };
+    return { ...state, predicates: setOwnedPredicate(state.predicates, owners[singleKey], next) };
+  }
+  const multiKey = key as MultiControlKey;
+  const spec = MULTI_CONTROLS[multiKey];
+  const values = (value as readonly string[])
+    .map(spec.normalize)
+    .filter((v): v is string => v !== null);
+  const next = values.length === 0 ? null : { field: spec.field, values, negated: false };
+  return { ...state, predicates: setOwnedPredicate(state.predicates, owners[multiKey], next) };
 }
 
 /** Applies several control changes in their insertion order. */
@@ -211,11 +348,38 @@ export function applyControls(state: DashboardQueryState, partial: Partial<Filte
   );
 }
 
-/** Sidebar repo shortcut: selects the repo (or clears it if already selected) and clears org. */
+/**
+ * Sets the org or repo selection while enforcing mutual exclusivity (P3): a non-empty org
+ * selection clears the repo control's predicate, and vice versa.
+ */
+export function setOrgOrRepo(
+  state: DashboardQueryState,
+  kind: 'org' | 'repo',
+  values: readonly string[]
+): DashboardQueryState {
+  if (kind === 'org') {
+    const base = values.length > 0 ? setControl(state, 'repo', []) : state;
+    return setControl(base, 'org', values);
+  }
+  const base = values.length > 0 ? setControl(state, 'org', []) : state;
+  return setControl(base, 'repo', values);
+}
+
+/**
+ * Toggles `@me` in the assignee selection (P19), keeping any other selected assignees.
+ */
+export function toggleAssignedToMe(state: DashboardQueryState): DashboardQueryState {
+  const current = projectControls(state).controls.assignee;
+  const hasMe = current.some((v) => v.toLowerCase() === ME_VALUE);
+  const next = hasMe ? current.filter((v) => v.toLowerCase() !== ME_VALUE) : [ME_VALUE, ...current];
+  return setControl(state, 'assignee', next);
+}
+
+/** Sidebar repo shortcut: if repo is exactly `[repo]`, clear it; otherwise set `[repo]` and clear org. */
 export function toggleRepo(state: DashboardQueryState, repo: string): DashboardQueryState {
   const current = projectControls(state).controls.repo;
-  const isSame = current !== null && current.toLowerCase() === repo.toLowerCase();
-  return applyControls(state, { repo: isSame ? null : repo, org: null });
+  const isSameSingle = current.length === 1 && current[0].toLowerCase() === repo.toLowerCase();
+  return setOrgOrRepo(state, 'repo', isSameSingle ? [] : [repo]);
 }
 
 /** Removes the predicate at `index` (a generic chip's remove button). */
@@ -258,8 +422,34 @@ export function activeQueryCount(state: DashboardQueryState): number {
 }
 
 /** Label and values for a generic filter chip. */
-export function formatPredicateChip(p: FilterPredicate): { label: string; value: string; negated: boolean } {
+export function formatPredicateChip(p: FilterPredicate): {
+  label: string;
+  values: string[];
+  negated: boolean;
+} {
   const spec = specForField(p.field);
   const values = spec ? p.values.map((v) => spec.encode(v)) : [...p.values];
-  return { label: spec?.label ?? 'Filter', value: values.join(', '), negated: p.negated };
+  return { label: spec?.label ?? 'Filter', values, negated: p.negated };
+}
+
+/**
+ * Whether any secondary filter chip is currently active (excluding the `new:any` predicate that
+ * drives the New tab when `filters.triage === 'activity'`).
+ */
+export function hasActiveFilterChips(
+  filters: FilterControls,
+  extraPredicates: readonly ExtraPredicate[]
+): boolean {
+  return (
+    filters.state !== 'all' ||
+    filters.tracking !== 'all' ||
+    filters.repo.length > 0 ||
+    filters.org.length > 0 ||
+    filters.author.length > 0 ||
+    filters.assignee.length > 0 ||
+    filters.milestone.length > 0 ||
+    filters.label.length > 0 ||
+    (filters.activity.length > 0 && filters.triage !== 'activity') ||
+    extraPredicates.length > 0
+  );
 }

@@ -19,6 +19,7 @@ import { DetailsPane } from './DetailsPane';
 import { SyncStatusDisplay } from './SyncStatusDisplay';
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
 import { Settings } from '../Settings';
+import { hasActiveFilterChips } from '../logic/query/predicates';
 import { useDashboardFilters } from '../hooks/useDashboardFilters';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { useScrollAnchoring } from '../hooks/useScrollAnchoring';
@@ -80,16 +81,6 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   const [showSettings, setShowSettings] = useState(false);
   const menus = useMenuGroup();
 
-  const [showAllRepos, setShowAllRepos] = useState(false);
-  const [showAllAuthors, setShowAllAuthors] = useState(false);
-  const [showAllMilestones, setShowAllMilestones] = useState(false);
-  const [showAllLabels, setShowAllLabels] = useState(false);
-
-  if (!menus.isOpen('repo') && showAllRepos) setShowAllRepos(false);
-  if (!menus.isOpen('author') && showAllAuthors) setShowAllAuthors(false);
-  if (!menus.isOpen('milestone') && showAllMilestones) setShowAllMilestones(false);
-  if (!menus.isOpen('label') && showAllLabels) setShowAllLabels(false);
-
   const [debugMode, setDebugMode] = useState<boolean>(() => {
     try {
       return (
@@ -108,6 +99,8 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
     extraPredicates,
     setFilter,
     setFilters,
+    setOrgOrRepo,
+    toggleAssignedToMe,
     applyWorkflowShortcut,
     toggleRepo,
     clearSecondaryFilters,
@@ -136,30 +129,14 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   // Items, dropdown options and sidebar counts, all filtered and counted by the daemon.
   const data = useDashboardData({
     query,
-    filters,
     pinnedRepos,
-    showAll: {
-      repos: showAllRepos,
-      authors: showAllAuthors,
-      milestones: showAllMilestones,
-      labels: showAllLabels,
-    },
   });
   const { items, refreshAll } = data;
   // An invalid query is reported inline; only connectivity failures mean "disconnected".
   const isDisconnected = data.hasConnectivityError || isConfigError || isSyncStatusError;
 
   const hasActiveChips = useMemo(
-    () =>
-      filters.state !== 'all' ||
-      filters.tracking !== 'all' ||
-      Boolean(filters.repo) ||
-      Boolean(filters.org) ||
-      Boolean(filters.author) ||
-      Boolean(filters.milestone) ||
-      Boolean(filters.label) ||
-      filters.assigned === 'me' ||
-      extraPredicates.length > 0,
+    () => hasActiveFilterChips(filters, extraPredicates),
     [filters, extraPredicates]
   );
 
@@ -469,17 +446,17 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
 
         {/* List Pane */}
         <div className="flex-1 min-w-0 flex flex-col border-r border-slate-200 dark:border-slate-800 relative bg-slate-50 dark:bg-slate-950 overflow-hidden">
-          <div className="flex flex-col h-full">
+          <div className="flex flex-col h-full overflow-y-auto" ref={scrollContainerRef}>
             {/* List Header */}
-            <header className="px-6 py-3.5 border-b border-slate-200 dark:border-slate-800 shrink-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur z-10 sticky top-0">
+            <header className="py-3.5 border-b border-slate-200 dark:border-slate-800 shrink-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur z-20 sticky top-0">
               <div className="flex w-full items-center transition-all duration-300 ease-in-out">
                 <div
                   className={`transition-all duration-300 ease-in-out ${
-                    selectedItem ? 'w-6 flex-none' : 'flex-1'
+                    selectedItem ? 'w-6 flex-none' : 'flex-1 min-w-6'
                   }`}
                 />
 
-                <div className="max-w-4xl w-full shrink-0 space-y-3">
+                <div className="w-full max-w-4xl min-w-0 space-y-3">
                   <TriageTitleMenu
                     triage={filters.triage}
                     onSelect={(tab) => setFilter('triage', tab)}
@@ -493,20 +470,11 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                     filters={filters}
                     setFilter={setFilter}
                     setFilters={setFilters}
+                    setOrgOrRepo={setOrgOrRepo}
+                    toggleAssignedToMe={toggleAssignedToMe}
                     currentUser={currentUser}
-                    options={data.options}
-                    showAll={{
-                      repos: showAllRepos,
-                      authors: showAllAuthors,
-                      milestones: showAllMilestones,
-                      labels: showAllLabels,
-                    }}
-                    setShowAll={{
-                      repos: setShowAllRepos,
-                      authors: setShowAllAuthors,
-                      milestones: setShowAllMilestones,
-                      labels: setShowAllLabels,
-                    }}
+                    facets={data.facets}
+                    pinnedRepos={pinnedRepos}
                     menus={menus}
                   />
 
@@ -516,22 +484,22 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                     setFilter={setFilter}
                     removePredicateAt={removePredicateAt}
                     clearSecondaryFilters={clearSecondaryFilters}
+                    onOpenMenu={(id) => menus.openMenu(id)}
                   />
                 </div>
 
-                <div className="flex-1" />
+                <div className="flex-1 min-w-6" />
               </div>
             </header>
 
-            <div className="flex-1 overflow-y-auto" ref={scrollContainerRef}>
-              <div className="flex min-h-full w-full">
-                <div
-                  className={`transition-all duration-300 ease-in-out ${
-                    selectedItem ? 'w-6 flex-none' : 'flex-1'
-                  }`}
-                />
+            <div className="flex-1 flex w-full">
+              <div
+                className={`transition-all duration-300 ease-in-out ${
+                  selectedItem ? 'w-6 flex-none' : 'flex-1 min-w-6'
+                }`}
+              />
 
-                <div className="max-w-4xl w-full shrink-0 border-x border-slate-200/70 dark:border-slate-800/50 min-h-full bg-white dark:bg-slate-950">
+              <div className="w-full max-w-4xl min-w-0 border-x border-slate-200/70 dark:border-slate-800/50 min-h-full bg-white dark:bg-slate-950">
                   {/* Top of list row: Item count left-aligned, subtle borderless sort control right-aligned */}
                   <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200/70 dark:border-slate-800/40 text-xs select-none">
                     <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
@@ -606,10 +574,9 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                   ) : null}
                 </div>
 
-                <div className="flex-1" />
+                <div className="flex-1 min-w-6" />
               </div>
             </div>
-          </div>
 
           {/* Details Pane Overlay */}
           <div
