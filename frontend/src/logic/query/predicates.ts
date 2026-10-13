@@ -13,9 +13,9 @@ import {
   type TriageFilter,
 } from '../../types/filters';
 import { parseQuery, type ParsedQuery } from './syntax';
-import { ME_VALUE, encodeLegacyValue, isActivityPredicate, rankOf, specForField } from './vocabulary';
+import { ME_VALUE, encodeLegacyValue, specForField } from './vocabulary';
 
-/** A predicate that no control can display, with its index in the predicate or clause list. */
+/** A predicate that no control can display, with its index in the clause list. */
 export interface ExtraPredicate {
   readonly predicate: FilterPredicate;
   readonly index: number;
@@ -23,7 +23,7 @@ export interface ExtraPredicate {
 
 export interface Projection {
   controls: FilterControls;
-  /** Index of the predicate or clause each control displays. */
+  /** Index of the clause each control displays in `parsed.clauses`. */
   owners: Partial<Record<ControlKey, number>>;
   extras: ExtraPredicate[];
 }
@@ -42,14 +42,6 @@ export interface ResolvedQueryErrors {
   readonly messages: readonly string[];
   /** Formatted summary line ("1 part of the query is ignored: ..."), or null when no errors. */
   readonly summary: string | null;
-}
-
-/** Legacy predicate-list state retained until Commit 2.4b removes the predicate-list editors. */
-export interface PredicateListState {
-  readonly predicates: readonly FilterPredicate[];
-  readonly sort: DashboardQueryState['sort'];
-  readonly order: DashboardQueryState['order'];
-  readonly item: string | null;
 }
 
 type SingleControlKey = 'state' | 'type' | 'tracking';
@@ -272,227 +264,6 @@ export function projectClauses(
   }
 
   return { controls, owners, extras };
-}
-
-/**
- * Projects the predicates onto the controls. The first non-negated predicate a control can
- * display sets it and records its index in `owners`; every other predicate is returned in `extras`
- * (in list order) so that no active filter is ever hidden.
- */
-export function projectControls(state: PredicateListState): Projection {
-  const controls: FilterControls = {
-    ...DEFAULT_FILTER_CONTROLS,
-    sort: state.sort,
-    order: state.order,
-    item: state.item,
-  };
-  const owners: Partial<Record<ControlKey, number>> = {};
-  const extras: ExtraPredicate[] = [];
-  state.predicates.forEach((predicate, index) => {
-    const control = controlFor(predicate);
-    if (control && owners[control.key] === undefined) {
-      owners[control.key] = index;
-      setProjectedControl(controls, control);
-    } else {
-      extras.push({ predicate, index });
-    }
-  });
-
-  if (
-    owners.triage === undefined &&
-    !hasTriagePredicate(state.predicates) &&
-    controls.activity.length === 1 &&
-    controls.activity[0] === 'any'
-  ) {
-    controls.triage = 'activity';
-    owners.triage = owners.activity;
-  }
-
-  return { controls, owners, extras };
-}
-
-/** The triage tab shown for a predicate list. */
-export function getTriageTab(predicates: readonly FilterPredicate[]): TriageFilter {
-  return projectControls({ ...DEFAULT_QUERY_STATE, predicates }).controls.triage;
-}
-
-/**
- * Removes the predicates matching `owns` and inserts `next` (if any) where the first removed
- * predicate was, or else at its canonical position.
- */
-function replacePredicates(
-  predicates: readonly FilterPredicate[],
-  owns: (p: FilterPredicate, index: number) => boolean,
-  next: FilterPredicate | null
-): FilterPredicate[] {
-  const firstRemoved = predicates.findIndex((p, i) => owns(p, i));
-  const kept = predicates.filter((p, i) => !owns(p, i));
-  if (!next) return kept;
-  let at: number;
-  if (firstRemoved >= 0) {
-    // Removed predicates before the first one shift nothing, so its index is still valid.
-    at = firstRemoved;
-  } else {
-    const rank = rankOf(next);
-    at = kept.findIndex((p) => rankOf(p) > rank);
-    if (at < 0) at = kept.length;
-  }
-  return [...kept.slice(0, at), next, ...kept.slice(at)];
-}
-
-/**
- * Replaces or removes the predicate at `ownerIndex` (when defined), or inserts `next` at its
- * canonical rank when the control currently owns no predicate.
- */
-function setOwnedPredicate(
-  predicates: readonly FilterPredicate[],
-  ownerIndex: number | undefined,
-  next: FilterPredicate | null
-): FilterPredicate[] {
-  if (ownerIndex !== undefined) {
-    if (!next) {
-      return predicates.filter((_, i) => i !== ownerIndex);
-    }
-    return predicates.map((p, i) => (i === ownerIndex ? next : p));
-  }
-  if (!next) return [...predicates];
-  const rank = rankOf(next);
-  let at = predicates.findIndex((p) => rankOf(p) > rank);
-  if (at < 0) at = predicates.length;
-  return [...predicates.slice(0, at), next, ...predicates.slice(at)];
-}
-
-/**
- * Switches the triage tab: removes every triage predicate (negated ones included, §3.4).
- * Switching to New ('activity') replaces the activity control's predicate with `new:any`;
- * switching to Inbox/Acked/All removes the activity predicate only if it is `new:any`.
- */
-export function setTriageTab(state: PredicateListState, tab: TriageFilter): PredicateListState {
-  const { owners } = projectControls(state);
-  if (tab === 'activity') {
-    const owns = (p: FilterPredicate, index: number) =>
-      p.field === Field.TRIAGE || index === owners.activity;
-    const next: FilterPredicate = { field: Field.NEW, values: ['any'], negated: false };
-    return { ...state, predicates: replacePredicates(state.predicates, owns, next) };
-  }
-  const owns = (p: FilterPredicate, index: number) =>
-    p.field === Field.TRIAGE || (index === owners.activity && isActivityPredicate(p));
-  const next: FilterPredicate | null =
-    tab === 'acked' || tab === 'all'
-      ? { field: Field.TRIAGE, values: [tab], negated: false }
-      : null;
-  return { ...state, predicates: replacePredicates(state.predicates, owns, next) };
-}
-
-/**
- * Sets the activity selection while enforcing Any vs specific exclusivity (§3.4):
- * - Ticking `any` removes `item`, `mention`, `comment`, `code` (keeping `noise` if present).
- * - Ticking any of `item`, `mention`, `comment`, `code` while `any` is ticked removes `any`.
- */
-export function setActivity(
-  state: PredicateListState,
-  values: readonly string[]
-): PredicateListState {
-  const { controls, owners } = projectControls(state);
-  const resolved = resolveActivityValues(controls.activity, values);
-  const next =
-    resolved.length === 0 ? null : { field: Field.NEW, values: resolved, negated: false };
-  return { ...state, predicates: setOwnedPredicate(state.predicates, owners.activity, next) };
-}
-
-/** Sets one control, editing only the predicate it currently displays (P2). */
-export function setControl<K extends keyof FilterControls>(
-  state: PredicateListState,
-  key: K,
-  value: FilterControls[K]
-): PredicateListState {
-  switch (key) {
-    case 'sort':
-      return { ...state, sort: value as DashboardQueryState['sort'] };
-    case 'order':
-      return { ...state, order: value as DashboardQueryState['order'] };
-    case 'item':
-      return { ...state, item: (value as string | null) || null };
-    case 'triage':
-      return setTriageTab(state, value as TriageFilter);
-    case 'activity':
-      return setActivity(state, value as readonly string[]);
-  }
-  const { owners } = projectControls(state);
-  if (Object.hasOwn(SINGLE_CONTROLS, key)) {
-    const singleKey = key as SingleControlKey;
-    const spec = SINGLE_CONTROLS[singleKey];
-    const model = spec.toModel(value as string);
-    const next = model === null ? null : { field: spec.field, values: [model], negated: false };
-    return { ...state, predicates: setOwnedPredicate(state.predicates, owners[singleKey], next) };
-  }
-  const multiKey = key as MultiControlKey;
-  const spec = MULTI_CONTROLS[multiKey];
-  const values = (value as readonly string[])
-    .map(spec.normalize)
-    .filter((v): v is string => v !== null);
-  const next = values.length === 0 ? null : { field: spec.field, values, negated: false };
-  return { ...state, predicates: setOwnedPredicate(state.predicates, owners[multiKey], next) };
-}
-
-/** Applies several control changes in their insertion order. */
-export function applyControls(state: PredicateListState, partial: Partial<FilterControls>): PredicateListState {
-  return (Object.keys(partial) as (keyof FilterControls)[]).reduce(
-    (s, key) => setControl(s, key, partial[key] as FilterControls[typeof key]),
-    state
-  );
-}
-
-/**
- * Sets the org or repo selection while enforcing mutual exclusivity (P3): a non-empty org
- * selection clears the repo control's predicate, and vice versa.
- */
-export function setOrgOrRepo(
-  state: PredicateListState,
-  kind: 'org' | 'repo',
-  values: readonly string[]
-): PredicateListState {
-  if (kind === 'org') {
-    const base = values.length > 0 ? setControl(state, 'repo', []) : state;
-    return setControl(base, 'org', values);
-  }
-  const base = values.length > 0 ? setControl(state, 'org', []) : state;
-  return setControl(base, 'repo', values);
-}
-
-/**
- * Toggles `@me` in the assignee selection (P19), keeping any other selected assignees.
- */
-export function toggleAssignedToMe(state: PredicateListState): PredicateListState {
-  const current = projectControls(state).controls.assignee;
-  const hasMe = current.some((v) => v.toLowerCase() === ME_VALUE);
-  const next = hasMe ? current.filter((v) => v.toLowerCase() !== ME_VALUE) : [ME_VALUE, ...current];
-  return setControl(state, 'assignee', next);
-}
-
-/** Sidebar repo shortcut: if repo is exactly `[repo]`, clear it; otherwise set `[repo]` and clear org. */
-export function toggleRepo(state: PredicateListState, repo: string): PredicateListState {
-  const current = projectControls(state).controls.repo;
-  const isSameSingle = current.length === 1 && current[0].toLowerCase() === repo.toLowerCase();
-  return setOrgOrRepo(state, 'repo', isSameSingle ? [] : [repo]);
-}
-
-/** Removes the predicate at `index` (a generic chip's remove button). */
-export function removePredicate(state: PredicateListState, index: number): PredicateListState {
-  return { ...state, predicates: state.predicates.filter((_, i) => i !== index) };
-}
-
-/**
- * "Clear filters": keeps the triage tab, the type control, sort and selection,
- * and drops every other predicate (including extra predicates).
- */
-export function clearSecondary(state: PredicateListState): PredicateListState {
-  const { owners } = projectControls(state);
-  const keptIndices = new Set<number>();
-  if (owners.triage !== undefined) keptIndices.add(owners.triage);
-  if (owners.type !== undefined) keptIndices.add(owners.type);
-  const predicates = state.predicates.filter((_, index) => keptIndices.has(index));
-  return { ...state, predicates };
 }
 
 /** Sidebar workflow shortcut: everything back to defaults, on the given triage tab. */

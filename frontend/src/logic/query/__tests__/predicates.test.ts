@@ -5,63 +5,37 @@ import {
   DEFAULT_QUERY_STATE,
   type FilterPredicate,
 } from '../../../types/filters';
-import { parseLegacyParams } from '../legacyUrl';
 import { parseDashboardUrl, serializeDashboardUrl } from '../urlCodec';
 import {
   activeQueryCount,
-  applyControls,
-  clearSecondary,
   formatPredicateChip,
-  getTriageTab,
   hasActiveFilterChips,
   isDefaultQuery,
   projectClauses,
-  projectControls,
-  removePredicate,
+  resolveActivityValues,
   resolveQueryErrors,
-  setActivity,
-  setControl,
-  setOrgOrRepo,
-  setTriageTab,
-  toggleAssignedToMe,
-  toggleRepo,
   workflowState,
-  type PredicateListState,
 } from '../predicates';
-import { formatPredicates, parseQuery } from '../syntax';
+import { parseQuery } from '../syntax';
 
 const p = (field: Field, values: string[], negated = false): FilterPredicate => ({ field, values, negated });
-const DEFAULT_PRED_STATE: PredicateListState = {
-  predicates: [],
-  sort: DEFAULT_QUERY_STATE.sort,
-  order: DEFAULT_QUERY_STATE.order,
-  item: DEFAULT_QUERY_STATE.item,
-};
-const parseLegacyState = (search: string): PredicateListState => {
+const projectUrl = (search: string) => {
   const { state } = parseDashboardUrl(search);
-  return {
-    predicates: parseLegacyParams(search),
-    sort: state.sort,
-    order: state.order,
-    item: state.item,
-  };
+  return projectClauses(parseQuery(state.text), state);
 };
-const controls = (search: string) => projectControls(parseLegacyState(search)).controls;
-const extras = (search: string) => projectControls(parseLegacyState(search)).extras.map((e) => e.predicate);
-const textOf = (s: PredicateListState) => formatPredicates(s.predicates);
-const AC = parseLegacyState('?repo=a/b&author=x&triage=acked&state=closed&label=bug');
+const controls = (search: string) => projectUrl(search).controls;
+const extras = (search: string) => projectUrl(search).extras.map((e) => e.predicate);
 
-describe('projectControls', () => {
-  it('shows the defaults for the empty state', () => {
-    expect(projectControls(DEFAULT_PRED_STATE)).toEqual({
+describe('projectClauses', () => {
+  it('shows the defaults for the empty query', () => {
+    expect(projectClauses(parseQuery(''))).toEqual({
       controls: DEFAULT_FILTER_CONTROLS,
       owners: {},
       extras: [],
     });
   });
 
-  // Same expectations as the former parseFilterParams tests: legacy URLs show the same controls.
-  it('shows each legacy parameter on its control', () => {
+  it('shows each legacy or ?q= parameter on its control', () => {
     expect(controls('?triage=activity').triage).toBe('activity');
     expect(controls('?triage=activity').activity).toEqual(['any']);
     expect(controls('?triage=acked').triage).toBe('acked');
@@ -104,12 +78,8 @@ describe('projectControls', () => {
     });
   });
 
-  it('projects both org and repo when a constructed state holds both predicates', () => {
-    const state: PredicateListState = {
-      ...DEFAULT_PRED_STATE,
-      predicates: [p(Field.ORG, ['kubernetes']), p(Field.REPO, ['golang/go'])],
-    };
-    const projected = projectControls(state);
+  it('projects both org and repo when query text holds both clauses', () => {
+    const projected = projectClauses(parseQuery('org:kubernetes repo:golang/go'));
     expect(projected.controls.org).toEqual(['kubernetes']);
     expect(projected.controls.repo).toEqual(['golang/go']);
     expect(projected.owners).toEqual({ org: 0, repo: 1 });
@@ -120,225 +90,51 @@ describe('projectControls', () => {
     expect(extras('?-triage=acked')).toEqual([p(Field.TRIAGE, ['acked'], true)]);
     expect(extras('?draft=true')).toEqual([p(Field.DRAFT, ['true'])]);
     // Single-select state cannot display a multi-value state predicate
-    const multiState: PredicateListState = {
-      ...DEFAULT_PRED_STATE,
-      predicates: [p(Field.STATE, ['open', 'closed'])],
-    };
-    expect(projectControls(multiState).controls.state).toBe('all');
-    expect(projectControls(multiState).extras).toEqual([
+    const multiState = projectClauses(parseQuery('state:open,closed'));
+    expect(multiState.controls.state).toBe('all');
+    expect(multiState.extras).toEqual([
       { predicate: p(Field.STATE, ['open', 'closed']), index: 0 },
     ]);
   });
 
   it('derives the New tab when there is no triage predicate and activity is exactly [any], and projects activity on other tabs', () => {
-    const newTab = projectControls(parseLegacyState('?triage=activity'));
+    const newTab = projectUrl('?triage=activity');
     expect(newTab.controls.triage).toBe('activity');
     expect(newTab.controls.activity).toEqual(['any']);
     expect(newTab.owners).toEqual({ triage: 0, activity: 0 });
     expect(newTab.extras).toEqual([]);
 
-    const ackedWithNewAny = projectControls(parseLegacyState('?triage=acked&new=any'));
+    const ackedWithNewAny = projectUrl('?triage=acked&new=any');
     expect(ackedWithNewAny.controls.triage).toBe('acked');
     expect(ackedWithNewAny.controls.activity).toEqual(['any']);
     expect(ackedWithNewAny.owners).toEqual({ triage: 0, activity: 1 });
     expect(ackedWithNewAny.extras).toEqual([]);
   });
 
-  it('keeps the list index of each owner and extra', () => {
-    const { owners, extras: found } = projectControls(parseLegacyState('?-label=bug&repo=a/b&draft=true'));
-    expect(owners).toEqual({ repo: 1 });
-    expect(found.map((e) => e.index)).toEqual([0, 2]);
-  });
-});
+  it('projects is: shorthands and records clause indices (skipping error/incomplete clauses)', () => {
+    const parsed = parseQuery('lable:bad is:open -label:wontfix is:pr label: display');
+    const projected = projectClauses(parsed);
 
-describe('getTriageTab', () => {
-  it('derives the tab from the predicates', () => {
-    expect(getTriageTab([])).toBe('inbox');
-    expect(getTriageTab([p(Field.NEW, ['any'])])).toBe('activity');
-    expect(getTriageTab([p(Field.NEW, ['any', 'noise'])])).toBe('inbox');
-    expect(getTriageTab([p(Field.NEW, ['mention'])])).toBe('inbox');
-    expect(getTriageTab([p(Field.TRIAGE, ['acked'])])).toBe('acked');
-    expect(getTriageTab([p(Field.TRIAGE, ['all'])])).toBe('all');
-    expect(getTriageTab([p(Field.TRIAGE, ['acked'], true)])).toBe('inbox');
-  });
-});
-
-describe('setControl', () => {
-  it('inserts new predicates at their canonical position', () => {
-    let s = setControl(DEFAULT_PRED_STATE, 'label', ['bug']);
-    s = setControl(s, 'triage', 'acked');
-    s = setControl(s, 'repo', ['a/b']);
-    expect(textOf(s)).toBe('triage:acked repo:a/b label:bug');
-  });
-
-  it('replaces a predicate in place, including single-select state Open/Closed/Merged', () => {
-    expect(textOf(setControl(AC, 'state', 'open'))).toBe('repo:a/b author:x triage:acked state:open label:bug');
-    expect(textOf(setControl(AC, 'state', 'merged'))).toBe('repo:a/b author:x triage:acked state:merged label:bug');
-    expect(textOf(setControl(AC, 'triage', 'all'))).toBe('repo:a/b author:x triage:all state:closed label:bug');
-  });
-
-  it('removes the predicate for a default value, preserving the remaining order', () => {
-    expect(textOf(setControl(AC, 'label', []))).toBe('repo:a/b author:x triage:acked state:closed');
-    expect(textOf(setControl(AC, 'state', 'all'))).toBe('repo:a/b author:x triage:acked label:bug');
-    expect(textOf(setControl(AC, 'triage', 'inbox'))).toBe('repo:a/b author:x state:closed label:bug');
-  });
-
-  it('keeps negated predicates when selecting, changing or clearing a control', () => {
-    const initial = parseLegacyState('?-label=bug');
-    const selected = setControl(initial, 'label', ['a']);
-    expect(textOf(selected)).toBe('-label:bug label:a');
-    const changed = setControl(selected, 'label', ['a', 'd']);
-    expect(textOf(changed)).toBe('-label:bug label:a,d');
-    const cleared = setControl(changed, 'label', []);
-    expect(textOf(cleared)).toBe('-label:bug');
-  });
-
-  it('edits only the displayed predicate when a second predicate for the same field exists', () => {
-    const twoLabels: PredicateListState = {
-      ...DEFAULT_PRED_STATE,
-      predicates: [p(Field.LABEL, ['a']), p(Field.LABEL, ['b'])],
-    };
-    expect(projectControls(twoLabels).controls.label).toEqual(['a']);
-    expect(projectControls(twoLabels).extras).toEqual([{ predicate: p(Field.LABEL, ['b']), index: 1 }]);
-
-    const edited = setControl(twoLabels, 'label', ['d', 'e']);
-    expect(edited.predicates).toEqual([p(Field.LABEL, ['d', 'e']), p(Field.LABEL, ['b'])]);
-
-    const cleared = setControl(edited, 'label', []);
-    expect(cleared.predicates).toEqual([p(Field.LABEL, ['b'])]);
-  });
-
-  it('strips @ from author, preserves @me in assignee, and maps tracking to booleans', () => {
-    expect(setControl(DEFAULT_PRED_STATE, 'author', ['@alice', 'bob']).predicates).toEqual([
-      p(Field.AUTHOR, ['alice', 'bob']),
+    expect(projected.controls.state).toBe('open');
+    expect(projected.controls.type).toBe('pr');
+    // Clauses: 0=lable:bad (error), 1=is:open (ok), 2=-label:wontfix (ok extra), 3=is:pr (ok), 4=label: (incomplete), 5=display (ok term extra)
+    expect(projected.owners).toEqual({ state: 1, type: 3 });
+    expect(projected.extras).toEqual([
+      { predicate: p(Field.LABEL, ['wontfix'], true), index: 2 },
+      { predicate: p(Field.TEXT, ['display'], false), index: 5 },
     ]);
-    expect(setControl(DEFAULT_PRED_STATE, 'assignee', ['@me', '@alice']).predicates).toEqual([
-      p(Field.ASSIGNEE, ['@me', 'alice']),
-    ]);
-    expect(setControl(DEFAULT_PRED_STATE, 'tracking', 'tracked').predicates).toEqual([p(Field.TRACKING, ['true'])]);
-    expect(setControl(DEFAULT_PRED_STATE, 'tracking', 'untracked').predicates).toEqual([p(Field.TRACKING, ['false'])]);
-  });
-
-  it('toggles @me within the assignee predicate via toggleAssignedToMe', () => {
-    const withBob = parseLegacyState('?assignee=alice');
-    const withMeAndAlice = toggleAssignedToMe(withBob);
-    expect(withMeAndAlice.predicates).toEqual([p(Field.ASSIGNEE, ['@me', 'alice'])]);
-    expect(textOf(withMeAndAlice)).toBe('assignee:@me,alice');
-
-    const backToAlice = toggleAssignedToMe(withMeAndAlice);
-    expect(backToAlice.predicates).toEqual([p(Field.ASSIGNEE, ['alice'])]);
-    expect(textOf(backToAlice)).toBe('assignee:alice');
-
-    const onlyMe = toggleAssignedToMe(DEFAULT_PRED_STATE);
-    expect(onlyMe.predicates).toEqual([p(Field.ASSIGNEE, ['@me'])]);
-    expect(textOf(onlyMe)).toBe('assignee:@me');
-  });
-
-  it('sets the tail fields directly', () => {
-    const s = applyControls(DEFAULT_PRED_STATE, { sort: 'created', order: 'asc', item: 'PR_1' });
-    expect(s).toEqual({ ...DEFAULT_PRED_STATE, sort: 'created', order: 'asc', item: 'PR_1' });
-    expect(setControl(s, 'item', null).item).toBeNull();
   });
 });
 
-describe('setActivity and setTriageTab interplay', () => {
+describe('resolveActivityValues', () => {
   it('enforces Any vs specific activity exclusivity while allowing noise to combine with Any', () => {
-    // Ticking specific values
-    const s = setActivity(DEFAULT_PRED_STATE, ['mention', 'code']);
-    expect(s.predicates).toEqual([p(Field.NEW, ['mention', 'code'])]);
-    expect(projectControls(s).controls.triage).toBe('inbox');
-    expect(projectControls(s).controls.activity).toEqual(['mention', 'code']);
-
-    // Ticking Any while specific values and noise are selected removes item/mention/comment/code, keeps noise
-    const withNoiseAndSpecific = setActivity(DEFAULT_PRED_STATE, ['mention', 'noise']);
-    const tickedAny = setActivity(withNoiseAndSpecific, ['mention', 'noise', 'any']);
-    expect(tickedAny.predicates).toEqual([p(Field.NEW, ['noise', 'any'])]);
-    expect(projectControls(tickedAny).controls.triage).toBe('inbox');
-
-    // Ticking a specific value while Any is ticked removes Any
-    const newTab = setActivity(DEFAULT_PRED_STATE, ['any']);
-    expect(projectControls(newTab).controls.triage).toBe('activity');
-    const tickedComment = setActivity(newTab, ['any', 'comment']);
-    expect(tickedComment.predicates).toEqual([p(Field.NEW, ['comment'])]);
-    expect(projectControls(tickedComment).controls.triage).toBe('inbox');
-    expect(projectControls(tickedComment).controls.activity).toEqual(['comment']);
-
-    // Ticking noise while on the New tab produces new:any,noise and switches triage projection to inbox
-    const anyPlusNoise = setActivity(newTab, ['any', 'noise']);
-    expect(anyPlusNoise.predicates).toEqual([p(Field.NEW, ['any', 'noise'])]);
-    expect(projectControls(anyPlusNoise).controls.triage).toBe('inbox');
-    expect(projectControls(anyPlusNoise).controls.activity).toEqual(['any', 'noise']);
-
-    // Diff-based exclusivity is independent of array order
-    const fromMention = setActivity(DEFAULT_PRED_STATE, ['mention']);
-    expect(setActivity(fromMention, ['any', 'mention']).predicates).toEqual([p(Field.NEW, ['any'])]);
-    expect(setActivity(newTab, ['mention', 'any']).predicates).toEqual([p(Field.NEW, ['mention'])]);
-  });
-
-  it('replaces triage predicates (including negated ones) and handles activity predicates on tab switch', () => {
-    const s = parseLegacyState('?triage=activity&repo=a/b');
-    expect(textOf(setTriageTab(s, 'acked'))).toBe('triage:acked repo:a/b');
-    expect(textOf(setTriageTab(s, 'inbox'))).toBe('repo:a/b');
-    expect(textOf(setTriageTab(parseLegacyState('?repo=a/b&-triage=acked'), 'activity'))).toBe('repo:a/b new:any');
-    expect(textOf(setTriageTab(parseLegacyState('?repo=a/b&-triage=acked'), 'inbox'))).toBe('repo:a/b');
-    expect(setTriageTab(DEFAULT_PRED_STATE, 'activity').predicates).toEqual([p(Field.NEW, ['any'])]);
-
-    // Specific activity selections (e.g. new:mention) survive switching to Acked, Inbox or All
-    const withMention = parseLegacyState('?new=mention&repo=a/b');
-    expect(textOf(setTriageTab(withMention, 'acked'))).toBe('triage:acked new:mention repo:a/b');
-    expect(textOf(setTriageTab(withMention, 'all'))).toBe('triage:all new:mention repo:a/b');
-    expect(textOf(setTriageTab(parseLegacyState('?triage=acked&new=mention'), 'inbox'))).toBe('new:mention');
-
-    // Switching to New ('activity') replaces any existing activity selection (e.g. new:mention,code) with new:any
-    const withMentionAndCode = parseLegacyState('?triage=acked&new=mention&new=code&repo=a/b');
-    expect(textOf(setTriageTab(withMentionAndCode, 'activity'))).toBe('new:any repo:a/b');
-    expect(setTriageTab(withMentionAndCode, 'activity').predicates).toEqual([
-      p(Field.NEW, ['any']),
-      p(Field.REPO, ['a/b']),
+    expect(resolveActivityValues([], ['mention', 'code'])).toEqual(['mention', 'code']);
+    expect(resolveActivityValues(['mention', 'noise'], ['mention', 'noise', 'any'])).toEqual([
+      'noise',
+      'any',
     ]);
-  });
-});
-
-describe('toggleRepo and org/repo exclusivity', () => {
-  it('selects, replaces and clears the repo, always clearing org', () => {
-    const selected = toggleRepo(parseLegacyState('?org=k8s&label=x'), 'k8s/a');
-    expect(textOf(selected)).toBe('repo:k8s/a label:x');
-    expect(textOf(toggleRepo(selected, 'k8s/b'))).toBe('repo:k8s/b label:x');
-    expect(textOf(toggleRepo(selected, 'k8s/a'))).toBe('label:x');
-    expect(textOf(toggleRepo(selected, 'K8S/A'))).toBe('label:x');
-
-    // When multiple repos are selected, toggleRepo narrows to the clicked repo instead of clearing
-    const multiRepo = parseLegacyState('?repo=k8s/a&repo=k8s/b');
-    expect(textOf(toggleRepo(multiRepo, 'k8s/a'))).toBe('repo:k8s/a');
-  });
-
-  it('keeps repo and org mutually exclusive via setOrgOrRepo', () => {
-    const repos = setOrgOrRepo(DEFAULT_PRED_STATE, 'repo', ['a/b', 'a/c']);
-    expect(textOf(repos)).toBe('repo:a/b,a/c');
-
-    const orgs = setOrgOrRepo(repos, 'org', ['k8s', 'golang']);
-    expect(textOf(orgs)).toBe('org:k8s,golang');
-
-    const backToRepo = setOrgOrRepo(orgs, 'repo', ['a/b']);
-    expect(textOf(backToRepo)).toBe('repo:a/b');
-
-    // If a constructed state has both org and repo, the next setOrgOrRepo clears the other
-    const both: PredicateListState = {
-      ...DEFAULT_PRED_STATE,
-      predicates: [p(Field.ORG, ['k8s']), p(Field.REPO, ['golang/go'])],
-    };
-    expect(textOf(setOrgOrRepo(both, 'org', ['k8s', 'cncf']))).toBe('org:k8s,cncf');
-    expect(textOf(setOrgOrRepo(both, 'repo', ['golang/go']))).toBe('repo:golang/go');
-  });
-});
-
-describe('clearSecondary', () => {
-  it('keeps the triage tab, type, sort, order and item and drops the rest', () => {
-    const s = parseLegacyState(
-      '?triage=acked&state=open&type=pr&assigned=me&tracking=tracked&repo=a/b&author=x&milestone=m&label=l&-label=z&draft=true&sort=created&order=asc&item=PR_1'
-    );
-    expect(textOf(clearSecondary(s))).toBe('triage:acked type:pr');
-    expect(textOf(clearSecondary(parseLegacyState('?triage=activity&repo=a/b')))).toBe('new:any');
+    expect(resolveActivityValues(['any'], ['any', 'comment'])).toEqual(['comment']);
+    expect(resolveActivityValues(['any'], ['any', 'noise'])).toEqual(['any', 'noise']);
   });
 });
 
@@ -348,12 +144,6 @@ describe('workflowState', () => {
     expect(serializeDashboardUrl(workflowState('activity'))).toBe('q=new:any');
     expect(serializeDashboardUrl(workflowState('acked'))).toBe('q=triage:acked');
     expect(serializeDashboardUrl(workflowState('all'))).toBe('q=triage:all');
-  });
-});
-
-describe('removePredicate', () => {
-  it('removes exactly the predicate at the index', () => {
-    expect(textOf(removePredicate(AC, 1))).toBe('repo:a/b triage:acked state:closed label:bug');
   });
 });
 
@@ -404,59 +194,21 @@ describe('hasActiveFilterChips', () => {
     expect(hasActiveFilterChips(empty.controls, empty.extras)).toBe(false);
 
     // On the New tab, new:any is represented by the tab itself and does not produce a chip
-    const newTab = projectClauses(parseQuery(parseDashboardUrl('?triage=activity').state.text));
+    const newTab = projectUrl('?triage=activity');
     expect(newTab.controls.triage).toBe('activity');
     expect(newTab.controls.activity).toEqual(['any']);
     expect(hasActiveFilterChips(newTab.controls, newTab.extras)).toBe(false);
 
     // On Acked or Inbox, activity selections (including new:any or new:any,noise) do produce chips
-    const ackedNewAny = projectClauses(parseQuery(parseDashboardUrl('?triage=acked&new=any').state.text));
+    const ackedNewAny = projectUrl('?triage=acked&new=any');
     expect(hasActiveFilterChips(ackedNewAny.controls, ackedNewAny.extras)).toBe(true);
 
-    const anyPlusNoise = projectClauses(parseQuery(parseDashboardUrl('?new=any&new=noise').state.text));
+    const anyPlusNoise = projectUrl('?new=any&new=noise');
     expect(hasActiveFilterChips(anyPlusNoise.controls, anyPlusNoise.extras)).toBe(true);
 
     // Extra predicates (such as negated filters) also count as active chips
-    const negated = projectClauses(parseQuery(parseDashboardUrl('?-label=bug').state.text));
+    const negated = projectUrl('?-label=bug');
     expect(hasActiveFilterChips(negated.controls, negated.extras)).toBe(true);
-  });
-});
-
-describe('projectClauses', () => {
-  it('agrees with projectControls on equivalent predicate lists', () => {
-    const sampleSearches = [
-      '',
-      '?triage=activity',
-      '?triage=acked',
-      '?triage=all',
-      '?state=open&type=pr&tracking=tracked&assigned=me',
-      '?repo=kubernetes/kubernetes&repo=kubernetes/website&author=alice&milestone=v1.32&label=bug',
-      '?-label=bug&repo=a/b&draft=true',
-      '?triage=acked&new=any',
-      '?new=mention&new=code',
-    ];
-
-    for (const search of sampleSearches) {
-      const state = parseLegacyState(search);
-      const fromState = projectControls(state);
-      const text = formatPredicates(state.predicates);
-      const fromClauses = projectClauses(parseQuery(text), state);
-      expect(fromClauses).toEqual(fromState);
-    }
-  });
-
-  it('projects is: shorthands and records clause indices (skipping error/incomplete clauses)', () => {
-    const parsed = parseQuery('lable:bad is:open -label:wontfix is:pr label: display');
-    const projected = projectClauses(parsed);
-
-    expect(projected.controls.state).toBe('open');
-    expect(projected.controls.type).toBe('pr');
-    // Clauses: 0=lable:bad (error), 1=is:open (ok), 2=-label:wontfix (ok extra), 3=is:pr (ok), 4=label: (incomplete), 5=display (ok term extra)
-    expect(projected.owners).toEqual({ state: 1, type: 3 });
-    expect(projected.extras).toEqual([
-      { predicate: p(Field.LABEL, ['wontfix'], true), index: 2 },
-      { predicate: p(Field.TEXT, ['display'], false), index: 5 },
-    ]);
   });
 });
 
