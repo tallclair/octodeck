@@ -12,7 +12,7 @@ import {
   type FilterPredicate,
   type TriageFilter,
 } from '../../types/filters';
-import { ME_VALUE, isActivityPredicate, rankOf, specForField } from './vocabulary';
+import { ME_VALUE, encodeLegacyValue, isActivityPredicate, rankOf, specForField } from './vocabulary';
 
 /** A predicate that no control can display, with its index in the predicate list. */
 export interface ExtraPredicate {
@@ -428,7 +428,7 @@ export function formatPredicateChip(p: FilterPredicate): {
   negated: boolean;
 } {
   const spec = specForField(p.field);
-  const values = spec ? p.values.map((v) => spec.encode(v)) : [...p.values];
+  const values = spec ? p.values.map((v) => encodeLegacyValue(spec, v)) : [...p.values];
   return { label: spec?.label ?? 'Filter', values, negated: p.negated };
 }
 

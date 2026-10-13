@@ -25,6 +25,8 @@ import {
   LEGACY_ASSIGNED_ME,
   ME_VALUE,
   TAIL_KEYS,
+  decodeLegacyValue,
+  encodeLegacyValue,
   isActivityPredicate,
   isAssignedToMePredicate,
   specForField,
@@ -38,6 +40,7 @@ const TAIL_KEY_SET: ReadonlySet<string> = new Set(TAIL_KEYS);
 interface DecodedParam {
   field: Field;
   value: string;
+  negatable: boolean;
   /** Legacy triage=activity, which becomes its own new:any predicate. */
   activity: boolean;
   /** Legacy assigned=me, which becomes its own assignee:@me predicate for the toggle. */
@@ -48,16 +51,18 @@ function decodeParam(key: string, raw: string): DecodedParam | null {
   if (key === LEGACY_ASSIGNED_KEY) {
     // assigned=me is the "Assigned to me" toggle; assigned=all (or anything else) means no filter.
     return raw.toLowerCase() === LEGACY_ASSIGNED_ME
-      ? { field: Field.ASSIGNEE, value: ME_VALUE, activity: false, assignedMe: true }
+      ? { field: Field.ASSIGNEE, value: ME_VALUE, negatable: true, activity: false, assignedMe: true }
       : null;
   }
   const spec = specForKey(key);
   if (!spec) return null;
   if (spec.field === Field.TRIAGE && raw.toLowerCase() === ACTIVITY_TRIAGE_VALUE) {
-    return { field: Field.NEW, value: 'any', activity: true, assignedMe: false };
+    return { field: Field.NEW, value: 'any', negatable: false, activity: true, assignedMe: false };
   }
-  const value = spec.decode(raw);
-  return value === null ? null : { field: spec.field, value, activity: false, assignedMe: false };
+  const value = decodeLegacyValue(spec, raw);
+  return value === null
+    ? null
+    : { field: spec.field, value, negatable: spec.negatable, activity: false, assignedMe: false };
 }
 
 function toParams(search: string | URLSearchParams): URLSearchParams {
@@ -77,7 +82,7 @@ export function parseQueryParams(search: string | URLSearchParams): DashboardQue
     const decoded = decodeParam(negated ? rawKey.slice(1) : rawKey, rawValue.trim());
     if (!decoded) continue;
     // "Not the New tab" and "not in:title" have no meaning (in: must not be negated).
-    if (negated && (decoded.activity || decoded.field === Field.IN)) continue;
+    if (negated && !decoded.negatable) continue;
     const groupKey = decoded.activity
       ? 'activity'
       : decoded.assignedMe
@@ -135,7 +140,7 @@ export function serializeQueryParams(state: DashboardQueryState): string {
     const spec = specForField(p.field);
     if (!spec) continue;
     for (const value of p.values) {
-      params.append(sign + spec.key, spec.encode(value));
+      params.append(sign + spec.key, encodeLegacyValue(spec, value));
     }
   }
 
