@@ -100,7 +100,8 @@ frontend/src/
     Dashboard.tsx                      data wiring, mutations, layout only (target < 700 lines)
     dashboard/
       DashboardSidebar.tsx  SidebarRow.tsx  TriageTitleMenu.tsx
-      FilterToolbar.tsx     MultiSelectMenu.tsx  SortMenu.tsx
+      FilterToolbar.tsx     StateMenu.tsx   RepoOrgMenu.tsx
+      OverflowFilterMenu.tsx  MultiSelectMenu.tsx  SortMenu.tsx
     query/
       QueryInput.tsx  QueryChip.tsx  SuggestionList.tsx
     savedSearches/

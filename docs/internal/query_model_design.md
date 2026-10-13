@@ -70,7 +70,7 @@ message Predicate {
 }
 ```
 
-Common queries are an AND of predicates, which is the only shape Phase 0 and the chips UI produce. Grouping and explicit OR are supported by the model and only require parser and UI work later; the wire format and stored saved searches do not change.
+Common queries are an AND of predicates, which is the only shape Phase 0 and the chips UI produce. Grouping and explicit OR are supported by the model and only require parser and UI work later; the wire format and the `SavedSearch` config schema do not change.
 
 **Alternatives considered**
 

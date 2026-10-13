@@ -11,7 +11,7 @@ This document is self-contained for the agent implementing Phase 2. Read the [ov
 ## 1. Prerequisites
 
 - **Phase 1 merged** ([query_model_phase1_multiselect.md](query_model_phase1_multiselect.md)). Phase 2 relies on:
-  - the extracted components in `frontend/src/components/dashboard/` (`FilterToolbar`, `TriageTitleMenu`, `SortMenu`, `DashboardSidebar`, `ActiveFilterChips`), the new `MultiSelectMenu` (which owns its `showAll` and builds options from raw facet values), and `useMenuGroup` (instantiated once in `Dashboard`);
+  - the extracted components in `frontend/src/components/dashboard/` (`FilterToolbar`, `StateMenu`, `RepoOrgMenu`, `OverflowFilterMenu`, `TriageTitleMenu`, `SortMenu`, `DashboardSidebar`, `ActiveFilterChips`), the new `MultiSelectMenu` (which owns its `showAll` and builds options from raw facet values), and `useMenuGroup` (instantiated once in `Dashboard`);
   - `FilterControls` with array values (`repo`, `org`, `author`, `assignee`, `milestone`, `label`, `activity`) and the single-select `state` with `merged`;
   - `projectControls` returning **owner indices** and controls that edit only the predicate they display (Phase 1 P2). Phase 2 reuses the same algorithm over parsed clauses;
   - the Activity/New-tab rules and the **two tab entry points** (title menu = in-place tab switch; sidebar Workflow rows = reset text and sort to the tab alone), stated once in [Phase 1 §3.4](query_model_phase1_multiselect.md#34-activity-menu-and-the-new-tab-p4), and the org/repo rule (Phase 1 P3);
@@ -243,7 +243,7 @@ export function useDashboardFilters(): {
   setSort(sort: SortOption): void;
   setOrder(order: SortOrder): void;
   selectItem(id: string | null): void;
-  applyWorkflowShortcut(tab: TriageFilter): void; // text -> '' / 'new:any' / 'triage:acked'; sort, order default; item cleared
+  applyWorkflowShortcut(tab: TriageFilter): void; // text -> '' / 'new:any' / 'triage:acked' / 'triage:all'; sort, order default; item cleared
   toggleRepo(repo: string): void;
   clearQuery(): void;                              // text -> ''; sort, order, item unchanged (U8)
   isDefault: boolean;
@@ -284,9 +284,10 @@ Module: `frontend/src/logic/query/textEdit.ts` (pure). Every non-typing edit is 
 | `insertClause(text, parsed, raw, rank)` | inserts before the first ok qualifier clause whose rank (`rankOf`) is greater than `rank`; free-text terms rank after every qualifier; a single space separates; empty text becomes `raw` |
 
 Built on these:
-- `setControlInText(text, parsed, key, value)`: computes `projectClauses(parsed)` itself; the control's displayed clause (by `owners[key]`) is replaced with `formatPredicate(next)`, removed when `next` is empty, or a new clause is inserted at its canonical rank. This is the Phase 2 `setControl`.
-- `setTriageTabInText`: removes every clause whose predicate is `triage`, negated ones included (the same explicit exception to P2 as in Phase 1), and the activity clause only if it is exactly `new:any` ([Phase 1 §3.4](query_model_phase1_multiselect.md#34-activity-menu-and-the-new-tab-p4)), then inserts `triage:acked`/`triage:all`/`new:any` at rank 0.
+- `setControlInText(text, parsed, key, value)`: computes `projectClauses(parsed)` itself; the control's displayed clause (by `owners[key]`) is replaced with `formatPredicate(next)`, removed when `next` is empty, or a new clause is inserted at its canonical rank. Preserves Phase 1's control rules: P3 (`org`/`repo` mutual exclusion: selecting a non-empty `org` removes `owners.repo`, and vice versa), P4 (`activity` `any` vs specific flags), and P19 (`assignedToMe` toggle on `owners.assignee`). This is the Phase 2 `setControl`.
+- `setTriageTabInText`: follows the same rules as Phase 1 `setTriageTab` ([Phase 1 §3.4](query_model_phase1_multiselect.md#34-activity-menu-and-the-new-tab-p4)): removes every clause whose predicate is `triage` (negated ones included, the explicit exception to P2). When switching to **New** (`activity`), replaces the `activity` control's owned clause (whatever `new:` values it holds, or inserts at rank 0 if none) with `new:any`. When switching to **Inbox / Acked / All**, removes the `activity` clause *only if it is `new:any`*, and for Acked/All inserts `triage:acked` / `triage:all` at rank 0.
 - `toggleRepoInText`: the Phase 1 `toggleRepo` rules ([Phase 1 §3.6](query_model_phase1_multiselect.md)) applied to the repo/org clauses. There is no text version of `clearSecondary`: the clear button empties the text (§5.3), and `clearSecondary`, `clearSecondaryFilters` and the chips row's "Clear filters" button are deleted in commit 2.6.
+- **Multi-clause splice ordering:** whenever a single operation touches more than one clause (`setTriageTabInText`, `toggleRepoInText`, or `org`/`repo` mutual exclusion), either remove clauses in **reverse span order** (highest `start` first) or re-run `parseQuery` between single-clause splices so character offsets never go stale.
 
 Consequences the implementer must preserve:
 - A dropdown change rewrites **only** its clause: `is:open label:"good first issue" flaky` + tick `bug` in Label → `is:open label:"good first issue",bug flaky`. `is:open` is not canonicalised. The edited clause itself is reformatted from its new predicate (`label:"Bug"` + tick `ui` → `label:Bug,ui`).
@@ -296,7 +297,7 @@ Consequences the implementer must preserve:
 
 ### 5.1 Triage tabs in text
 
-Triage tabs are now visible as chips: the New tab is a `new:any` chip and the Acked tab is a `triage:acked` chip. The two entry points keep their Phase 1 meaning ([Phase 1 §3.4](query_model_phase1_multiselect.md#34-activity-menu-and-the-new-tab-p4)): the **title menu** edits those chips in place (`setTriageTabInText`); the **sidebar Workflow rows** reset the query to the tab alone (`applyWorkflowShortcut`: text `''` / `new:any` / `triage:acked`, sort and order back to defaults, selected item cleared, `pushState`). The title ("Inbox"/"New"/"Acked"/"All Items") is derived as in Phase 1.
+Triage tabs are now visible as chips: the New tab is a `new:any` chip and the Acked tab is a `triage:acked` chip. The two entry points keep their Phase 1 meaning ([Phase 1 §3.4](query_model_phase1_multiselect.md#34-activity-menu-and-the-new-tab-p4)): the **title menu** edits those chips in place (`setTriageTabInText`); the **sidebar Workflow rows** reset the query to the tab alone (`applyWorkflowShortcut`: text `''` / `new:any` / `triage:acked` / `triage:all`, sort and order back to defaults, selected item cleared, `pushState`). The title ("Inbox"/"New"/"Acked"/"All Items") is derived as in Phase 1.
 
 ### 5.2 Free text
 
@@ -486,7 +487,7 @@ Examples (golden tests):
 ## 9. Layout (U7)
 
 - The query input moves out of the top nav (`Dashboard.tsx` lines ~568–578) into the list header, directly under the title row, at the full width of the header column (`max-w-4xl`). It wraps onto more lines as chips are added. The nav keeps the logo and sync status.
-- The Phase 1 chips row (`ActiveFilterChips`) is deleted: the chips are in the input. The menus' trigger buttons keep their selection count badge, so a field with a selection is still visible at a glance.
+- The Phase 1 chips row (`ActiveFilterChips`) is deleted: the chips are in the input. The menus' trigger buttons keep the active (blue) style they have had since Phase 1, so a field with a selection is still visible at a glance.
 - Placeholder: "Filter or search, e.g. is:open label:bug".
 - The pin button (Phase 3) sits at the right end of the input row, outside the input box.
 
@@ -554,18 +555,18 @@ Each commit must leave `./verify.sh` green (never `--force`). Commit subjects fo
 
 **2.3 `feat(frontend): add clause-level query text edits`**
 - Files: `logic/query/textEdit.ts`, `logic/query/predicates.ts` (add a **new** `projectClauses(parsed): Projection` returning clause owners; the Phase 1 `projectControls(state)` stays unchanged until 2.4b, so `useDashboardFilters` and `predicates.test.ts` keep compiling).
-- Tests: `textEdit.test.ts`: replace/remove/insert; whitespace handling at start/middle/end; canonical insert positions; `is:open` replaced by the State control; error clauses untouched; `setTriageTabInText` removes `-triage:acked`; P-edit property over generated texts. `predicates.test.ts`: `projectClauses` agrees with `projectControls` on equivalent inputs.
+- Tests: `textEdit.test.ts`: replace/remove/insert; whitespace handling at start/middle/end; canonical insert positions; `is:open` replaced by the State control; error clauses untouched; `setTriageTabInText` removes `-triage:acked` and replaces `new:mention,code` on New tab switch; P-edit property over generated texts. `predicates.test.ts`: `projectClauses` agrees with `projectControls` on equivalent inputs.
 - AC: not wired into the UI.
 
 Commit 2.4 is split in two so each half is reviewable and green.
 
 **2.4a `feat(dashboard): keep the query as text and write it to the q URL parameter`**
-- Files: `types/filters.ts` (`DashboardQueryState.text`, `FilterControls.q` removed), `logic/query/legacyUrl.ts` (new), `logic/query/urlCodec.ts` (rewritten), `logic/query/expr.ts` (`toExpr(parsed)`), `logic/query/predicates.ts` (state-level helpers `isDefaultQuery`, `activeQueryCount`, `workflowState` retargeted to text; the predicate-list editors `setControl`, `setTriageTab`, `toggleRepo`, `removePredicate`, `clearSecondary` become unused here and are deleted in 2.4b), delete `logic/query/textTerms.ts` and its test, `hooks/useDashboardFilters.ts` (§4.1: edit kinds, debounce effect, updater-based setters), `hooks/useDashboardData.ts` (`requestText`, `requestKey`), `Dashboard.tsx` and `components/dashboard/*` (controls call the text edits; the existing nav `<input>` now edits the whole text as plain text; the chips row renders from `projectClauses`), error summary line (§7), and the tests that operate on the removed `predicates`/`q` state: `__tests__/expr.test.ts`, `__tests__/predicates.test.ts` (state-level cases), `__tests__/urlCodec.test.ts`, `hooks/__tests__/useDashboardFilters.test.ts`.
+- Files: `types/filters.ts` (`DashboardQueryState.text`, `FilterControls.q` removed), `logic/query/legacyUrl.ts` (new), `logic/query/urlCodec.ts` (rewritten), `logic/query/expr.ts` (`toExpr(parsed)`), `logic/query/predicates.ts` (state-level helpers `isDefaultQuery`, `activeQueryCount`, `workflowState` retargeted to text; the predicate-list editors `setControl`, `setTriageTab`, `toggleRepo`, `removePredicate`, `clearSecondary` become unused here and are deleted in 2.4b), delete `logic/query/textTerms.ts` and its test, `hooks/useDashboardFilters.ts` (§4.1: edit kinds, debounce effect, updater-based setters; keep temporary chip removal/clear wiring for `ActiveFilterChips` until 2.6 deletes it), `hooks/useDashboardData.ts` (`requestText`, `requestKey`), `Dashboard.tsx` and `components/dashboard/*` (controls call the text edits; the existing nav `<input>` now edits the whole text as plain text; the chips row renders from `projectClauses`), error summary line (§7), and the tests that operate on the removed `predicates`/`q` state: `__tests__/expr.test.ts`, `__tests__/predicates.test.ts` (state-level cases), `__tests__/urlCodec.test.ts`, `hooks/__tests__/useDashboardFilters.test.ts`.
 - Tests: `legacyUrl.test.ts` (moved cases), `urlCodec.test.ts` (golden conversion table §8.2 including whitespace normalisation, canonical round trip, idempotence), `useDashboardFilters.test.ts` (legacy URL rewritten with `replaceState` on load and on popstate; typing uses `replaceState`, control edits `pushState`; debounce only for typing; **race**: type, then make a dropdown edit within 200 ms → the request uses the dropdown edit immediately and the pending debounce never overwrites it; **stale splice**: type `label:bu` without committing, click a State option → the request is `state:closed` plus the committed draft), RPC tests updated: URL assertions become `?q=…`; for every control edit the written `location.search` contains none of the legacy keys (`repo`, `org`, `author`, `assignee`, `assigned`, `label`, `milestone`, `state`, `type`, `tracking`, `triage`, `new`, or any `-key`); legacy example URL still sends the same structured query; `?q=flaky` still sends one TEXT predicate; an invalid clause is excluded from the request and reported; a server `ExprError` path maps to the right clause; editing only an error clause does not reset scroll anchoring.
 - AC: every existing behaviour reachable; URLs written only as `?q=`; old links work.
 
 **2.4b `refactor(frontend): remove the predicate-list editors`**
-- Files: `logic/query/predicates.ts` (delete `projectControls(state)`, `setControl`, `setTriageTab`, `applyControls`, `toggleRepo`, `removePredicate`, `clearSecondary`; keep `formatPredicateChip`, `projectClauses` and the projection helpers), `__tests__/predicates.test.ts` (remove the predicate-list cases; their behaviour is covered by `textEdit.test.ts`).
+- Files: `logic/query/predicates.ts` (delete `projectControls(state)`, `setControl`, `setTriageTab`, `applyControls`, `toggleRepo`, `removePredicate`, `clearSecondary`; keep `formatPredicateChip`, `projectClauses` and the projection helpers until `ActiveFilterChips` is deleted in 2.6), `__tests__/predicates.test.ts` (remove the predicate-list cases; their behaviour is covered by `textEdit.test.ts`).
 - Tests: as listed; no behaviour change.
 - AC: no dead predicate-list code remains.
 
@@ -575,7 +576,7 @@ Commit 2.4 is split in two so each half is reviewable and green.
 - AC: component works standalone with a static vocabulary and injected facet values; not yet in the dashboard; error and negated chips are distinguishable by colour, icon and ARIA, and neither uses strikethrough (U9).
 
 **2.6 `feat(dashboard): replace the search box and chips row with the query input`**
-- Files: `Dashboard.tsx` (input moves into the list header, U7), delete `components/dashboard/ActiveFilterChips.tsx` together with the "Clear filters" button and `clearSecondaryFilters` in `useDashboardFilters.ts`, `components/dashboard/FilterToolbar.tsx` (selection count badges), `hooks/useKeyboardNavigation.ts` and `components/KeyboardShortcutsModal.tsx` (`/` shortcut), author "you" row writes `author:@me`.
+- Files: `Dashboard.tsx` (input moves into the list header, U7), delete `components/dashboard/ActiveFilterChips.tsx` together with the "Clear filters" button, `formatPredicateChip`/`ExtraPredicate`, and any remaining chip-row helpers in `useDashboardFilters.ts` and `predicates.ts`, `components/dashboard/FilterToolbar.tsx` (keeps the active trigger styles it has had since Phase 1), `hooks/useKeyboardNavigation.ts` and `components/KeyboardShortcutsModal.tsx` (`/` shortcut), author "you" row writes `author:@me`.
 - Tests: RPC tests: typing `is:open label:bug` sends `state:open label:bug`; ticking a label in the menu edits only that clause and the chip text updates; Backspace into a chip and edit; **clear (U8)**: on the Acked tab with text `triage:acked label:bug` and `sort=created`, clicking × gives text `''`, title "Inbox", a URL without `q` but still with `sort=created`, and the next `GetItems` has no `triage` and no `label` predicate; the title menu edits a `triage:acked` chip in place while the sidebar Workflow rows reset text and sort to the tab alone (Phase 1 §3.4); `/` focuses the input and its default is prevented; existing chip tests rewritten against the input. `Dashboard.test.tsx` updated where it referenced the old search box placeholder, chips or "Clear filters".
 - AC: the dashboard has one query input and one clear control (×).
 

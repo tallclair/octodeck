@@ -24,7 +24,8 @@ This document is self-contained for the agent implementing Phase 1. Read the [ov
 
 Goals:
 - Apply U11: every non-binary field is multi-select, written as one comma-OR predicate per field (`label:a,b`), as parent §4.1 requires.
-- An **Activity** menu over `new:item|mention|comment|code|noise|any`.
+- An **Activity** multi-select section over `new:item|mention|comment|code|noise|any` inside the **State** menu.
+- Keep the toolbar compact by moving **Assignee** and **Milestone** into a vertical `...` (**More filters**) overflow menu at the far right of the toolbar (after "Assigned to me") that opens side flyout submenus on hover or click. The toolbar never wraps: when its row is too narrow it collapses progressively (§3.3).
 - Shrink `Dashboard.tsx` (1,806 lines) by extracting the header, toolbar, menus, chips and sidebar into components, before adding anything.
 
 Control inventory after Phase 1:
@@ -35,12 +36,12 @@ Control inventory after Phase 1:
 | type | segmented control (All / PRs / Issues) | single | unchanged (binary) |
 | state | State menu | single: Open / Closed / **Merged** | single-select because merged is a subset of closed (U11); Merged is new (P20) |
 | tracking | State menu section (Tracked / Untracked) | single | unchanged (binary) |
-| repo, org | Repository menu | multi (org and repo do not coexist, P3) | §3.2 |
+| new | **State menu Activity section** (new) | multi | §3.4 |
+| repo, org | Repository menu (`RepoOrgMenu`) | multi (org and repo do not coexist, P3) | §3.2 |
 | author | Author menu | multi | §3.3 |
-| assignee | **Assignee menu** (new) + "Assigned to me" toggle | multi | §3.3, P19 |
-| milestone | Milestone menu | multi | |
 | label | Label menu | multi | |
-| new | **Activity menu** (new) | multi | §3.4 |
+| assignee | **Overflow `...` menu → Assignee** (new) + "Assigned to me" toggle | multi | §3.3, P19 |
+| milestone | **Overflow `...` menu → Milestone** | multi | §3.3 |
 | draft, starred | none in Phase 1 | (binary) | reachable via Phase 2 text (`is:draft`, `is:starred`); future controls are toggles (P20) |
 
 Non-goals:
@@ -53,13 +54,13 @@ Non-goals:
 ### 3.1 The multi-select menu (shared by all multi-select fields)
 
 Trigger button (in the toolbar, same position and style as today's custom dropdowns in `Dashboard.tsx` lines ~1094–1399):
-- Icon + field label ("Repository", "Author", "Assignee", "Milestone", "Label", "Activity") + chevron.
-- When the field has a selection, the button gets the active style used by the "Assigned to me" toggle (blue border/background) and shows the number of selected values: `Label · 2`.
+- Icon + field label ("Repository", "Author", "Label") + chevron; **Assignee** and **Milestone** live inside the vertical `...` (**More filters**, `OverflowFilterMenu`) trigger at the far right of the toolbar, and **Activity** lives as a section inside the **State** menu (`StateMenu`).
+- When the field has a selection, the button gets the active style used by the "Assigned to me" toggle (blue border/background). It shows no selection count, to save horizontal space.
 
-Menu panel (opens below the trigger, `w-64 max-h-80`, scrolls). An `<input>` is not valid content of `role="menu"`, so the panel is a container holding the filter box plus a `role="listbox"` with `aria-multiselectable="true"`:
+Menu panel (opens below the trigger, `w-64`; the option list caps its own height at `max-h-64` and scrolls, rather than flex-shrinking inside a max-height panel). An `<input>` is not valid content of `role="menu"`, so the panel is a container holding the filter box plus a `role="listbox"` with `aria-multiselectable="true"`:
 1. **Filter box** at the top (autofocused on open; placeholder "Filter labels…"). Case-insensitive substring filter over the listed options, client-side only. Hidden for Activity (fixed short list).
 2. **Header line** with "Clear" (only when something is selected): sets the field's selection to empty.
-3. **Option rows**, `role="option"`, `aria-selected`. Each row: a checkbox square (lucide `Check` inside a bordered square when checked), the value (labels keep their colour dot; authors are prefixed `@`), and the facet count right-aligned in muted monospace. Zero-count rows (visible only with "Show all") are dimmed.
+3. **Option rows**, `role="option"`, `aria-selected`. Each row: a checkbox square (lucide `Check` inside a bordered square when checked), the value (labels keep their colour dot; authors are prefixed `@`), and the facet count right-aligned in muted monospace (`aria-hidden="true"` so the option's accessible name remains the value itself). Zero-count rows (visible only with "Show all") are dimmed.
 4. **"Show all"** footer as today (`hasMore` from [`facets.ts`](../../frontend/src/logic/query/facets.ts)). `MultiSelectMenu` **owns** the `showAll` state and builds its options itself from raw facet values (§6); an effect resets `showAll` to off whenever `open` becomes false, so `useMenuGroup` needs no close callbacks.
 
 Behaviour:
@@ -79,25 +80,28 @@ Behaviour:
 - Org header rows show **no count**. The org facet excludes only org predicates, so under a repo selection every other org would read 0 while its repo rows show real counts.
 - The filter box matches both org and repo names; an org header is shown if it or any of its repos match.
 
-### 3.3 Author and Assignee menus
+### 3.3 Author, Assignee and Milestone (overflow menu)
 
 - **Author:** "@login (you)" row first when the current user appears in the facet, as today. In Phase 1 it writes the login (the legacy URL reader maps `author=@me` to the login "me", see `URL_FIELDS` in [`vocabulary.ts`](../../frontend/src/logic/query/vocabulary.ts), so `@me` cannot be written to structured URLs). Phase 2 switches this row to `author:@me` ([Phase 2 §5.4](query_model_phase2_query_input.md)).
-- **Assignee (new menu):** same component, options from the `FIELD_ASSIGNEE` facet (added to `SELECTOR_FIELDS`). The first row is "@login (you)" and writes `@me` (the legacy assignee decoder keeps a leading `@`, so `assignee=@me` round-trips in Phase 1 URLs). The row is ticked when the selection contains `@me` or the current login.
-- **"Assigned to me" toggle (P19)** stays next to the menus as a shortcut: it is active when the assignee selection contains `@me`, and clicking it adds or removes `@me` from that selection (one predicate, e.g. `assignee:@me,alice`). The serializer keeps writing the legacy `assigned=me` for the exact `assignee:@me` predicate (today's `isAssignedToMePredicate` rule) and `assignee=@me&assignee=alice` otherwise.
+- **Overflow `...` menu (`OverflowFilterMenu`):** sits at the far right of the toolbar (after "Assigned to me") as a square bordered button styled like the other triggers, with a vertical `MoreVertical` icon (`aria-label="More filters"`, `aria-haspopup="dialog"`). Clicking it opens a compact panel (`role="dialog"`, `aria-label="More filters"`) with **Assignee** (`aria-label="Filter by assignee"`) and **Milestone** (`aria-label="Filter by milestone"`) rows; hovering or clicking either opens that field's `MultiSelectMenu` as a flyout panel to the left of the parent menu (with a 100 ms hover switch delay when moving between open submenus). Clicking an `Assignee:` or `Milestone:` chip opens the overflow menu directly with that field's flyout submenu open. The button gets the active style when any field it holds has a selection.
+- **Responsive collapse:** the toolbar row never wraps. `useToolbarCollapse` watches the row with a `ResizeObserver` and, when the controls overflow it, collapses one level at a time: level 1 moves the **Repository** selector into the overflow menu as a third row ("Repository", `aria-label="Filter by repository"`, opening `RepoOrgMenu` as a flyout like Assignee/Milestone, menu id still `repo` so `Repo:`/`Org:` chips open it there, and repo/org selections count towards the `...` active style); level 2 also removes the "Assigned to me" toggle (Assignee in the overflow menu covers it). When collapsing, the width the row needed is recorded, and the row only expands back once that width is available again, so it cannot oscillate. Without `ResizeObserver` (jsdom) the toolbar stays fully expanded.
+- **Assignee (in overflow menu):** `MultiSelectMenu` with options from the `FIELD_ASSIGNEE` facet (added to `SELECTOR_FIELDS`). The first row is "@login (you)" and writes `@me` (the legacy assignee decoder keeps a leading `@`, so `assignee=@me` round-trips in Phase 1 URLs). The row is ticked when the selection contains `@me` or the current login. Because the daemon's `FIELD_ASSIGNEE` facet returns actual GitHub logins (never `@me`), map `'@me'` in the selection to `currentUser` when building options so `@login (you)` uses `currentUser`'s count (and stays listed when its count is 0) without `buildOptions` appending a duplicate literal `@me` row; unticking `@login (you)` removes both `@me` and `currentUser`.
+- **"Assigned to me" toggle (P19)** stays next to the menus as a shortcut (except at collapse level 2, above): it is active when the assignee selection contains `@me`, and clicking it adds or removes `@me` from that selection (one predicate, e.g. `assignee:@me,alice`). The serializer keeps writing the legacy `assigned=me` for the exact `assignee:@me` predicate (today's `isAssignedToMePredicate` rule) and `assignee=@me&assignee=alice` otherwise.
 
 ### 3.4 Activity menu and the New tab (P4)
 
-Rows, in this order (values from the `FIELD_NEW` closed set in [`query.proto`](../../api/octodeck/v1/query.proto)):
+The **State** menu (`StateMenu`) has a divider at the bottom followed by a **New Activity** multi-select `role="listbox"` (`aria-label="New activity"`) with these rows, in order (values from the `FIELD_NEW` closed set in [`query.proto`](../../api/octodeck/v1/query.proto)). There is no separate section heading: the `any` row is a selectable group header styled like an organization in the Repository menu (shared `groupHeaderRowClass`), and the specific flags are indented beneath it:
 
 | Row label | Value | Count |
 |---|---|---|
-| Any new activity | `any` | none shown (meta value, not in the facet) |
-| *(divider)* | | |
-| New items | `item` | facet |
-| Mentions | `mention` | facet |
-| Comments & reviews | `comment` | facet |
-| New commits | `code` | facet |
-| Noise (bots) | `noise` | facet |
+| NEW ACTIVITY (group header) | `any` | none shown (meta value, not in the facet) |
+| ↳ New items | `item` | facet |
+| ↳ Mentions | `mention` | facet |
+| ↳ Comments & reviews | `comment` | facet |
+| ↳ New commits | `code` | facet |
+| ↳ Noise (bots) | `noise` | facet |
+
+Chips use the short labels from `ACTIVITY_LABELS` ("Activity: Any", "Activity: Mentions").
 
 Selection rules (enforced in the control-edit function, not the component):
 - Ticking **Any** removes `item`, `mention`, `comment`, `code` (they are subsumed); `noise` is kept, because noise is never part of `any` (parent §4.4).
@@ -109,9 +113,10 @@ Relationship to the triage tabs. **Two entry points, unchanged from today, and t
 
 Tab rules:
 - The **New tab** is displayed when there is no `triage` predicate and the activity predicate is exactly `new:any` (today's `isActivityPredicate` rule). Nothing else changes about what "New" means.
-- The activity predicate is now **displayed by two controls**: the Activity menu (shows "Any new activity" ticked) and the tab title ("New"). To avoid saying the same thing twice, the chips row does **not** show an Activity chip in exactly that case. In every other case (e.g. `new:mention`, or `new:any` together with `triage:acked`) the Activity chip is shown.
-- Switching tabs (`setTriageTab`): removes every `triage` predicate, **negated ones included** (an explicit exception to P2: a negated triage predicate contradicts every tab), and the activity predicate **only if it is exactly `new:any`**, then adds `triage:acked`/`triage:all`, or `new:any` for New. Other activity selections survive a tab switch and remain visible as a chip (so Acked + `new:mention` shows an empty list with an "Activity: Mentions" chip, and the facet counts in the menu read 0, which explains it).
-- Selecting New while the activity predicate is e.g. `new:mention,code` replaces it with `new:any` (the tab means "any new").
+- The activity predicate is now **displayed by two controls**: the State menu's New Activity section (shows the "New Activity" header ticked) and the tab title ("New"). To avoid saying the same thing twice, the chips row does **not** show an Activity chip in exactly that case (`controls.triage === 'activity'`), and `hasActiveChips` / `hasNoSecondaryFilters` only count `controls.activity` as active when `controls.activity.length > 0 && controls.triage !== 'activity'` (also check `.length > 0` for all array controls, not `Boolean(arr)`). In every other case (e.g. `new:mention`, or `new:any` together with `triage:acked`) the Activity chip is shown.
+- Switching tabs (`setTriageTab`): removes every `triage` predicate, **negated ones included** (an explicit exception to P2: a negated triage predicate contradicts every tab):
+  - When switching to **New** (`'activity'`), replaces the `activity` control's owned predicate (whatever `new:` values it holds, e.g. `new:mention,code`, or inserts at rank 0 if none) with `new:any`.
+  - When switching to **Inbox / Acked / All**, removes the activity predicate **only if it is `new:any`**, then adds `triage:acked` or `triage:all` when applicable. Other activity selections (e.g. `new:mention`) survive a tab switch and remain visible as a chip (so Acked + `new:mention` shows an empty list with an "Activity: Mentions" chip, and the facet counts in the menu read 0, which explains it).
 - Ticking `noise` while on the New tab gives `new:any,noise`, which is no longer exactly `new:any`, so the title becomes "Inbox" and an Activity chip appears. This follows from the rules and is intended.
 - The sidebar "New" count (`totals.new`) is unchanged.
 
@@ -120,8 +125,8 @@ Tab rules:
 ### 3.5 Chips row
 
 One chip per displayed control plus one per extra predicate (today's structure in `Dashboard.tsx` lines ~1421–1596, extracted into `ActiveFilterChips`). Multi-value chips:
-- Label: `Repo: kubernetes/kubernetes, kubernetes/website` for up to 2 values; `Repo: kubernetes/kubernetes +2` for more, with a `title` listing all values.
-- Authors and assignees are shown with `@`; activity values with the row labels above ("Activity: Mentions, New commits").
+- Label: `Repo: kubernetes/kubernetes, kubernetes/website` for up to 2 values (`values.join(', ')`); `Repo: kubernetes/kubernetes +2` (`${values[0]} +${values.length - 1}`) for 3 or more, with a `title` listing all values.
+- Authors and assignees are shown with a single leading `@` (`v.startsWith('@') ? v : '@' + v`, so `@me` does not become `@@me`); activity values with the row labels above ("Activity: Mentions, New commits").
 - The × removes the whole predicate; `aria-label` lists every value: "Remove repository filter kubernetes/kubernetes, kubernetes/website".
 - Clicking the chip body opens the corresponding menu (no-op for extra-predicate chips).
 - **Negated chips** (from URLs, e.g. `-label=kind/bug`) use the normal chip colours with a leading **NOT** marker: a small `rounded bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300 text-[10px] font-semibold uppercase px-1` badge reading "NOT", then "Label: kind/bug". The chip has `data-negated="true"` and an `aria-label` starting "Excluding". No strikethrough (U9). This replaces today's "Not Label:" prefix and is the same visual language Phase 2 uses ([Phase 2 §6.3](query_model_phase2_query_input.md)).
@@ -200,7 +205,7 @@ Create `frontend/src/components/dashboard/`:
 |---|---|---|
 | `useMenuGroup.ts` (in `frontend/src/hooks/`) | the seven `*MenuOpen` states, seven refs, the Escape handler (lines ~414–435) and the click-outside effect (lines ~437–470) | Instantiated **once, in `Dashboard`**: `const menus = useMenuGroup<'status' \| 'state' \| 'repo' \| ...>()` returning `{ open, isOpen(id), toggle(id), close(), refFor(id), anyOpen }`. `anyOpen` feeds `useKeyboardNavigation({ disabled })`, and the group spans components in the header and the list body, so `menus` (or a per-id slice `{open, toggle, close, ref}`) is passed down as props to `TriageTitleMenu`, `FilterToolbar`, `SortMenu`. `toggle(id)` closes the others. `refFor(id)` returns a stable per-id ref object (a `Map` created once), otherwise the `mousedown` `contains()` check breaks. |
 | `TriageTitleMenu.tsx` | Row 1 (title + status menu, lines ~850–955) | props: `triage`, `onSelect(tab)`, menu props |
-| `FilterToolbar.tsx` | Row 2 (type slider, State/Repo/Author/Milestone/Label menus, Assigned toggle, lines ~956–1419) | receives controls, options and callbacks |
+| `FilterToolbar.tsx` | Row 2 (type slider, State/Repo/Author/Label menus, Assigned toggle, Overflow `...` menu, lines ~956–1419) | receives controls, options and callbacks; delegates State+Tracking+Activity to `StateMenu.tsx`, Repo+Org to `RepoOrgMenu.tsx`, and Assignee+Milestone to `OverflowFilterMenu.tsx` |
 | `ActiveFilterChips.tsx` | Row 3 (lines ~1421–1596) | |
 | `SortMenu.tsx` | sort control (lines ~1614–1723; it lives in the list body inside the scroll container, not in the header) | |
 | `DashboardSidebar.tsx` | `<aside>` (lines ~622–839), including a reusable `SidebarRow` (name, count, unread dot, active state) used by workflow, pinned and repo rows | also needs `setShowShortcutsModal` (from `useKeyboardNavigation`) and `showSettings`/`setShowSettings`; `showHiddenRepos` can become local state |
@@ -217,7 +222,7 @@ User decisions (U*) are listed in the [overview](query_model_plan_overview.md#21
 |---|---|---|---|
 | P2 | Every control edits only the predicate it displays; negated predicates are never owned by a control. One explicit exception: a tab switch removes negated `triage` predicates too (§3.4). | Multi-select would otherwise silently delete `-label:x` or a second `label:` clause. | §5 |
 | P3 | In the combined Org & Repo menu, org and repo selections do **not** coexist: ticking an org clears the repo selection and vice versa. Several orgs, or several repos, are fine. | Any org + repo combination is an AND, which is either redundant (the repo is inside the org) or empty (it is not); the union a user means needs cross-field OR, which neither the menus nor the Phase 2 grammar express. | §3.2 |
-| P4 | Activity filter UI is a new **Activity** multi-select menu in the toolbar; the New tab stays as "inbox + `new:any`". | Keeps the tab as the one-click workflow while exposing every flag. | §3.4 |
+| P4 | Activity filter UI is a multi-select **Activity** section inside the **State** menu; the New tab stays as "inbox + `new:any`". | Keeps the tab as the one-click workflow and avoids adding another top-level dropdown while exposing every flag. | §3.4 |
 | P5 | Menus show facet counts next to each value and have a filter box. | Counts are already returned; long repo/author lists need filtering once several can be picked. | §3.1 |
 | P19 | The "Assigned to me" toggle stays as a one-click shortcut that toggles `@me` inside the (now multi-select) assignee selection. | Keeps today's most-used assignee filter one click away without a second assignee predicate. | §3.3 |
 | P20 | The State menu gains "Merged" (single-select: Open / Closed / Merged). Draft and starred get no new toolbar controls in Phase 1 (they are reachable through Phase 2 text: `is:draft`, `is:starred`); if controls are added later they are toggles. | Completes the single-select state field without widening Phase 1 scope. | §2 |
@@ -235,7 +240,7 @@ Each commit must leave `./verify.sh` green (never `--force`). Commit subjects fo
 
 **1.1 `refactor(dashboard): extract toolbar, menus, chips and sidebar from Dashboard`**
 - Files: new `components/dashboard/{TriageTitleMenu,FilterToolbar,ActiveFilterChips,SortMenu,DashboardSidebar,SidebarRow}.tsx`, new `hooks/useMenuGroup.ts`; `Dashboard.tsx`; `git rm -r frontend/prototype frontend/src/prototypes` (U2; Phase 2 points at commit 1.0 for the code).
-- Tests: `hooks/__tests__/useMenuGroup.test.ts` (opening one closes the others, including via `toggle` without a mousedown; Escape closes; outside pointer-down closes; `anyOpen`; `refFor(id)` returns the same object across renders). Existing `Dashboard.test.tsx` and `Dashboard.rpc.test.tsx` pass **unchanged** (they scope menus by `trigger.parentElement`, so each trigger must stay a direct child of its ref'd `div.relative`).
+- Tests: `hooks/__tests__/useMenuGroup.test.tsx` (opening one closes the others, including via `toggle` without a mousedown; Escape closes; outside pointer-down closes; `anyOpen`; `refFor(id)` returns the same object across renders). Existing `Dashboard.test.tsx` and `Dashboard.rpc.test.tsx` pass **unchanged** (they scope menus by `trigger.parentElement`, so each trigger must stay a direct child of its ref'd `div.relative`).
 - AC: no behaviour or DOM-text change; `Dashboard.tsx` ≤ 950 lines; no `frontend/prototype` or `frontend/src/prototypes` on disk.
 
 **1.2 `fix(dashboard): keep negated filters when changing a selector`**
@@ -252,24 +257,25 @@ Each commit must leave `./verify.sh` green (never `--force`). Commit subjects fo
 Commit 1.4 is split in two to keep it reviewable and bisectable.
 
 **1.4a `refactor(dashboard): make selector controls array-valued`**
-- Files: `types/filters.ts` (array controls, `assignee` replaces `assigned`, `merged` state), `logic/query/predicates.ts` (`setOrgOrRepo`, `toggleAssignedToMe`), `logic/query/facets.ts` (option shapes with counts), `hooks/useDashboardData.ts` (raw facet values per field; `Field.ASSIGNEE` in `SELECTOR_FIELDS`), `hooks/useDashboardFilters.ts`, and the existing dropdowns adapted to write one-element arrays (no visible change yet).
+- Files: `types/filters.ts` (array controls, `assignee` replaces `assigned`, `merged` state), `logic/query/predicates.ts` (`setOrgOrRepo`, `toggleAssignedToMe`), `logic/query/facets.ts` (option shapes with counts), `hooks/useDashboardData.ts` (raw facet values per field; `Field.ASSIGNEE` in `SELECTOR_FIELDS`), `hooks/useDashboardFilters.ts`, and the existing dropdowns adapted to write one-element arrays (no new controls yet).
 - Tests:
   - `predicates.test.ts`: array controls; org/repo do not coexist (ticking an org clears repos and vice versa; a constructed `DashboardQueryState` holding both an `org:` and a `repo:` predicate projects both); `toggleRepo` rules; Assigned-to-me toggles `@me` within `assignee:@me,alice`; state Open/Closed/Merged is single-select.
   - `facets.test.ts`: array `selected`, counts.
   - `useDashboardFilters.test.ts`: URL `label=a&label=b` round trip through the control; `assigned=me` still written for exactly `assignee:@me`, `assignee=@me&assignee=alice` otherwise.
-- AC: existing behaviour unchanged; all tests green.
+  - `Dashboard.rpc.test.tsx`: update the `SELECTOR_FIELDS` expectation to include `Field.ASSIGNEE`.
+- AC: no new controls yet; all tests green. Multi-value URLs such as `label=a&label=b` now show a control chip instead of an extra chip, which is expected.
 
 **1.4b `feat(dashboard): select several repositories, orgs, authors, assignees, milestones and labels`**
 - Files: `components/dashboard/{FilterToolbar,ActiveFilterChips,DashboardSidebar}.tsx` (wire `MultiSelectMenu`; new Assignee menu; Merged in the State menu; NOT marker on negated chips).
 - Tests:
-  - `Dashboard.rpc.test.tsx`: tick two labels → `label:a,b` and URL `?label=a&label=b`; tick two assignees → `assignee:a,b`; tick org then repo clears org; select Merged → `state:merged`; chip "Repo: a/b +2" with full `title`; chip × removes the predicate; the selected value with zero count stays listed; selector `GetFacets` includes `FIELD_ASSIGNEE`.
-  - `ActiveFilterChips` test: a negated chip renders the "NOT" badge, has `data-negated="true"` and an `aria-label` starting "Excluding", and no element has a `line-through` class.
+  - `Dashboard.rpc.test.tsx`: update existing dropdown option queries from `getByRole('button')` to `getByRole('option')`; tick two labels → `label:a,b` and URL `?label=a&label=b`; tick two assignees → `assignee:a,b`; tick org then repo clears org; select Merged → `state:merged`; chip "Repo: a/b +2" with full `title`; chip × removes the predicate; the selected value with zero count stays listed.
+  - `ActiveFilterChips` test: a negated chip renders the "NOT" badge, carries `data-negated="true"` and an `aria-label` starting "Excluding", and no element has a `line-through` class.
   - `Dashboard.test.tsx`: the "Tracking Filter in State Dropdown" tests drive the State menu by `getByRole('button', …)`; State stays single-select with button rows, so they keep passing.
 - AC: U11 behaviour for every field except activity; type and tracking unchanged; legacy single-value URLs behave as before.
 
 **1.5 `feat(dashboard): filter by new activity type`**
 - Files: `types/filters.ts`, `logic/query/predicates.ts` (`setActivity`, tab interplay), `logic/query/facets.ts` (`buildActivityOptions`), `hooks/useDashboardData.ts` (`Field.NEW` in `SELECTOR_FIELDS`), `components/dashboard/{FilterToolbar,ActiveFilterChips}.tsx`, `spec.md`, `docs/user_guide.md` (§3 Filtering & Search: multi-select, Assignee and Activity).
-- Tests: `predicates.test.ts`: Any/specific exclusivity, noise combines with Any (and `new:any,noise` is not the New tab), New tab derivation, tab switch keeps `new:mention`, tab switch removes `-triage:acked`, New replaces `new:mention,code` with `new:any`. RPC tests for the two entry points (§3.4): with `label:bug` selected, sidebar New → request is exactly `new:any` and sort is reset; title-menu New → `new:any label:bug` with sort kept. RPC tests: selector `GetFacets` requests include `FIELD_NEW`; ticking Mentions sends `new:mention`; New tab shows no Activity chip but the menu shows Any ticked; Acked + Mentions shows the chip.
+- Tests: `predicates.test.ts`: Any/specific exclusivity, noise combines with Any (and `new:any,noise` is not the New tab), New tab derivation, tab switch keeps `new:mention`, tab switch removes `-triage:acked`, New replaces `new:mention,code` with `new:any`. RPC tests for the two entry points (§3.4): with `label:bug` selected, sidebar New → request is exactly `new:any` and sort is reset; title-menu New → `new:any label:bug` with sort kept. RPC tests: selector `GetFacets` requests include `FIELD_NEW`; ticking Mentions sends `new:mention`; New tab shows no Activity chip (and sidebar New stays highlighted) while the menu shows Any ticked; Acked + Mentions shows the chip.
 - AC: parent §4.4 semantics visible in the UI; `spec.md` updated (Phase 1 milestone).
 
 ---
