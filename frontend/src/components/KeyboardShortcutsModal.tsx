@@ -37,6 +37,7 @@ const SHORTCUT_SECTIONS: ShortcutSection[] = [
   {
     title: 'General',
     shortcuts: [
+      { keys: ['/'], description: 'Focus filter / search input' },
       { keys: ['?'], description: 'Toggle keyboard shortcuts' },
     ],
   },

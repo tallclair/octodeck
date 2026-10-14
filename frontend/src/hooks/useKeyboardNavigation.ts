@@ -7,6 +7,7 @@ export interface UseKeyboardNavigationOptions {
   onSelectItem: (id: string | null) => void;
   onAckItem?: (id: string) => Promise<void> | void;
   onStarItem?: (id: string, starred: boolean) => Promise<void> | void;
+  onFocusSearch?: () => void;
   isDetailsOpen: boolean;
   disabled?: boolean;
   onOpenGitHub?: (url: string) => void;
@@ -31,6 +32,7 @@ export function useKeyboardNavigation({
   onSelectItem,
   onAckItem,
   onStarItem,
+  onFocusSearch,
   isDetailsOpen,
   disabled = false,
   onOpenGitHub,
@@ -93,6 +95,12 @@ export function useKeyboardNavigation({
         case '?': {
           e.preventDefault();
           setShowShortcutsModal(true);
+          break;
+        }
+
+        case '/': {
+          e.preventDefault();
+          onFocusSearch?.();
           break;
         }
 
@@ -224,6 +232,7 @@ export function useKeyboardNavigation({
       onSelectItem,
       onAckItem,
       onStarItem,
+      onFocusSearch,
       onOpenGitHub,
       setFocusedItemId,
     ]

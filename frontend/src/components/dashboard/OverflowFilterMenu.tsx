@@ -17,7 +17,7 @@ import {
   type OptionList,
 } from '../../logic/query/facets';
 import { MENU_ITEM_PROPS, useMenuPanelKeyboard } from '../../hooks/useMenuPanelKeyboard';
-import type { FilterControls } from '../../types/filters';
+import type { ControlKey, FilterControls } from '../../types/filters';
 import { MultiSelectMenu, type MultiSelectOption } from './MultiSelectMenu';
 import { RepoOrgMenu, type RepoOrgMenuData } from './RepoOrgMenu';
 import {
@@ -37,10 +37,9 @@ export interface OverflowFilterMenuProps {
   readonly milestoneFacets: readonly FacetValue[];
   readonly currentUser: string | null;
   readonly menus: MenuGroup<DashboardMenuId>;
-  readonly setFilter: <K extends keyof FilterControls>(
+  readonly setFilter: <K extends ControlKey>(
     key: K,
-    value: FilterControls[K],
-    replaceHistory?: boolean
+    value: FilterControls[K]
   ) => void;
   /**
    * Set when the toolbar is too narrow for the Repository selector: the menu then gets a

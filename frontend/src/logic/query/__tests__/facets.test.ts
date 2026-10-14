@@ -226,11 +226,11 @@ describe('buildRepoDropdown', () => {
 });
 
 describe('buildAuthorMenuOptions and buildAssigneeMenuOptions', () => {
-  it('pins the current user first in Author options as @<login> (you)', () => {
+  it('pins the current user first in Author options as @<login> (you) with value @me', () => {
     const authors = [fv('bob', 2), fv('alice', 4)];
     const built = buildAuthorMenuOptions(authors, [], 'alice', false);
     expect(built.list).toEqual([
-      { value: 'alice', label: '@alice (you)', count: 4, pinned: true },
+      { value: '@me', label: '@alice (you)', count: 4, pinned: true },
       { value: 'bob', count: 2 },
     ]);
   });

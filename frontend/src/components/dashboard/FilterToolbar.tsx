@@ -7,11 +7,13 @@ import {
   Tag as LabelIcon,
   type LucideIcon,
 } from 'lucide-react';
-import type { FilterControls } from '../../types/filters';
+import type { ControlKey, FilterControls } from '../../types/filters';
 import { useToolbarCollapse } from '../../hooks/useToolbarCollapse';
 import {
   buildAuthorMenuOptions,
   buildLabelOptions,
+  isAssigneeOptionSelected,
+  toggleAssigneeOption,
   type OptionList,
 } from '../../logic/query/facets';
 import type { SelectorFacets } from '../../hooks/useDashboardData';
@@ -30,14 +32,8 @@ import {
 
 export interface FilterToolbarProps {
   filters: FilterControls;
-  setFilter: <K extends keyof FilterControls>(
-    key: K,
-    value: FilterControls[K],
-    replaceHistory?: boolean
-  ) => void;
-  setFilters: (partial: Partial<FilterControls>, replaceHistory?: boolean) => void;
-  setOrgOrRepo: (kind: 'org' | 'repo', values: readonly string[], replaceHistory?: boolean) => void;
-  toggleAssignedToMe: (replaceHistory?: boolean) => void;
+  setControl: <K extends ControlKey>(key: K, value: FilterControls[K]) => void;
+  toggleAssignedToMe: () => void;
   currentUser: string | null;
   facets: SelectorFacets;
   pinnedRepos: readonly string[];
@@ -66,9 +62,7 @@ const hasCi = (list: readonly string[], value: string | null | undefined) =>
 
 export function FilterToolbar({
   filters,
-  setFilter,
-  setFilters,
-  setOrgOrRepo,
+  setControl,
   toggleAssignedToMe,
   currentUser,
   facets,
@@ -79,6 +73,22 @@ export function FilterToolbar({
     (showAll: boolean): OptionList<MultiSelectOption> =>
       buildAuthorMenuOptions(facets.authors, filters.author, currentUser, showAll),
     [facets.authors, filters.author, currentUser]
+  );
+
+  const checkAuthorOptionSelected = useCallback(
+    (option: MultiSelectOption, selected: readonly string[]) =>
+      isAssigneeOptionSelected(option, selected, currentUser),
+    [currentUser]
+  );
+
+  const handleToggleAuthorOption = useCallback(
+    (option: MultiSelectOption, currentlySelected: boolean) => {
+      setControl(
+        'author',
+        toggleAssigneeOption(option, currentlySelected, filters.author, currentUser)
+      );
+    },
+    [filters.author, currentUser, setControl]
   );
 
   const buildLabelMenuOptions = useCallback(
@@ -95,14 +105,22 @@ export function FilterToolbar({
   const collapseRepository = collapseLevel > TOOLBAR_COLLAPSE_LEVELS.indexOf('repository');
   const hideAssignedToMe = collapseLevel > TOOLBAR_COLLAPSE_LEVELS.indexOf('assignedToMe');
 
+  const handleSetRepoFilters = useCallback(
+    (partial: Partial<FilterControls>) => {
+      if (partial.org !== undefined) setControl('org', partial.org);
+      if (partial.repo !== undefined) setControl('repo', partial.repo);
+    },
+    [setControl]
+  );
+
   const repository: RepoOrgMenuData = {
     selectedOrgs: filters.org,
     selectedRepos: filters.repo,
     repoFacets: facets.repos,
     orgFacets: facets.orgs,
     pinnedRepos,
-    setOrgOrRepo,
-    setFilters,
+    setOrgOrRepo: setControl,
+    setFilters: handleSetRepoFilters,
   };
 
   return (
@@ -114,7 +132,7 @@ export function FilterToolbar({
           <button
             key={value}
             type="button"
-            onClick={() => setFilter('type', value)}
+            onClick={() => setControl('type', value)}
             aria-pressed={filters.type === value}
             className={segmentedButtonClass(filters.type === value)}
           >
@@ -136,7 +154,7 @@ export function FilterToolbar({
           onToggle={() => menus.toggle('state')}
           onClose={() => menus.close()}
           menuRef={menus.refFor('state')}
-          setFilter={setFilter}
+          setFilter={setControl}
         />
 
         {!collapseRepository && (
@@ -158,8 +176,10 @@ export function FilterToolbar({
           onClose={() => menus.close()}
           menuRef={menus.refFor('author')}
           selected={filters.author}
-          onChange={(next) => setFilter('author', next)}
+          onChange={(next) => setControl('author', next)}
           buildOptions={buildAuthorOptionsForMenu}
+          isOptionSelected={checkAuthorOptionSelected}
+          onToggleOption={handleToggleAuthorOption}
           valuePrefix="@"
           filterPlaceholder="Filter authors…"
           emptyMessage="No authors found"
@@ -174,7 +194,7 @@ export function FilterToolbar({
           onClose={() => menus.close()}
           menuRef={menus.refFor('label')}
           selected={filters.label}
-          onChange={(next) => setFilter('label', next)}
+          onChange={(next) => setControl('label', next)}
           buildOptions={buildLabelMenuOptions}
           filterPlaceholder="Filter labels…"
           emptyMessage="No labels found"
@@ -201,7 +221,7 @@ export function FilterToolbar({
           milestoneFacets={facets.milestones}
           currentUser={currentUser}
           menus={menus}
-          setFilter={setFilter}
+          setFilter={setControl}
           repository={collapseRepository ? repository : undefined}
         />
       </div>

@@ -15,6 +15,7 @@ import {
   type FacetSpec,
   type OctoDeckHandlers,
 } from '../../test/rpcTestUtils';
+import { queryPillTexts, removeQueryClause, stubQueryPillLayout } from '../../test/queryInput';
 import { ItemState, ItemStatus, ItemType, SubscriptionState, type Item, type ItemSchema } from '../../api/octodeck/v1/resources_pb';
 import { ExprErrorSchema, Field, SortKey, SortOrder, type Expr } from '../../api/octodeck/v1/query_pb';
 import type { GetFacetsRequest, GetItemRequest, GetItemsRequest } from '../../api/octodeck/v1/service_pb';
@@ -105,13 +106,16 @@ function render(handlers: OctoDeckHandlers) {
 }
 
 describe('Dashboard (RPC-level)', () => {
+  let restoreQueryLayout: () => void;
   beforeEach(() => {
     window.history.pushState(null, '', '/');
+    restoreQueryLayout = stubQueryPillLayout();
   });
 
   afterEach(() => {
     vi.useRealTimers();
     window.history.pushState(null, '', '/');
+    restoreQueryLayout();
   });
 
   describe('items come from GetItems', () => {
@@ -269,7 +273,11 @@ describe('Dashboard (RPC-level)', () => {
 
       const titleDropdown = screen.getByLabelText(/Select triage status/i);
       fireEvent.click(titleDropdown);
-      fireEvent.click(screen.getAllByRole('button', { name: /Acked/i })[1]);
+      fireEvent.click(
+        within(screen.getByRole('dialog', { name: 'Triage status' })).getByRole('button', {
+          name: /Acked/i,
+        })
+      );
       expect(await screen.findByText('Acked PR')).toBeDefined();
       expect(screen.queryByText('New PR')).toBeNull();
       expect(lastItemsQuery(daemon)).toBe('triage:acked');
@@ -277,7 +285,11 @@ describe('Dashboard (RPC-level)', () => {
       assertNoLegacyUrlKeys();
 
       fireEvent.click(titleDropdown);
-      fireEvent.click(screen.getAllByRole('button', { name: /Inbox/i })[1]);
+      fireEvent.click(
+        within(screen.getByRole('dialog', { name: 'Triage status' })).getByRole('button', {
+          name: /Inbox/i,
+        })
+      );
       expect(await screen.findByText('Idle PR')).toBeDefined();
       // Back to the unfiltered query: its cached result is shown (the query key includes the request).
     });
@@ -334,7 +346,7 @@ describe('Dashboard (RPC-level)', () => {
       expect(lastItemsQuery(daemon)).toBe('tracking:false');
       expect(window.location.search).toBe('?q=tracking:false');
       assertNoLegacyUrlKeys();
-      expect(screen.getByText('Tracking:')).toBeDefined();
+      expect(queryPillTexts()).toContain('tracking:false');
 
       fireEvent.click(stateTrigger);
       fireEvent.click(within(stateTrigger.parentElement!).getByRole('button', { name: /^Tracked$/i }));
@@ -343,9 +355,9 @@ describe('Dashboard (RPC-level)', () => {
       expect(window.location.search).toBe('?q=tracking:true');
       assertNoLegacyUrlKeys();
 
-      fireEvent.click(screen.getByRole('button', { name: /Remove tracking filter/i }));
+      removeQueryClause('tracking:true');
       expect(await screen.findByText('Untracked PR')).toBeDefined();
-      expect(screen.queryByText('Tracking:')).toBeNull();
+      expect(queryPillTexts().some((t) => t.startsWith('tracking:'))).toBe(false);
       // Back to the unfiltered query: its cached result is shown (the query key includes the request).
       expect(window.location.search).toBe('');
     });
@@ -396,25 +408,33 @@ describe('Dashboard (RPC-level)', () => {
       assertNoLegacyUrlKeys();
     });
 
-    it('filters by author from the facet options and clears with Reset filters', async () => {
+    it('filters by author from the facet options (writing author:@me for the pinned you row) and clears with Clear query', async () => {
       const alice = item('PR_1', 'Alice PR', { author: { login: 'alice' } });
       const bob = item('PR_2', 'Bob PR', { author: { login: 'bob' } });
       const { daemon } = render({
-        getItems: itemsByQuery({ '': [alice, bob], 'author:alice': [alice] }),
+        getConfig: () => ({
+          config: { pollingIntervalMin: 15, pinnedRepos: [] },
+          currentUserLogin: 'alice',
+        }),
+        getItems: itemsByQuery({ '': [alice, bob], 'author:@me': [alice], 'author:@me,bob': [alice, bob] }),
         getFacets: facets({ selector: { [Field.AUTHOR]: [['alice', 1], ['bob', 1]] } }),
       });
       expect(await screen.findByText('Bob PR')).toBeDefined();
 
       fireEvent.click(screen.getByRole('button', { name: /Filter by author/i }));
-      fireEvent.click(await screen.findByRole('option', { name: /@alice/i }));
+      fireEvent.click(await screen.findByRole('option', { name: /@alice \(you\)/i }));
       await waitFor(() => expect(screen.queryByText('Bob PR')).toBeNull());
-      expect(lastItemsQuery(daemon)).toBe('author:alice');
-      expect(window.location.search).toBe('?q=author:alice');
+      expect(lastItemsQuery(daemon)).toBe('author:@me');
+      expect(window.location.search).toBe('?q=author:@me');
       assertNoLegacyUrlKeys();
 
-      fireEvent.click(screen.getByRole('button', { name: /Reset filters/i }));
+      fireEvent.click(screen.getByRole('option', { name: /^@bob$/i }));
+      await waitFor(() => expect(lastItemsQuery(daemon)).toBe('author:@me,bob'));
+      expect(window.location.search).toBe('?q=author:@me,bob');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Clear query' }));
       expect(await screen.findByText('Bob PR')).toBeDefined();
-      // Back to the unfiltered query: its cached result is shown (the query key includes the request).
+      expect(window.location.search).toBe('');
     });
 
     it('filters by org and then repo from the combined selector, clearing org when repo is selected', async () => {
@@ -453,7 +473,7 @@ describe('Dashboard (RPC-level)', () => {
       assertNoLegacyUrlKeys();
     });
 
-    it('renders "Repo: a/b +2" chip with full title when 3+ repos are selected and removes the predicate on ×', async () => {
+    it('renders multi-repo clause as a query chip and removes the predicate on ×', async () => {
       window.history.pushState(null, '', '/?repo=a%2Fb&repo=c%2Fd&repo=e%2Ff');
       render({
         getItems: itemsByQuery({
@@ -463,13 +483,9 @@ describe('Dashboard (RPC-level)', () => {
       });
 
       expect(await screen.findByText('Multi-repo PR')).toBeDefined();
-      expect(screen.getByText('Repo:')).toBeDefined();
-      const summary = screen.getByText('a/b +2');
-      expect(summary.getAttribute('title')).toBe('a/b, c/d, e/f');
+      expect(queryPillTexts()).toEqual(['repo:a/b,c/d,e/f']);
 
-      fireEvent.click(
-        screen.getByRole('button', { name: 'Remove repository filter a/b, c/d, e/f' })
-      );
+      removeQueryClause('repo:a/b,c/d,e/f');
       expect(await screen.findByText('Other PR')).toBeDefined();
       expect(window.location.search).toBe('');
     });
@@ -488,11 +504,11 @@ describe('Dashboard (RPC-level)', () => {
       fireEvent.click(await screen.findByRole('option', { name: /^v1\.32$/i }));
       await waitFor(() => expect(screen.queryByText('Milestone 1.33 PR')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('milestone:v1.32');
-      expect(screen.getByText('Milestone:')).toBeDefined();
+      expect(queryPillTexts()).toContain('milestone:v1.32');
       expect(window.location.search).toBe('?q=milestone:v1.32');
       assertNoLegacyUrlKeys();
 
-      fireEvent.click(screen.getByRole('button', { name: /Remove milestone filter/i }));
+      removeQueryClause('milestone:v1.32');
       expect(await screen.findByText('Milestone 1.33 PR')).toBeDefined();
       expect(window.location.search).toBe('');
     });
@@ -527,7 +543,7 @@ describe('Dashboard (RPC-level)', () => {
       fireEvent.click(bugOption);
       await waitFor(() => expect(screen.queryByText('Docs 3')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('label:kind/bug');
-      expect(screen.getByText('Label:')).toBeDefined();
+      expect(queryPillTexts()).toContain('label:kind/bug');
       expect(window.location.search).toBe('?q=label:kind/bug');
       assertNoLegacyUrlKeys();
 
@@ -537,11 +553,11 @@ describe('Dashboard (RPC-level)', () => {
       expect(window.location.search).toBe('?q=label:kind/bug,kind/feature');
       assertNoLegacyUrlKeys();
 
-      fireEvent.click(screen.getByRole('button', { name: /Remove label filter/i }));
+      removeQueryClause('label:kind/bug,kind/feature');
       expect(await screen.findByText('Docs 3')).toBeDefined();
     });
 
-    it('filters by activity from the State menu, hides the Activity chip on the New tab, and shows it on Acked + Mentions', async () => {
+    it('filters by activity from the State menu, updates chips on Acked + Mentions, and resets to new:any on sidebar New', async () => {
       const mentioned = item('PR_1', 'Mentioned PR');
       const newAny = item('PR_2', 'New activity PR');
       const allInbox = item('PR_3', 'Idle PR');
@@ -572,25 +588,29 @@ describe('Dashboard (RPC-level)', () => {
       await waitFor(() => expect(lastItemsQuery(daemon)).toBe('new:mention'));
       expect(window.location.search).toBe('?q=new:mention');
       assertNoLegacyUrlKeys();
-      expect(screen.getByText('Activity:')).toBeDefined();
-      expect(screen.getByRole('button', { name: 'Remove activity filter Mentions' })).toBeDefined();
+      expect(queryPillTexts()).toContain('new:mention');
 
-      // Switch to Acked via the title menu: new:mention survives and the Activity chip stays visible
+      // Switch to Acked via the title menu: new:mention survives alongside triage:acked
       fireEvent.click(screen.getByLabelText(/Select triage status/i));
-      fireEvent.click(screen.getAllByRole('button', { name: /Acked/i })[1]);
+      fireEvent.click(
+        within(screen.getByRole('dialog', { name: 'Triage status' })).getByRole('button', {
+          name: /Acked/i,
+        })
+      );
       await waitFor(() => expect(lastItemsQuery(daemon)).toBe('triage:acked new:mention'));
       expect(window.location.search).toBe('?q=triage:acked+new:mention');
       assertNoLegacyUrlKeys();
-      expect(screen.getByText('Activity:')).toBeDefined();
-      expect(screen.getByRole('button', { name: 'Remove activity filter Mentions' })).toBeDefined();
+      expect(queryPillTexts()).toContain('triage:acked');
+      expect(queryPillTexts()).toContain('new:mention');
 
-      // Switch to the New tab via the sidebar: no Activity chip is shown, sidebar New stays highlighted, and Any is ticked in the menu
+      // Switch to the New tab via the sidebar: query becomes new:any, sidebar New stays highlighted, and Any is ticked in the menu
       const sidebarNew = screen.getAllByRole('button', { name: /^New/i })[0];
       fireEvent.click(sidebarNew);
       await waitFor(() => expect(lastItemsQuery(daemon)).toBe('new:any'));
       expect(window.location.search).toBe('?q=new:any');
       assertNoLegacyUrlKeys();
-      expect(screen.queryByText('Activity:')).toBeNull();
+      expect(queryPillTexts()).toContain('new:any');
+      expect(queryPillTexts()).not.toContain('new:mention');
       expect(sidebarNew.className).toContain('bg-blue-600');
 
       fireEvent.click(stateTrigger);
@@ -661,7 +681,7 @@ describe('Dashboard (RPC-level)', () => {
       expect(screen.queryByText('Go PR')).toBeNull();
     });
 
-    it('shows URL-only predicates (negation, multiple values) as chips and removes them', async () => {
+    it('shows URL-only predicates (negation, multiple values) as query chips and removes them', async () => {
       window.history.pushState(null, '', '/?-label=bug&label=a&label=b');
       const { daemon } = render({
         getItems: itemsByQuery({
@@ -671,15 +691,10 @@ describe('Dashboard (RPC-level)', () => {
       });
 
       expect(await screen.findByText('Narrow result')).toBeDefined();
-      const chips = screen.getAllByTestId('extra-filter-chip');
-      expect(chips).toHaveLength(1);
-      expect(chips[0].getAttribute('data-negated')).toBe('true');
-      expect(within(chips[0]).getByText('NOT')).toBeDefined();
-      expect(within(chips[0]).getByText('Label:')).toBeDefined();
-      expect(within(chips[0]).getByText('bug')).toBeDefined();
-      expect(screen.getByText('a, b')).toBeDefined();
+      expect(queryPillTexts()).toEqual(['-label:bug', 'label:a,b']);
+      expect(screen.getAllByTestId('query-pill')[0].dataset.negated).toBe('true');
 
-      fireEvent.click(within(chips[0]).getByRole('button'));
+      removeQueryClause('-label:bug');
       expect(await screen.findByText('Wider result')).toBeDefined();
       expect(lastItemsQuery(daemon)).toBe('label:a,b');
       expect(window.location.search).toBe('?q=label:a,b');
@@ -715,14 +730,14 @@ describe('Dashboard (RPC-level)', () => {
         getItems: (req) => ({ items: [item('PR_1', `Result for "${describeQuery(req.query)}"`)] }),
       });
       await screen.findByText('Result for ""');
-      const input = screen.getByPlaceholderText(/Search title and body/i) as HTMLInputElement;
+      const input = screen.getByRole('combobox', { name: /Filter or search query/i }) as HTMLTextAreaElement;
 
       act(() => {
-        fireEvent.change(input, { target: { value: 'f' } });
-        fireEvent.change(input, { target: { value: 'fla' } });
-        fireEvent.change(input, { target: { value: 'flaky "big test"' } });
+        fireEvent.change(input, { target: { value: 'f', selectionStart: 1 } });
+        fireEvent.change(input, { target: { value: 'fla', selectionStart: 3 } });
+        fireEvent.change(input, { target: { value: 'flaky "big test"', selectionStart: 16 } });
       });
-      expect(input.value).toBe('flaky "big test"');
+      expect(queryPillTexts()).toEqual(['flaky', '"big test"']);
       expect(window.location.search).toBe('?q=flaky+%22big+test%22');
 
       await act(async () => {
@@ -735,6 +750,86 @@ describe('Dashboard (RPC-level)', () => {
         .map((r) => describeQuery(r.query))
         .filter((q) => q !== '');
       expect(new Set(textQueries)).toEqual(new Set(['text:flaky text:big test']));
+    });
+
+    it('types is:open label:bug into QueryInput, edits label via menu in place, and edits the clause as text (§13 2.6)', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const { daemon } = render({
+        getItems: itemsByQuery({
+          '': [item('PR_0', 'All items')],
+          'state:open label:bug': [item('PR_1', 'Open bug PR')],
+          'state:open label:bug,flake': [item('PR_2', 'Open bug or flake PR')],
+          'state:open label:flake': [item('PR_3', 'Open flake PR')],
+        }),
+        getFacets: facets({
+          selector: { [Field.LABEL]: [['bug', 1], ['flake', 1]] },
+        }),
+      });
+      expect(await screen.findByText('All items')).toBeDefined();
+      const input = screen.getByRole('combobox', { name: /Filter or search query/i }) as HTMLTextAreaElement;
+
+      // 1. Type `is:open label:bug ` -> two pills, sends `state:open label:bug`
+      act(() => {
+        fireEvent.change(input, {
+          target: { value: 'is:open label:bug ', selectionStart: 18 },
+        });
+      });
+      expect(queryPillTexts()).toEqual(['is:open', 'label:bug']);
+      expect(window.location.search).toBe('?q=is:open+label:bug');
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+      expect(await screen.findByText('Open bug PR')).toBeDefined();
+      expect(lastItemsQuery(daemon)).toBe('state:open label:bug');
+
+      // 2. Tick `flake` in the Label menu -> edits only the label clause in place (`is:open` stays `is:open`)
+      fireEvent.click(screen.getByRole('button', { name: /Filter by label/i }));
+      fireEvent.click(await screen.findByRole('option', { name: /^flake$/i }));
+      expect(await screen.findByText('Open bug or flake PR')).toBeDefined();
+      expect(lastItemsQuery(daemon)).toBe('state:open label:bug,flake');
+      expect(window.location.search).toBe('?q=is:open+label:bug,flake');
+      expect(queryPillTexts()).toEqual(['is:open', 'label:bug,flake']);
+      expect(input.value).toBe('is:open label:bug,flake');
+
+      // Close Label menu, focus input, delete `bug,` from the label clause as text, press Enter
+      fireEvent.keyDown(window, { key: 'Escape' });
+      act(() => input.focus());
+      fireEvent.change(input, { target: { value: 'is:open label:flake', selectionStart: 14 } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+      expect(await screen.findByText('Open flake PR')).toBeDefined();
+      expect(lastItemsQuery(daemon)).toBe('state:open label:flake');
+      expect(window.location.search).toBe('?q=is:open+label:flake');
+    });
+
+    it('clears only the query text on × (U8), returning title to Inbox while keeping sort=created', async () => {
+      window.history.pushState(null, '', '/?q=triage:acked+label:bug&sort=created');
+      const { daemon } = render({
+        getItems: itemsByQuery({
+          'triage:acked label:bug': [item('PR_1', 'Acked bug')],
+          '': [item('PR_2', 'Inbox item')],
+        }),
+      });
+
+      expect(await screen.findByText('Acked bug')).toBeDefined();
+      const titleDropdown = screen.getByLabelText(/Select triage status/i);
+      expect(titleDropdown.textContent).toContain('Acked');
+
+      // Click the QueryInput × button
+      fireEvent.click(screen.getByRole('button', { name: 'Clear query' }));
+
+      expect(await screen.findByText('Inbox item')).toBeDefined();
+      expect(queryPillTexts()).toHaveLength(0);
+      expect(titleDropdown.textContent).toContain('Inbox');
+      expect(window.location.search).toBe('?sort=created');
+      expect(lastItemsQuery(daemon)).toBe('');
+      expect(daemon.lastRequest<GetItemsRequest>('GetItems')!.sort).toMatchObject({
+        key: SortKey.CREATED,
+        order: SortOrder.DESC,
+      });
     });
   });
 
@@ -833,6 +928,64 @@ describe('Dashboard (RPC-level)', () => {
       expect(screen.getByRole('option', { name: /@zed/i })).toBeDefined();
       expect(screen.getByRole('option', { name: /@charlie/i })).toBeDefined();
     });
+
+    it('autocompletes label: and assignee: from selector facets without extra GetFacets calls, and finishes chip on Enter (§13 2.7)', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const { daemon } = render({
+        getItems: itemsByQuery({
+          '': [item('PR_0', 'Inbox item')],
+          'label:kind/bug': [item('PR_1', 'Bug PR')],
+        }),
+        getFacets: facets({
+          selector: {
+            [Field.LABEL]: [['kind/bug', 2], ['area/api', 1]],
+            [Field.ASSIGNEE]: [['alice', 3], ['bob', 1]],
+          },
+        }),
+      });
+
+      expect(await screen.findByText('Inbox item')).toBeDefined();
+      await waitFor(() =>
+        expect(
+          daemon
+            .requestsFor<GetFacetsRequest>('GetFacets')
+            .some((r) => r.fields.includes(Field.LABEL))
+        ).toBe(true)
+      );
+
+      const facetCallsBefore = daemon.requestsFor<GetFacetsRequest>('GetFacets').length;
+      const input = screen.getByRole('combobox', {
+        name: /Filter or search query/i,
+      }) as HTMLTextAreaElement;
+      act(() => input.focus());
+
+      // 1. Typing `label:` lists labels from the selector facets.
+      fireEvent.change(input, { target: { value: 'label:', selectionStart: 6 } });
+      const listbox = screen.getByRole('listbox', { name: 'Query suggestions' });
+      expect(within(listbox).getByRole('option', { name: /kind\/bug/i })).toBeDefined();
+      expect(within(listbox).getByRole('option', { name: /area\/api/i })).toBeDefined();
+      expect(daemon.requestsFor<GetFacetsRequest>('GetFacets').length).toBe(facetCallsBefore);
+
+      // 2. Typing `assignee:` lists assignees from the same selector facets (no extra GetFacets call).
+      fireEvent.change(input, { target: { value: 'assignee:', selectionStart: 9 } });
+      expect(within(listbox).getByRole('option', { name: /@me/i })).toBeDefined();
+      expect(within(listbox).getByRole('option', { name: /alice/i })).toBeDefined();
+      expect(within(listbox).getByRole('option', { name: /bob/i })).toBeDefined();
+      expect(daemon.requestsFor<GetFacetsRequest>('GetFacets').length).toBe(facetCallsBefore);
+
+      // 3. Pressing Enter on a label value finishes the chip and updates the query.
+      fireEvent.change(input, { target: { value: 'label:kind/', selectionStart: 11 } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(queryPillTexts()).toEqual(['label:kind/bug']);
+      expect(input.value).toBe('label:kind/bug ');
+      expect(window.location.search).toBe('?q=label:kind/bug');
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+      expect(await screen.findByText('Bug PR')).toBeDefined();
+      expect(lastItemsQuery(daemon)).toBe('label:kind/bug');
+    });
   });
 
   describe('sidebar counts come from GetFacets', () => {
@@ -916,7 +1069,7 @@ describe('Dashboard (RPC-level)', () => {
       expect(window.location.search).toBe('?q=repo:kubernetes/kubernetes');
       assertNoLegacyUrlKeys();
 
-      fireEvent.click(screen.getByLabelText(/Remove repository filter/i));
+      removeQueryClause('repo:kubernetes/kubernetes');
       expect(await screen.findByText('Inbox PR')).toBeDefined();
       expect(window.location.search).toBe('');
     });
@@ -968,6 +1121,45 @@ describe('Dashboard (RPC-level)', () => {
       const alert = await screen.findByTestId('invalid-query');
       expect(alert.textContent).toContain('2 parts of the query are ignored:');
       expect(alert.textContent).toContain('lable is not a known filter');
+
+      expect(queryPillTexts()).toEqual(['lable:bug', 'state:merged']);
+      const mergedPill = screen.getAllByTestId('query-pill')[1];
+      expect(mergedPill.dataset.status).toBe('error');
+      expect(mergedPill.dataset.tone).toBe('error');
+      const input = screen.getByRole('combobox', { name: /Filter or search query/i });
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+
+      expect(screen.queryByTestId('daemon-disconnected-banner')).toBeNull();
+      expect(screen.queryByTestId('daemon-offline-empty-state')).toBeNull();
+    });
+
+    it('reports a root-path server ExprError only in the summary line without marking any chip as error', async () => {
+      window.history.pushState(null, '', '/?q=state:open+label:bug');
+      render({
+        getItems: () => {
+          throw new ConnectError('invalid query', Code.InvalidArgument, undefined, [
+            {
+              desc: ExprErrorSchema,
+              value: create(ExprErrorSchema, {
+                path: '',
+                message: 'query exceeds maximum complexity',
+              }),
+            },
+          ]);
+        },
+      });
+
+      const summary = await screen.findByTestId('invalid-query');
+      expect(summary.textContent).toBe(
+        '1 part of the query is ignored: query exceeds maximum complexity'
+      );
+
+      const pills = screen.getAllByTestId('query-pill');
+      expect(pills).toHaveLength(2);
+      pills.forEach((pill) => {
+        expect(pill.dataset.status).toBe('ok');
+      });
+
       expect(screen.queryByTestId('daemon-disconnected-banner')).toBeNull();
       expect(screen.queryByTestId('daemon-offline-empty-state')).toBeNull();
     });
@@ -986,9 +1178,10 @@ describe('Dashboard (RPC-level)', () => {
       const scrollContainer = pr1.closest('.overflow-y-auto') as HTMLDivElement;
       scrollContainer.scrollTop = 120;
 
-      const input = screen.getByPlaceholderText(/Search title and body/i) as HTMLInputElement;
+      const input = screen.getByRole('combobox', { name: /Filter or search query/i }) as HTMLTextAreaElement;
       act(() => {
-        fireEvent.change(input, { target: { value: 'state:open lable:xy' } });
+        fireEvent.focus(input);
+        fireEvent.change(input, { target: { value: 'state:open lable:xy', selectionStart: 19 } });
       });
       await act(async () => {
         await vi.advanceTimersByTimeAsync(250);
@@ -997,13 +1190,10 @@ describe('Dashboard (RPC-level)', () => {
       // Editing only the error clause leaves the valid predicate list unchanged, so scrollTop is preserved
       expect(scrollContainer.scrollTop).toBe(120);
 
-      // Editing the valid clause changes settledKey and resets scrollTop to 0
-      act(() => {
-        fireEvent.change(input, { target: { value: 'state:closed lable:xy' } });
-      });
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(250);
-      });
+      // Editing the valid clause via State menu changes settledKey and resets scrollTop to 0
+      const stateTrigger = screen.getByRole('button', { name: /Filter by state/i });
+      fireEvent.click(stateTrigger);
+      fireEvent.click(within(stateTrigger.parentElement!).getByRole('button', { name: /^Closed$/i }));
       await screen.findByText('Closed PR 3');
       expect(scrollContainer.scrollTop).toBe(0);
     });

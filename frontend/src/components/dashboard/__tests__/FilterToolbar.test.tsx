@@ -22,9 +22,7 @@ function Harness({ filters }: { filters: FilterControls }) {
   return (
     <FilterToolbar
       filters={filters}
-      setFilter={() => {}}
-      setFilters={() => {}}
-      setOrgOrRepo={() => {}}
+      setControl={() => {}}
       toggleAssignedToMe={() => {}}
       currentUser="alice"
       facets={EMPTY_FACETS}

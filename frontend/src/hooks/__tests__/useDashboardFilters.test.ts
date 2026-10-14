@@ -1,3 +1,4 @@
+import { createElement, StrictMode, type ReactNode } from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useDashboardFilters } from '../useDashboardFilters';
@@ -15,7 +16,7 @@ describe('useDashboardFilters hook', () => {
 
   it('initializes with default filters when URL search is empty', () => {
     const { result } = renderHook(() => useDashboardFilters());
-    expect(result.current.filters).toEqual(DEFAULT_FILTER_CONTROLS);
+    expect(result.current.controls).toEqual(DEFAULT_FILTER_CONTROLS);
     expect(result.current.state.text).toBe('');
     expect(result.current.requestText).toBe('');
     expect(result.current.isDefault).toBe(true);
@@ -29,9 +30,9 @@ describe('useDashboardFilters hook', () => {
     const { result } = renderHook(() => useDashboardFilters());
 
     expect(result.current.state.text).toBe('new:any repo:kubernetes/kubernetes assignee:@me');
-    expect(result.current.filters.triage).toBe('activity');
-    expect(result.current.filters.repo).toEqual(['kubernetes/kubernetes']);
-    expect(result.current.filters.assignee).toEqual(['@me']);
+    expect(result.current.controls.triage).toBe('activity');
+    expect(result.current.controls.repo).toEqual(['kubernetes/kubernetes']);
+    expect(result.current.controls.assignee).toEqual(['@me']);
     expect(result.current.isDefault).toBe(false);
     expect(result.current.activeCount).toBe(3);
     expect(replaceStateSpy).toHaveBeenCalledWith(
@@ -67,23 +68,23 @@ describe('useDashboardFilters hook', () => {
     });
 
     expect(result.current.state.text).toBe('new:any repo:golang/go');
-    expect(result.current.filters.triage).toBe('activity');
-    expect(result.current.filters.repo).toEqual(['golang/go']);
+    expect(result.current.controls.triage).toBe('activity');
+    expect(result.current.controls.repo).toEqual(['golang/go']);
     expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/?q=new:any+repo:golang/go');
     expect(window.location.search).toBe('?q=new:any+repo:golang/go');
 
     replaceStateSpy.mockRestore();
   });
 
-  it('updates state and pushes ?q= to browser history when setFilter is called', () => {
+  it('updates state and pushes ?q= to browser history when setTriageTab is called', () => {
     const pushStateSpy = vi.spyOn(window.history, 'pushState');
     const { result } = renderHook(() => useDashboardFilters());
 
     act(() => {
-      result.current.setFilter('triage', 'acked');
+      result.current.setTriageTab('acked');
     });
 
-    expect(result.current.filters.triage).toBe('acked');
+    expect(result.current.controls.triage).toBe('acked');
     expect(result.current.state.text).toBe('triage:acked');
     expect(pushStateSpy).toHaveBeenCalledWith(null, '', '/?q=triage:acked');
 
@@ -98,7 +99,7 @@ describe('useDashboardFilters hook', () => {
       result.current.applyWorkflowShortcut('inbox');
     });
 
-    expect(result.current.filters).toEqual(DEFAULT_FILTER_CONTROLS);
+    expect(result.current.controls).toEqual(DEFAULT_FILTER_CONTROLS);
     expect(result.current.state.text).toBe('');
     expect(window.location.search).toBe('');
   });
@@ -109,17 +110,17 @@ describe('useDashboardFilters hook', () => {
     act(() => {
       result.current.toggleRepo('kubernetes/kubernetes');
     });
-    expect(result.current.filters.repo).toEqual(['kubernetes/kubernetes']);
+    expect(result.current.controls.repo).toEqual(['kubernetes/kubernetes']);
     expect(window.location.search).toBe('?q=repo:kubernetes/kubernetes');
 
     act(() => {
       result.current.toggleRepo('kubernetes/kubernetes');
     });
-    expect(result.current.filters.repo).toEqual([]);
+    expect(result.current.controls.repo).toEqual([]);
     expect(window.location.search).toBe('');
   });
 
-  it('resets all filters when resetFilters is called and clears only text when clearQuery is called', () => {
+  it('clears only text when clearQuery is called while keeping sort and order', () => {
     window.history.pushState(null, '', '/?triage=acked&state=closed&sort=created');
     const { result } = renderHook(() => useDashboardFilters());
 
@@ -129,29 +130,23 @@ describe('useDashboardFilters hook', () => {
     expect(result.current.state.text).toBe('');
     expect(result.current.state.sort).toBe('created');
     expect(window.location.search).toBe('?sort=created');
-
-    act(() => {
-      result.current.resetFilters();
-    });
-    expect(result.current.filters).toEqual(DEFAULT_FILTER_CONTROLS);
-    expect(window.location.search).toBe('');
   });
 
   it('updates milestone filter and pushes ?q= to URL search params', () => {
     const { result } = renderHook(() => useDashboardFilters());
 
     act(() => {
-      result.current.setFilter('milestone', ['v1.32']);
+      result.current.setControl('milestone', ['v1.32']);
     });
 
-    expect(result.current.filters.milestone).toEqual(['v1.32']);
+    expect(result.current.controls.milestone).toEqual(['v1.32']);
     expect(window.location.search).toBe('?q=milestone:v1.32');
 
     act(() => {
-      result.current.setFilter('milestone', []);
+      result.current.setControl('milestone', []);
     });
 
-    expect(result.current.filters.milestone).toEqual([]);
+    expect(result.current.controls.milestone).toEqual([]);
     expect(window.location.search).toBe('');
   });
 
@@ -159,17 +154,17 @@ describe('useDashboardFilters hook', () => {
     const { result } = renderHook(() => useDashboardFilters());
 
     act(() => {
-      result.current.setFilter('label', ['a', 'b']);
+      result.current.setControl('label', ['a', 'b']);
     });
 
-    expect(result.current.filters.label).toEqual(['a', 'b']);
+    expect(result.current.controls.label).toEqual(['a', 'b']);
     expect(window.location.search).toBe('?q=label:a,b');
 
     act(() => {
-      result.current.setFilter('label', []);
+      result.current.setControl('label', []);
     });
 
-    expect(result.current.filters.label).toEqual([]);
+    expect(result.current.controls.label).toEqual([]);
     expect(window.location.search).toBe('');
   });
 
@@ -179,13 +174,13 @@ describe('useDashboardFilters hook', () => {
     act(() => {
       result.current.toggleAssignedToMe();
     });
-    expect(result.current.filters.assignee).toEqual(['@me']);
+    expect(result.current.controls.assignee).toEqual(['@me']);
     expect(window.location.search).toBe('?q=assignee:@me');
 
     act(() => {
-      result.current.setFilter('assignee', ['@me', 'alice']);
+      result.current.setControl('assignee', ['@me', 'alice']);
     });
-    expect(result.current.filters.assignee).toEqual(['@me', 'alice']);
+    expect(result.current.controls.assignee).toEqual(['@me', 'alice']);
     expect(window.location.search).toBe('?q=assignee:@me,alice');
   });
 
@@ -193,21 +188,21 @@ describe('useDashboardFilters hook', () => {
     window.history.pushState(null, '', '/?tracking=untracked');
     const { result } = renderHook(() => useDashboardFilters());
 
-    expect(result.current.filters.tracking).toBe('untracked');
+    expect(result.current.controls.tracking).toBe('untracked');
     expect(result.current.state.text).toBe('tracking:false');
     expect(result.current.isDefault).toBe(false);
     expect(result.current.activeCount).toBe(1);
 
     act(() => {
-      result.current.setFilter('tracking', 'tracked');
+      result.current.setControl('tracking', 'tracked');
     });
-    expect(result.current.filters.tracking).toBe('tracked');
+    expect(result.current.controls.tracking).toBe('tracked');
     expect(window.location.search).toBe('?q=tracking:true');
 
     act(() => {
-      result.current.setFilter('tracking', 'all');
+      result.current.setControl('tracking', 'all');
     });
-    expect(result.current.filters.tracking).toBe('all');
+    expect(result.current.controls.tracking).toBe('all');
     expect(window.location.search).toBe('');
   });
 
@@ -223,17 +218,16 @@ describe('useDashboardFilters hook', () => {
       { field: Field.STATE, values: ['closed'], negated: false },
       { field: Field.LABEL, values: ['bug'], negated: false },
     ]);
-    expect(result.current.filters).toMatchObject({
+    expect(result.current.controls).toMatchObject({
       repo: ['a/b'],
       author: ['x'],
       triage: 'acked',
       state: 'closed',
       label: ['bug'],
     });
-    expect(result.current.extraPredicates).toEqual([]);
 
     act(() => {
-      result.current.setFilter('label', []);
+      result.current.setControl('label', []);
     });
 
     expect(pushStateSpy).toHaveBeenCalledWith(
@@ -305,47 +299,68 @@ describe('useDashboardFilters hook', () => {
     expect(window.location.search).toBe('?q=state:closed+label:bu');
   });
 
+  it('StrictMode: performs pure state updates and exact replaceState/pushState calls and history.length delta for typing followed by a dropdown edit in one act', () => {
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(StrictMode, null, children);
+    const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
+    const pushStateSpy = vi.spyOn(window.history, 'pushState');
+    const initialHistoryLength = window.history.length;
+
+    const { result } = renderHook(() => useDashboardFilters(), { wrapper });
+
+    // 1. Typing alone in StrictMode calls replaceState once and does not change history.length
+    act(() => {
+      result.current.setText('flaky', 'typing');
+    });
+    expect(replaceStateSpy).toHaveBeenCalledTimes(1);
+    expect(replaceStateSpy).toHaveBeenLastCalledWith(null, '', '/?q=flaky');
+    expect(pushStateSpy).not.toHaveBeenCalled();
+    expect(window.history.length - initialHistoryLength).toBe(0);
+
+    // 2. Typing (e.g. draft commit on blur) followed by a dropdown edit in one act in StrictMode
+    // commits a single pushState for the combined result without duplicate StrictMode history entries
+    replaceStateSpy.mockClear();
+    pushStateSpy.mockClear();
+    const beforeCombinedLength = window.history.length;
+
+    act(() => {
+      result.current.setText('flaky label:bu', 'typing');
+      result.current.setControl('state', 'closed');
+    });
+
+    expect(result.current.state.text).toBe('state:closed flaky label:bu');
+    expect(result.current.requestText).toBe('state:closed flaky label:bu');
+    expect(replaceStateSpy).not.toHaveBeenCalled();
+    expect(pushStateSpy).toHaveBeenCalledTimes(1);
+    expect(pushStateSpy).toHaveBeenCalledWith(null, '', '/?q=state:closed+flaky+label:bu');
+    expect(window.history.length - beforeCombinedLength).toBe(1);
+
+    replaceStateSpy.mockRestore();
+    pushStateSpy.mockRestore();
+  });
+
   it('stores the New tab as new:any and writes ?q=new:any', () => {
     const { result } = renderHook(() => useDashboardFilters());
 
     act(() => {
-      result.current.setFilter('triage', 'activity');
+      result.current.setTriageTab('activity');
     });
 
     expect(window.location.search).toBe('?q=new:any');
     expect(result.current.parsed.predicates).toEqual([
       { field: Field.NEW, values: ['any'], negated: false },
     ]);
-    expect(result.current.filters.triage).toBe('activity');
+    expect(result.current.controls.triage).toBe('activity');
+    expect(result.current.hasNoSecondaryFilters).toBe(true);
   });
 
-  it('projects repeated parameters onto the control and reports negated parameters as extra predicates (excluding TEXT terms)', () => {
+  it('projects repeated parameters onto the control while keeping negated parameters in the query text', () => {
     window.history.pushState(null, '', '/?-label=bug&label=a&label=b&q=flaky');
     const { result } = renderHook(() => useDashboardFilters());
 
-    expect(result.current.filters.label).toEqual(['a', 'b']);
-    expect(result.current.extraPredicates).toEqual([
-      { predicate: { field: Field.LABEL, values: ['bug'], negated: true }, index: 0 },
-    ]);
+    expect(result.current.controls.label).toEqual(['a', 'b']);
     expect(result.current.activeCount).toBe(3);
-
-    act(() => {
-      result.current.removePredicateAt(0);
-    });
-
-    expect(window.location.search).toBe('?q=label:a,b+flaky');
-    expect(result.current.extraPredicates).toEqual([]);
-  });
-
-  it('clears secondary filters but keeps the triage tab, type and free-text search terms', () => {
-    window.history.pushState(null, '', '/?triage=acked&type=pr&repo=a/b&-label=x&q=foo');
-    const { result } = renderHook(() => useDashboardFilters());
-
-    act(() => {
-      result.current.clearSecondaryFilters();
-    });
-
-    expect(window.location.search).toBe('?q=triage:acked+type:pr+foo');
-    expect(result.current.extraPredicates).toEqual([]);
+    expect(result.current.hasNoSecondaryFilters).toBe(false);
   });
 });
+

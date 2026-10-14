@@ -4,7 +4,7 @@ import type { FacetValue } from '../../api/octodeck/v1/query_pb';
 import { buildActivityOptions } from '../../logic/query/facets';
 import { useStableOptions } from '../../hooks/useStableOptions';
 import { MENU_ITEM_PROPS, useMenuPanelKeyboard } from '../../hooks/useMenuPanelKeyboard';
-import type { ActivityValue, FilterControls } from '../../types/filters';
+import type { ActivityValue, ControlKey, FilterControls } from '../../types/filters';
 import type { MultiSelectOption } from './MultiSelectMenu';
 import {
   CHEVRON_SIZE,
@@ -33,10 +33,9 @@ export interface StateMenuProps {
   readonly onToggle: () => void;
   readonly onClose: () => void;
   readonly menuRef?: Ref<HTMLDivElement>;
-  readonly setFilter: <K extends keyof FilterControls>(
+  readonly setFilter: <K extends ControlKey>(
     key: K,
-    value: FilterControls[K],
-    replaceHistory?: boolean
+    value: FilterControls[K]
   ) => void;
 }
 

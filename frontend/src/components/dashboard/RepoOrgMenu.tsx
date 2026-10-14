@@ -13,15 +13,8 @@ export interface RepoOrgMenuData {
   readonly repoFacets: readonly FacetValue[];
   readonly orgFacets: readonly FacetValue[];
   readonly pinnedRepos: readonly string[];
-  readonly setOrgOrRepo: (
-    kind: 'org' | 'repo',
-    values: readonly string[],
-    replaceHistory?: boolean
-  ) => void;
-  readonly setFilters: (
-    partial: Partial<FilterControls>,
-    replaceHistory?: boolean
-  ) => void;
+  readonly setOrgOrRepo: (kind: 'org' | 'repo', values: readonly string[]) => void;
+  readonly setFilters: (partial: Partial<FilterControls>) => void;
 }
 
 export interface RepoOrgMenuProps extends RepoOrgMenuData {

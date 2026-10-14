@@ -105,8 +105,8 @@ export interface UserMenuOption {
 }
 
 /**
- * Author dropdown options: pins `currentUser` first as `@<login> (you)` when present in the
- * options list.
+ * Author dropdown options: pins `currentUser` first as `@<login> (you)` with `value: '@me'`,
+ * matching `buildAssigneeMenuOptions`.
  */
 export function buildAuthorMenuOptions(
   values: readonly FacetValue[],
@@ -114,24 +114,7 @@ export function buildAuthorMenuOptions(
   currentUser: string | null | undefined,
   showAll: boolean
 ): OptionList<UserMenuOption> {
-  const built = buildOptions(values, selected, showAll);
-  const pinned: UserMenuOption[] = [];
-  const rest: UserMenuOption[] = [];
-  for (const opt of built.list) {
-    if (currentUser && fold(opt.value) === fold(currentUser)) {
-      pinned.push({
-        ...opt,
-        label: `@${opt.value} (you)`,
-        pinned: true,
-      });
-    } else {
-      rest.push(opt);
-    }
-  }
-  return {
-    list: [...pinned, ...rest],
-    hasMore: built.hasMore,
-  };
+  return buildAssigneeMenuOptions(values, selected, currentUser, showAll);
 }
 
 /**

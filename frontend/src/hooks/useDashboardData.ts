@@ -18,6 +18,7 @@ import {
   facetValues,
 } from '../logic/query/facets';
 import { exprErrorOf, isConnectivityError } from '../api/errors';
+import { mapServerErrorToRequest } from '../logic/query/predicates';
 
 /** Polling cadence for every list/facet query (the list's cadence before the migration). */
 const POLL = { refetchInterval: 3000, staleTime: 1000 } as const;
@@ -53,7 +54,7 @@ export interface SelectorFacets {
 
 export interface DashboardDataOptions {
   query: DashboardQueryState;
-  requestText?: string;
+  requestText: string;
   pinnedRepos: readonly string[];
 }
 
@@ -62,8 +63,7 @@ function matchesSelection(item: Item, selectedId: string): boolean {
 }
 
 export function useDashboardData({ query, requestText, pinnedRepos }: DashboardDataOptions) {
-  const effectiveText = requestText ?? query.text;
-  const requestParsed = useMemo(() => parseQuery(effectiveText), [effectiveText]);
+  const requestParsed = useMemo(() => parseQuery(requestText), [requestText]);
   const expr = useMemo(() => toExpr(requestParsed), [requestParsed]);
   const sort = useMemo(() => toSort(query.sort, query.order), [query.sort, query.order]);
   // Identifies the request (valid predicates + sort), independent of the selected item
@@ -180,6 +180,12 @@ export function useDashboardData({ query, requestText, pinnedRepos }: DashboardD
     [selectorData]
   );
 
+  const rawInvalidQuery = exprErrorOf(itemsQ.error) ?? exprErrorOf(selectorQ.error);
+  const invalidQuery = useMemo(
+    () => mapServerErrorToRequest(requestParsed, rawInvalidQuery),
+    [requestParsed, rawInvalidQuery]
+  );
+
   const queryErrors = [itemsQ.error, selectorQ.error, sidebarQ.error, unreadQ.error];
   return {
     items,
@@ -188,7 +194,7 @@ export function useDashboardData({ query, requestText, pinnedRepos }: DashboardD
     /** A list or facet query failed for a reason other than an invalid query. */
     hasConnectivityError: queryErrors.some(isConnectivityError),
     /** The daemon rejected the current query (shown inline, not as "Disconnected"). */
-    invalidQuery: exprErrorOf(itemsQ.error) ?? exprErrorOf(selectorQ.error),
+    invalidQuery,
     settledKey,
     refreshAll,
     sidebar,

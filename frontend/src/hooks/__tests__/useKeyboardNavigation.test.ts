@@ -364,4 +364,36 @@ describe('useKeyboardNavigation', () => {
     });
     expect(result.current.showShortcutsModal).toBe(false);
   });
+
+  it('calls onFocusSearch and prevents default on / key outside inputs, and ignores / inside inputs', () => {
+    const onFocusSearch = vi.fn();
+    renderHook(() =>
+      useKeyboardNavigation({
+        items: mockItems,
+        selectedItemId: null,
+        onSelectItem: vi.fn(),
+        onFocusSearch,
+        isDetailsOpen: false,
+      })
+    );
+
+    const slashEvent = new KeyboardEvent('keydown', { key: '/', cancelable: true });
+    act(() => {
+      window.dispatchEvent(slashEvent);
+    });
+    expect(onFocusSearch).toHaveBeenCalledTimes(1);
+    expect(slashEvent.defaultPrevented).toBe(true);
+
+    // Ignored when an input is focused
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+    const slashInInput = new KeyboardEvent('keydown', { key: '/', cancelable: true });
+    act(() => {
+      window.dispatchEvent(slashInInput);
+    });
+    expect(onFocusSearch).toHaveBeenCalledTimes(1);
+    expect(slashInInput.defaultPrevented).toBe(false);
+    document.body.removeChild(input);
+  });
 });

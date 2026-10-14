@@ -32,10 +32,6 @@ const TRACKING_URL_TO_MODEL: Readonly<Record<string, string>> = {
   untracked: 'false',
   false: 'false',
 };
-const TRACKING_MODEL_TO_URL: Readonly<Record<string, string>> = {
-  true: 'tracked',
-  false: 'untracked',
-};
 
 /** Legacy `triage=activity`: the "New" tab, which is inbox plus `new:any` (design §4.6). */
 export const ACTIVITY_TRIAGE_VALUE = 'activity';
@@ -45,7 +41,7 @@ export const ME_VALUE = '@me';
 export const LEGACY_ASSIGNED_KEY = 'assigned';
 export const LEGACY_ASSIGNED_ME = 'me';
 
-/** Parameters that are not predicates. Written after the predicates, in this order. */
+/** Current URL parameters skipped by the legacy structured parameter decoder. */
 export const TAIL_KEYS = ['q', 'sort', 'order', 'item'] as const;
 
 export const FIELD_SPECS: readonly FieldSpec[] = [
@@ -217,14 +213,6 @@ export function decodeLegacyValue(spec: FieldSpec, raw: string): string | null {
     return spec.closed.includes(v) ? v : null;
   }
   return raw || null;
-}
-
-/** Converts a model value to its legacy URL / chip form. */
-export function encodeLegacyValue(spec: FieldSpec, value: string): string {
-  if (spec.field === Field.TRACKING) {
-    return TRACKING_MODEL_TO_URL[value] ?? value;
-  }
-  return value;
 }
 
 /** The "New" tab's predicate: non-negated `new:any`. Shown as the triage tab when no triage predicate is present. */

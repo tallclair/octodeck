@@ -13,24 +13,29 @@ import {
   type TriageFilter,
 } from '../../types/filters';
 import { parseQuery, type ParsedQuery } from './syntax';
-import { ME_VALUE, encodeLegacyValue, specForField } from './vocabulary';
-
-/** A predicate that no control can display, with its index in the clause list. */
-export interface ExtraPredicate {
-  readonly predicate: FilterPredicate;
-  readonly index: number;
-}
+import { ME_VALUE } from './vocabulary';
 
 export interface Projection {
   controls: FilterControls;
   /** Index of the clause each control displays in `parsed.clauses`. */
   owners: Partial<Record<ControlKey, number>>;
-  extras: ExtraPredicate[];
 }
 
 export interface ServerInvalidQuery {
+  readonly code?: string;
   readonly message: string;
   readonly path?: string;
+  /**
+   * When resolved against the request's ParsedQuery (`requestParsed`), identifies the failing
+   * clause by its raw text and 0-based occurrence index among clauses with that raw text, or
+   * `null` when the server error applies to the root query rather than a specific clause.
+   */
+  readonly clause?: {
+    readonly raw: string;
+    readonly occurrence: number;
+  } | null;
+  /** The request text that produced this server error, when known. */
+  readonly requestText?: string;
 }
 
 export interface ResolvedQueryErrors {
@@ -225,8 +230,7 @@ function controlFor(p: FilterPredicate): ProjectedControlValue | undefined {
 
 /**
  * Projects parsed clauses onto the dashboard's filter controls (§4, §5).
- * Only `ok` clauses have a predicate; `owners` and `extras[].index` store the clause index in
- * `parsed.clauses`.
+ * Only `ok` clauses have a predicate; `owners` stores the clause index in `parsed.clauses`.
  */
 export function projectClauses(
   parsed: ParsedQuery,
@@ -239,17 +243,13 @@ export function projectClauses(
     ...(tail?.item !== undefined ? { item: tail.item } : {}),
   };
   const owners: Partial<Record<ControlKey, number>> = {};
-  const extras: ExtraPredicate[] = [];
 
   parsed.clauses.forEach((clause, clauseIndex) => {
     if (!clause.predicate) return;
-    const predicate = clause.predicate;
-    const control = controlFor(predicate);
+    const control = controlFor(clause.predicate);
     if (control && owners[control.key] === undefined) {
       owners[control.key] = clauseIndex;
       setProjectedControl(controls, control);
-    } else {
-      extras.push({ predicate, index: clauseIndex });
     }
   });
 
@@ -263,7 +263,7 @@ export function projectClauses(
     owners.triage = owners.activity;
   }
 
-  return { controls, owners, extras };
+  return { controls, owners };
 }
 
 /** Sidebar workflow shortcut: everything back to defaults, on the given triage tab. */
@@ -301,28 +301,100 @@ export function activeQueryCount(
 const SERVER_PATH_RE = /^and\.exprs\[(\d+)\]/;
 
 /**
- * Combines client parse issues with a server ExprError (mapped via `and.exprs[i]` -> `clauseOfPredicate[i]`)
- * and builds the muted summary line (§7).
+ * Resolves a raw server ExprError (`and.exprs[i]`) against the request's ParsedQuery (`requestParsed`)
+ * so that subsequent typing edits before the next request settles still highlight the right clause
+ * (or clear the error once that clause is edited/removed) rather than indexing into `localState`'s
+ * `clauseOfPredicate` (§7).
+ */
+export function mapServerErrorToRequest(
+  requestParsed: ParsedQuery,
+  invalidQuery?: { readonly code?: string; readonly message: string; readonly path?: string } | null
+): ServerInvalidQuery | null {
+  if (!invalidQuery) return null;
+  const match = invalidQuery.path ? SERVER_PATH_RE.exec(invalidQuery.path) : null;
+  const predIndex = match ? Number(match[1]) : -1;
+  const reqClauseIndex =
+    predIndex >= 0 && predIndex < requestParsed.clauseOfPredicate.length
+      ? requestParsed.clauseOfPredicate[predIndex]
+      : undefined;
+
+  if (reqClauseIndex !== undefined) {
+    const raw = requestParsed.clauses[reqClauseIndex].raw;
+    let occurrence = 0;
+    for (let i = 0; i < reqClauseIndex; i++) {
+      if (requestParsed.clauses[i].raw === raw) {
+        occurrence++;
+      }
+    }
+    return {
+      code: invalidQuery.code,
+      message: invalidQuery.message,
+      path: invalidQuery.path,
+      clause: { raw, occurrence },
+      requestText: requestParsed.text,
+    };
+  }
+
+  return {
+    code: invalidQuery.code,
+    message: invalidQuery.message,
+    path: invalidQuery.path,
+    clause: null,
+    requestText: requestParsed.text,
+  };
+}
+
+/**
+ * Combines client parse issues with a server ExprError (mapped via `requestParsed` or
+ * `and.exprs[i]` -> `clauseOfPredicate[i]`) and builds the muted summary line (§7).
  */
 export function resolveQueryErrors(
   parsed: ParsedQuery,
   invalidQuery?: ServerInvalidQuery | null,
-  options?: { excludedClauseIndex?: number | null }
+  options?: { excludedClauseIndex?: number | null; requestParsed?: ParsedQuery }
 ): ResolvedQueryErrors {
   const serverClauseErrors = new Map<number, string>();
   let serverRootError: string | null = null;
 
-  if (invalidQuery) {
-    const match = invalidQuery.path ? SERVER_PATH_RE.exec(invalidQuery.path) : null;
-    const predIndex = match ? Number(match[1]) : -1;
-    const clauseIndex =
-      predIndex >= 0 && predIndex < parsed.clauseOfPredicate.length
-        ? parsed.clauseOfPredicate[predIndex]
-        : undefined;
-    if (clauseIndex !== undefined) {
-      serverClauseErrors.set(clauseIndex, invalidQuery.message);
+  const effectiveInvalidQuery =
+    invalidQuery && invalidQuery.clause === undefined && options?.requestParsed
+      ? mapServerErrorToRequest(options.requestParsed, invalidQuery)
+      : invalidQuery;
+
+  if (effectiveInvalidQuery) {
+    if (effectiveInvalidQuery.clause !== undefined) {
+      if (effectiveInvalidQuery.clause !== null) {
+        const { raw, occurrence } = effectiveInvalidQuery.clause;
+        let seen = 0;
+        for (let i = 0; i < parsed.clauses.length; i++) {
+          if (parsed.clauses[i].raw === raw) {
+            if (seen === occurrence) {
+              serverClauseErrors.set(i, effectiveInvalidQuery.message);
+              break;
+            }
+            seen++;
+          }
+        }
+      } else if (
+        effectiveInvalidQuery.requestText === undefined ||
+        effectiveInvalidQuery.requestText === parsed.text
+      ) {
+        serverRootError = effectiveInvalidQuery.message;
+      }
     } else {
-      serverRootError = invalidQuery.message;
+      const match = effectiveInvalidQuery.path
+        ? SERVER_PATH_RE.exec(effectiveInvalidQuery.path)
+        : null;
+      const predIndex = match ? Number(match[1]) : -1;
+      const clauseIndex =
+        predIndex >= 0 && predIndex < parsed.clauseOfPredicate.length
+          ? parsed.clauseOfPredicate[predIndex]
+          : undefined;
+      if (clauseIndex !== undefined) {
+        serverClauseErrors.set(clauseIndex, effectiveInvalidQuery.message);
+      } else {
+        serverRootError = effectiveInvalidQuery.message;
+      }
     }
   }
 
@@ -354,35 +426,4 @@ export function resolveQueryErrors(
   };
 }
 
-/** Label and values for a generic filter chip. */
-export function formatPredicateChip(p: FilterPredicate): {
-  label: string;
-  values: string[];
-  negated: boolean;
-} {
-  const spec = specForField(p.field);
-  const values = spec ? p.values.map((v) => encodeLegacyValue(spec, v)) : [...p.values];
-  return { label: spec?.label ?? 'Filter', values, negated: p.negated };
-}
 
-/**
- * Whether any secondary filter chip is currently active (excluding the `new:any` predicate that
- * drives the New tab when `filters.triage === 'activity'`).
- */
-export function hasActiveFilterChips(
-  filters: FilterControls,
-  extraPredicates: readonly ExtraPredicate[]
-): boolean {
-  return (
-    filters.state !== 'all' ||
-    filters.tracking !== 'all' ||
-    filters.repo.length > 0 ||
-    filters.org.length > 0 ||
-    filters.author.length > 0 ||
-    filters.assignee.length > 0 ||
-    filters.milestone.length > 0 ||
-    filters.label.length > 0 ||
-    (filters.activity.length > 0 && filters.triage !== 'activity') ||
-    extraPredicates.length > 0
-  );
-}

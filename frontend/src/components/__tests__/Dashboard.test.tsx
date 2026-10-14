@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { render, screen, fireEvent, act, within, waitFor } from '@testing-library/react';
 import { Dashboard } from '../Dashboard';
+import { queryPillTexts } from '../../test/queryInput';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as connectQuery from '@connectrpc/connect-query';
 import { ItemType, ItemState, ItemStatus, SubscriptionState, type Item, type User } from '../../api/octodeck/v1/resources_pb';
@@ -756,6 +757,30 @@ describe('Dashboard Component - Generalized Filters & URL Sync', () => {
       fireEvent.click(shortcutsBtn);
       expect(screen.getByRole('dialog')).toBeDefined();
       expect(screen.getByRole('heading', { name: /Keyboard Shortcuts/i })).toBeDefined();
+      expect(screen.getByText(/Focus filter \/ search input/i)).toBeDefined();
+    });
+
+    it('focuses the query input on / key and ignores item shortcuts while typing in the query input', () => {
+      const ackItemMutate = vi.fn().mockResolvedValue({});
+      vi.mocked(connectQuery.useMutation).mockReturnValue({
+        mutateAsync: ackItemMutate,
+      } as any);
+
+      render(<Dashboard />);
+      const queryInput = screen.getByRole('combobox', { name: /Filter or search query/i });
+      expect(document.activeElement).not.toBe(queryInput);
+
+      const slashEvent = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
+      act(() => {
+        window.dispatchEvent(slashEvent);
+      });
+      expect(slashEvent.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(queryInput);
+
+      // Typing j/e inside the focused query input must not select or ack items
+      fireEvent.keyDown(queryInput, { key: 'j' });
+      fireEvent.keyDown(queryInput, { key: 'Enter' });
+      expect(window.location.search).not.toContain('item=PR_1');
     });
 
     it('navigates with j/k, opens details with Enter, and acks with e key', async () => {
@@ -1027,16 +1052,16 @@ describe('Dashboard Component - Generalized Filters & URL Sync', () => {
         fireEvent.click(within(stateMenu).getByRole('button', { name: /^Untracked$/i }));
       });
 
-      expect(screen.getByRole('button', { name: /Remove tracking filter/i })).toBeDefined();
+      expect(queryPillTexts()).toContain('tracking:false');
 
-      // Click "Clear filters"
-      const clearFiltersBtn = screen.getByRole('button', { name: /Reset filters/i });
+      // Click "Clear query"
+      const clearQueryBtn = screen.getByRole('button', { name: 'Clear query' });
       act(() => {
-        fireEvent.click(clearFiltersBtn);
+        fireEvent.click(clearQueryBtn);
       });
 
-      expect(screen.queryByRole('button', { name: /Remove tracking filter/i })).toBeNull();
-      expect(window.location.search).not.toContain('tracking=');
+      expect(queryPillTexts()).not.toContain('tracking:false');
+      expect(window.location.search).not.toContain('tracking');
     });
 
     it('disables subscribe buttons on card and details pane when hasNotificationsScope is false', () => {
@@ -1085,6 +1110,49 @@ describe('Dashboard Component - Generalized Filters & URL Sync', () => {
       const detailsBadge = screen.getByTestId('details-untracked-badge');
       expect(detailsBadge.hasAttribute('disabled')).toBe(true);
       expect(detailsBadge.getAttribute('title')).toContain('gh auth refresh -s notifications');
+    });
+
+    it('renders TriageTitleMenu inside the top nav bar aligned with the center pane', () => {
+      vi.mocked(connectQuery.useQuery).mockImplementation((schema: any) => {
+        const auxiliary = stubAuxiliaryQuery(schema);
+        if (auxiliary) return auxiliary;
+        if (
+          schema?.name === 'GetItems' ||
+          schema?.typeName === 'octodeck.v1.OctoDeckService' ||
+          schema?.method?.name === 'GetItems'
+        ) {
+          return {
+            data: { items: [mockItem] },
+            isLoading: false,
+            error: null,
+            refetch: vi.fn(),
+          } as any;
+        }
+        return {
+          data: { config: mockConfig, currentUserLogin: 'testuser' },
+          isLoading: false,
+          error: null,
+          refetch: vi.fn(),
+        } as any;
+      });
+
+      const { container } = render(<Dashboard />);
+      const nav = container.querySelector('nav')!;
+      const header = container.querySelector('header')!;
+
+      const titleTrigger = within(nav).getByLabelText(/Select triage status/i);
+      expect(titleTrigger).toBeDefined();
+      expect(within(header).queryByLabelText(/Select triage status/i)).toBeNull();
+
+      // The center column wrapper in <nav> has the same max-w-4xl container and left spacer as <header>
+      const navCenterCol = titleTrigger.closest('.max-w-4xl')!;
+      expect(navCenterCol).not.toBeNull();
+      const navLeftSpacer = navCenterCol.previousElementSibling as HTMLElement;
+      expect(navLeftSpacer.className).toContain('flex-1 min-w-6');
+
+      // Selecting an item switches the left spacer in <nav> to w-6 flex-none alongside the center pane
+      fireEvent.click(screen.getByText('Test PR'));
+      expect(navLeftSpacer.className).toContain('w-6 flex-none');
     });
   });
 });

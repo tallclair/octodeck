@@ -8,9 +8,9 @@ import {
   type SortOption,
   type SortOrder,
 } from '../../types/filters';
+import { normalizeQuerySpacing } from './clauseDisplay';
 import { parseLegacyParams } from './legacyUrl';
 import { formatPredicates } from './syntax/format';
-import { scan } from './syntax/scan';
 
 const SORT_OPTIONS: readonly SortOption[] = ['updated', 'acked', 'created'];
 const SORT_ORDERS: readonly SortOrder[] = ['asc', 'desc'];
@@ -32,9 +32,7 @@ export function parseDashboardUrl(search: string | URLSearchParams): {
   const legacy = parseLegacyParams(params);
   const q = params.get('q') ?? '';
   const joined = [formatPredicates(legacy), q].join(' ');
-  const text = scan(joined)
-    .map((c) => c.raw)
-    .join(' ');
+  const text = normalizeQuerySpacing(joined);
 
   const rawSort = params.get('sort')?.toLowerCase();
   const rawOrder = params.get('order')?.toLowerCase();

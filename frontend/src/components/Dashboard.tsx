@@ -1,6 +1,6 @@
 import { useToast } from '../context/ToastContext';
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, CheckCircle, AlertTriangle, RefreshCw } from 'lucide-react';
+import { CheckCircle, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useQuery, useMutation } from '@connectrpc/connect-query';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -12,7 +12,6 @@ import {
   getSyncStatus,
   updateSubscription,
 } from '../api/octodeck/v1/service-OctoDeckService_connectquery';
-import { Field } from '../api/octodeck/v1/query_pb';
 import { SubscriptionState, type Item } from '../api/octodeck/v1/resources_pb';
 import { client, checkStatus } from '../api/client';
 import { PullRequestCard } from './PullRequestCard';
@@ -20,7 +19,6 @@ import { DetailsPane } from './DetailsPane';
 import { SyncStatusDisplay } from './SyncStatusDisplay';
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
 import { Settings } from '../Settings';
-import { hasActiveFilterChips, resolveQueryErrors } from '../logic/query/predicates';
 import { useDashboardFilters } from '../hooks/useDashboardFilters';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { useScrollAnchoring } from '../hooks/useScrollAnchoring';
@@ -28,9 +26,9 @@ import { useKeyboardNavigation } from '../hooks/useKeyboardNavigation';
 import { useMenuGroup } from '../hooks/useMenuGroup';
 import { TriageTitleMenu } from './dashboard/TriageTitleMenu';
 import { FilterToolbar } from './dashboard/FilterToolbar';
-import { ActiveFilterChips } from './dashboard/ActiveFilterChips';
 import { SortMenu } from './dashboard/SortMenu';
 import { DashboardSidebar } from './dashboard/DashboardSidebar';
+import { QueryInput } from './query/QueryInput';
 
 interface DashboardProps {
   onOpenDebug?: (targetItemId?: string) => void;
@@ -81,6 +79,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
 
   const [showSettings, setShowSettings] = useState(false);
   const menus = useMenuGroup();
+  const queryInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [debugMode, setDebugMode] = useState<boolean>(() => {
     try {
@@ -95,23 +94,23 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   });
 
   const {
-    query,
-    parsed,
-    filters,
-    extraPredicates,
+    state,
+    controls,
     requestText,
     setText,
-    setFilter,
-    setFilters,
-    setOrgOrRepo,
+    setControl,
+    setTriageTab,
+    setSort,
+    setOrder,
+    selectItem,
     toggleAssignedToMe,
+    clearQuery,
     applyWorkflowShortcut,
     toggleRepo,
-    clearSecondaryFilters,
-    removePredicateAt,
+    hasNoSecondaryFilters,
   } = useDashboardFilters();
 
-  const selectedItemId = filters.item;
+  const selectedItemId = controls.item;
   const [dismissingIds, setDismissingIds] = useState<Set<string>>(new Set());
 
   const handleToggleDebugMode = (enabled: boolean) => {
@@ -132,23 +131,13 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
 
   // Items, dropdown options and sidebar counts, all filtered and counted by the daemon.
   const data = useDashboardData({
-    query,
+    query: state,
     requestText,
     pinnedRepos,
   });
   const { items, refreshAll } = data;
   // An invalid query is reported inline; only connectivity failures mean "disconnected".
   const isDisconnected = data.hasConnectivityError || isConfigError || isSyncStatusError;
-
-  const resolvedErrors = useMemo(
-    () => resolveQueryErrors(parsed, data.invalidQuery),
-    [parsed, data.invalidQuery]
-  );
-
-  const hasActiveChips = useMemo(
-    () => hasActiveFilterChips(filters, extraPredicates),
-    [filters, extraPredicates]
-  );
 
   const itemIds = useMemo(() => items.map((i) => i.id), [items]);
 
@@ -216,11 +205,11 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
 
   const handleAck = async (id: string) => {
     try {
-      const willDisappear = filters.triage !== 'all' && filters.triage !== 'acked';
+      const willDisappear = controls.triage !== 'all' && controls.triage !== 'acked';
       if (willDisappear) {
         setDismissingIds((prev) => new Set(prev).add(id));
       }
-      setFilter('item', null);
+      selectItem(null);
 
       const mutationPromise = ackItemMutate({ itemId: id, acked: true });
       if (willDisappear) {
@@ -325,19 +314,13 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   const { focusedItemId, showShortcutsModal, setShowShortcutsModal } = useKeyboardNavigation({
     items,
     selectedItemId,
-    onSelectItem: (id) => setFilter('item', id),
+    onSelectItem: selectItem,
     onAckItem: handleAck,
     onStarItem: handleStar,
+    onFocusSearch: () => queryInputRef.current?.focus(),
     isDetailsOpen: Boolean(selectedItemId),
     disabled: showSettings || menus.anyOpen,
   });
-
-  // Determine active workflow shortcut (no secondary filters, type=all, no search text)
-  const hasSearchTerms = useMemo(
-    () => parsed.predicates.some((p) => p.field === Field.TEXT),
-    [parsed.predicates]
-  );
-  const hasNoSecondaryFilters = !hasActiveChips && filters.type === 'all' && !hasSearchTerms;
 
   if (data.isInitialLoading && !isDisconnected) {
     return (
@@ -383,28 +366,36 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
       )}
 
       {/* Top Navigation */}
-      <nav className="h-14 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 bg-white/80 dark:bg-slate-950/80 backdrop-blur sticky top-0 z-40">
-        <div className="flex items-center gap-2 shrink-0">
+      <nav className="relative h-14 border-b border-slate-200 dark:border-slate-800 flex items-center bg-white/80 dark:bg-slate-950/80 backdrop-blur sticky top-0 z-40">
+        <div className="flex items-center gap-2 shrink-0 px-4 md:w-64">
           <img src="/logo.png" alt="OctoDeck logo" className="w-5 h-5 object-contain" />
           <h1 className="font-bold text-base tracking-tight bg-gradient-to-r from-slate-900 to-slate-600 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">
             OctoDeck
           </h1>
         </div>
 
-        {/* Center Search Input */}
-        <div className="flex-1 max-w-md mx-auto relative hidden md:block">
-          <Search size={14} className="absolute left-3 top-2.5 text-slate-400 dark:text-slate-500" />
-          <input
-            type="text"
-            placeholder="Search title and body..."
-            value={query.text}
-            onChange={(e) => setText(e.target.value, 'typing')}
-            className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full py-1.5 pl-9 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-800 dark:text-slate-300 placeholder:text-slate-400 dark:placeholder:text-slate-500"
+        {/* Center Pane Title Menu (aligned with the list column below) */}
+        <div className="flex-1 min-w-0 flex items-center">
+          <div
+            className={`transition-all duration-300 ease-in-out ${
+              selectedItem ? 'w-6 flex-none' : 'flex-1 min-w-6'
+            }`}
           />
+          <div className="w-full max-w-4xl min-w-0 flex items-center">
+            <TriageTitleMenu
+              triage={controls.triage}
+              onSelect={setTriageTab}
+              isOpen={menus.isOpen('status')}
+              onToggle={() => menus.toggle('status')}
+              onClose={() => menus.close()}
+              menuRef={menus.refFor('status')}
+            />
+          </div>
+          <div className="flex-1 min-w-6" />
         </div>
 
         {/* Right Side: Sync Status Display & Hovercard */}
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="absolute right-4 flex items-center gap-3">
           <SyncStatusDisplay
             status={syncStatusData?.status}
             isSyncing={isSyncing}
@@ -445,7 +436,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
       {/* Main Content Area */}
       <div className="flex flex-1 overflow-hidden relative">
         <DashboardSidebar
-          filters={filters}
+          filters={controls}
           hasNoSecondaryFilters={hasNoSecondaryFilters}
           sidebar={data.sidebar}
           repoInboxCounts={data.repoInboxCounts}
@@ -460,9 +451,12 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
 
         {/* List Pane */}
         <div className="flex-1 min-w-0 flex flex-col border-r border-slate-200 dark:border-slate-800 relative bg-slate-50 dark:bg-slate-950 overflow-hidden">
-          <div className="flex flex-col h-full overflow-y-auto" ref={scrollContainerRef}>
+          <div
+            className="flex flex-col h-full overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]"
+            ref={scrollContainerRef}
+          >
             {/* List Header */}
-            <header className="py-3.5 border-b border-slate-200 dark:border-slate-800 shrink-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur z-20 sticky top-0">
+            <header className="w-full py-3.5 border-b border-slate-200 dark:border-slate-800 shrink-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur z-20 sticky top-0">
               <div className="flex w-full items-center transition-all duration-300 ease-in-out">
                 <div
                   className={`transition-all duration-300 ease-in-out ${
@@ -471,34 +465,23 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                 />
 
                 <div className="w-full max-w-4xl min-w-0 space-y-3">
-                  <TriageTitleMenu
-                    triage={filters.triage}
-                    onSelect={(tab) => setFilter('triage', tab)}
-                    isOpen={menus.isOpen('status')}
-                    onToggle={() => menus.toggle('status')}
-                    onClose={() => menus.close()}
-                    menuRef={menus.refFor('status')}
+                  <QueryInput
+                    value={state.text}
+                    onChange={setText}
+                    onClear={clearQuery}
+                    invalidQuery={data.invalidQuery}
+                    facets={data.facets}
+                    inputRef={queryInputRef}
                   />
 
                   <FilterToolbar
-                    filters={filters}
-                    setFilter={setFilter}
-                    setFilters={setFilters}
-                    setOrgOrRepo={setOrgOrRepo}
+                    filters={controls}
+                    setControl={setControl}
                     toggleAssignedToMe={toggleAssignedToMe}
                     currentUser={currentUser}
                     facets={data.facets}
                     pinnedRepos={pinnedRepos}
                     menus={menus}
-                  />
-
-                  <ActiveFilterChips
-                    filters={filters}
-                    extraPredicates={extraPredicates}
-                    setFilter={setFilter}
-                    removePredicateAt={removePredicateAt}
-                    clearSecondaryFilters={clearSecondaryFilters}
-                    onOpenMenu={(id) => menus.openMenu(id)}
                   />
                 </div>
 
@@ -521,26 +504,16 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                     </span>
 
                     <SortMenu
-                      sort={filters.sort}
-                      order={filters.order}
-                      onSelectSort={(sort) => setFilter('sort', sort)}
-                      onSelectOrder={(order) => setFilter('order', order)}
+                      sort={controls.sort}
+                      order={controls.order}
+                      onSelectSort={setSort}
+                      onSelectOrder={setOrder}
                       isOpen={menus.isOpen('sort')}
                       onToggle={() => menus.toggle('sort')}
                       onClose={() => menus.close()}
                       menuRef={menus.refFor('sort')}
                     />
                   </div>
-                  {resolvedErrors.summary && (
-                    <div
-                      role="alert"
-                      data-testid="invalid-query"
-                      className="m-4 px-3 py-2 text-xs rounded border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 flex items-center gap-2"
-                    >
-                      <AlertTriangle size={14} className="shrink-0" aria-hidden="true" />
-                      <span>{resolvedErrors.summary}</span>
-                    </div>
-                  )}
                   {items.map((item) => (
                     <div
                       key={item.id}
@@ -552,7 +525,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                         isSelected={selectedItemId === item.id}
                         isFocused={focusedItemId === item.id}
                         onSelect={() =>
-                          setFilter('item', selectedItemId === item.id ? null : item.id)
+                          selectItem(selectedItemId === item.id ? null : item.id)
                         }
                         onAck={handleAck}
                         onUnack={handleUnack}
@@ -560,7 +533,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                         canSubscribe={hasNotificationsScope}
                         showItemId={debugMode}
                         onOpenDebug={debugMode ? onOpenDebug : undefined}
-                        grayAckedBackground={filters.triage === 'all'}
+                        grayAckedBackground={controls.triage === 'all'}
                       />
                     </div>
                   ))}
@@ -610,7 +583,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                 onSetNotes={handleSetNotes}
                 onSubscribe={handleSubscribe}
                 canSubscribe={hasNotificationsScope}
-                onClose={() => setFilter('item', null)}
+                onClose={() => selectItem(null)}
                 showItemId={debugMode}
                 onOpenDebug={debugMode ? onOpenDebug : undefined}
               />
