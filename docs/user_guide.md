@@ -56,14 +56,73 @@ The OctoDeck dashboard (`http://127.0.0.1:38274/`) is designed for fast, high-vo
 
 ## 3. Filtering & Search
 
-OctoDeck offers multidimensional filtering with live facet counts, in-menu search boxes, and real-time text search:
+OctoDeck pairs multidimensional filter menus with a highlighted query input in the list header. The query text (synchronized to the `?q=` URL parameter) and the toolbar controls stay in sync: picking options in a menu updates the corresponding clause of the query in place, and typing qualifiers in the query box updates the active state of the controls.
+
+### 3.1 Toolbar & Filter Menus
 
 * **PRs vs Issues:** Quickly toggle between Pull Requests only, Issues only, or All.
 * **State, Tracking & Activity:** From the **State** menu, filter by **Open**, **Closed**, or **Merged**, **Tracked** (subscribed) or **Untracked** items, and one or more **New Activity** types (the **New Activity** header itself is equivalent to the **New** tab, or pick specific types: **New items**, **Mentions**, **Comments & reviews**, **New commits**, or **Noise (bots)**).
 * **Repository & Organization (Multi-Select):** Select one or more organizations (e.g. `kubernetes`, `golang`) or one or more specific repositories (`kubernetes/kubernetes`, `kubernetes/website`). Selecting an organization clears repository selections and vice versa.
-* **Author & Labels (Multi-Select):** Select one or more author logins (including `@your-login (you)` pinned at the top) or multiple GitHub labels (with live counts and label color swatches) to match items carrying any of the selected values.
-* **Assigned to Me & More Filters (`...`):** Use the one-click **Assigned to me** toggle to add/remove `@me` from the assignee filter, or open the **`...` (More filters)** menu on the right to drill into multi-select **Assignee** and **Milestone** filters. When the window is narrow, the **Repository** filter moves into the `...` menu, and on very narrow windows the **Assigned to me** toggle is hidden (use **Assignee** in the `...` menu instead).
+* **Author & Labels (Multi-Select):** Select one or more author logins (including `@your-login (you)` pinned at the top, which writes `author:@me`) or multiple GitHub labels (with live counts and label color swatches) to match items carrying any of the selected values.
+* **Assigned to Me & More Filters (`...`):** Use the one-click **Assigned to me** toggle to add/remove `assignee:@me`, or open the **`...` (More filters)** menu on the right to drill into multi-select **Assignee** and **Milestone** filters. When the window is narrow, the **Repository** filter moves into the `...` menu, and on very narrow windows the **Assigned to me** toggle is hidden (use **Assignee** in the `...` menu instead).
 * **Sorting:** Sort by **Latest Activity**, **Last Acked**, or **Creation Date** in ascending or descending order.
+
+### 3.2 Query Input & Query Syntax
+
+Press `/` anywhere outside a text input to focus the query bar. The query is plain text that you edit like any text field, and each clause is highlighted as a chip on the text itself: blue for filters, rose for excluded (`-`) filters, red with a wavy underline under the problem for errors, and dashed amber for unfinished clauses. Free-text search terms get a neutral chip. Long queries wrap onto more lines (up to four, then the box scrolls).
+
+* **Autocomplete:** Typing a qualifier prefix (or pressing `ArrowDown` in an empty input) suggests qualifier keys and `is:` shorthands. After `:`, OctoDeck suggests closed-set values or live facet values (with match counts) for repositories, organizations, authors, assignees, milestones, and labels. Press `Tab` to accept a suggestion and keep editing the clause, or `Enter` to accept a value and move on to the next clause.
+* **Editing:** Click anywhere in the query to place the caret, select text with the mouse or keyboard, and use the usual shortcuts: `Ctrl+A` / `Cmd+A` to select everything, copy/cut/paste (always as plain text; pasted line breaks become spaces), and `Ctrl+Z` / `Cmd+Z` to undo/redo. `Enter` never adds a line break; it moves the caret to the end of the query. `Esc` closes the suggestion list, and pressing it again leaves the query bar.
+* **Removing clauses:** When the query bar is not focused, hover over a chip with the mouse to reveal a `×` on its right end; click it to remove that clause. The `×` button on the right of the query bar clears the whole query (including the **New**, **Acked** and **All** tab clauses) while keeping your current sort order.
+
+#### Qualifiers
+
+| Qualifier | Values | Description |
+| :--- | :--- | :--- |
+| `triage:<state>` | `inbox`, `acked`, `all` | Maintainer triage bucket (defaults to `triage:inbox` when omitted) |
+| `state:<state>` | `open`, `closed`, `merged` | Item state |
+| `type:<type>` | `pr`, `issue` | Item type (pull request or issue) |
+| `draft:<bool>` | `true`, `false` | Pull request draft status |
+| `tracking:<bool>` | `true`, `false` | GitHub notification subscription state (`true` for tracked, `false` for untracked) |
+| `starred:<bool>` | `true`, `false` | Local maintainer star status |
+| `new:<type>` | `item`, `mention`, `comment`, `code`, `noise`, `any` | Unviewed activity flags since last viewed or acknowledged |
+| `repo:<owner/name>` | Open (facet-backed) | Repository `owner/name` (e.g. `repo:kubernetes/kubernetes`) |
+| `org:<org>` | Open (facet-backed) | GitHub organization or user owner (e.g. `org:kubernetes`) |
+| `author:<login>` | Open (`@me` or login) | Author login (`author:@me`, `author:octocat`, or `author:@octocat`) |
+| `assignee:<login>` | Open (`@me` or login) | Assignee login (`assignee:@me`, `assignee:octocat`, or `assignee:@octocat`) |
+| `milestone:<title>` | Open (facet-backed) | Milestone title (e.g. `milestone:v1.30`) |
+| `label:<name>` | Open (facet-backed) | GitHub label name (`label:bug`, `label:"good first issue"`) |
+| `no:<field>` | `assignee`, `label`, `milestone` | Items missing the specified metadata (`no:assignee`, `no:label`, `no:milestone`) |
+| `in:<target>` | `title`, `body` | Restrict free-text search terms to title, body, or both (`in:title,body`; cannot be negated) |
+
+Bare numbers or `#`-prefixed numbers such as `123` or `#123` match issue or pull request number `123` in addition to free-text search.
+
+#### `is:` Shorthands
+
+| Shorthand | Equivalent Clause |
+| :--- | :--- |
+| `is:open`, `is:closed`, `is:merged` | `state:open`, `state:closed`, `state:merged` |
+| `is:pr`, `is:issue` | `type:pr`, `type:issue` |
+| `is:draft`, `-is:draft` | `draft:true`, `-draft:true` |
+| `is:tracked`, `is:untracked` | `tracking:true`, `tracking:false` |
+| `is:starred`, `-is:starred` | `starred:true`, `-starred:true` |
+| `is:new`, `-is:new` | `new:any`, `-new:any` |
+| `is:inbox`, `is:acked` | `triage:inbox`, `triage:acked` |
+
+#### Combining Clauses, Negation, and Quoting
+
+* **AND (Spaces):** Separate clauses with spaces to require all of them: `is:pr is:open org:kubernetes`.
+* **OR (Commas):** Separate values within a single qualifier using commas (no spaces) to match any of them: `label:kind/bug,kind/flake`, `state:closed,merged`, or same-field `is:` shorthands such as `is:open,merged`.
+* **Negation (`-`):** Prefix any negatable qualifier or `is:` shorthand with `-` to exclude matches: `-label:lifecycle/rotten`, `-author:dependabot[bot]`, `-is:draft`, `-no:assignee`.
+* **Quoting & Escapes:** Wrap values containing spaces or commas in double quotes: `label:"good first issue"`. Inside quotes, use `\"` for a literal quote and `\\` for a literal backslash. Wrap free-text phrases or URLs containing colons in quotes so they are searched as text rather than parsed as `key:value`: `"panic: nil pointer"` or `"https://example.com"`.
+
+#### Examples
+
+```text
+is:pr is:open assignee:@me -is:draft
+org:kubernetes label:kind/bug,kind/regression new:mention,comment
+triage:all author:@me no:milestone "release notes" in:title #123
+```
 
 ---
 

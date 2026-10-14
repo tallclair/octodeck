@@ -130,7 +130,7 @@ Each clause gets a `status`: `ok`, `incomplete`, or `error`. Only `ok` clauses p
 | `bad-quote` | error | `label:"a"b`, `fla"ky` | the clause |
 | `empty-term` | error | `""`, `-""` | the clause |
 
-Messages are human-readable and name the allowed values for closed fields ("state must be open, closed or merged"). The `unknown-key` message suggests quoting: "*key* is not a filter. Quote it to search for the text: \"…\"". Any word of the shape `[A-Za-z_]+:…` is a qualifier, so free text such as a pasted URL (`https://github.com/…`) or `TODO:` becomes an `unknown-key` error (U9); the user guide documents the quoting workaround. `- "x"` (with a space) is two clauses: a `lone-dash` and a term. `triage:all` is `ok` with an informational note "= inbox,acked"; `#123`/`123` terms get the note "Also matches item number 123".
+Messages are human-readable and name the allowed values for closed fields ("state must be open, closed or merged"). The `unknown-key` message suggests quoting: "*key* is not a known filter. Quote it to search for the text: \"…\"". Any word of the shape `[A-Za-z_]+:…` is a qualifier, so free text such as a pasted URL (`https://github.com/…`) or `TODO:` becomes an `unknown-key` error (U9); the user guide documents the quoting workaround. `- "x"` (with a space) is two clauses: a `lone-dash` and a term. `triage:all` is `ok` with an informational note "= inbox,acked"; `#123`/`123` terms get the note "Also matches item number 123".
 
 The parser does **not** check semantics owned by Go beyond the closed sets and `in` negation (e.g. it does not know whether a repo exists). Server validation still runs (§7).
 
@@ -191,7 +191,7 @@ export function segmentClause(clause: Clause): Segment[]; // for chip rendering 
 - `formatValue(v)`: bare if `/^[^\s,"]+$/.test(v)`, otherwise `"` + `v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')` + `"`. Closed values are always bare.
 - `formatTerm(v)`: bare if `/^[^\s"]+$/.test(v)` and `v` does not start with `-` and does not match `/^[A-Za-z_]+:/`; otherwise quoted as above.
 - `formatPredicates`: predicates joined by single spaces, in order.
-- `formatQuery(expr)`: accepts an unset `Expr`, an `Expr` with no kind, an empty `and`, a single predicate, or an `and` whose children are all predicates. Each `TEXT` predicate must have exactly one value. Anything else (`or`, `not`, nested `and`, multi-value `TEXT`) throws `QueryFormatError` with the offending path. Its only production caller is the legacy-URL converter (§8.2), which always passes a flat AND; saved searches are stored as text (U13), so no Expr ever comes back from the daemon to be formatted.
+- `formatQuery(expr)`: accepts an unset `Expr`, an `Expr` with no kind, an empty `and`, a single predicate, or an `and` whose children are all predicates. Each `TEXT` predicate must have exactly one value. Anything else (`or`, `not`, nested `and`, multi-value `TEXT`) throws `QueryFormatError` with the offending path. It has no production caller in Phase 2: the legacy-URL converter (§8.2) formats its predicate list directly with `formatPredicates`. Saved searches are stored as text (U13), so no Expr ever comes back from the daemon to be formatted.
 
 ### 3.7 Round-trip properties (tests)
 
@@ -226,7 +226,7 @@ text ──parseQuery──▶ ParsedQuery ──projectControls──▶ { cont
 
 `projectClauses(parsed)` (added in commit 2.3, next to the Phase 1 `projectControls`, which 2.4 then deletes) runs the Phase 1 algorithm over the ok clauses' predicates and returns **clause indices** in `owners`. The New tab is derived exactly as in Phase 1.
 
-**Invariant:** `state.text` always has single-space separators between clauses and no leading or trailing whitespace (`toText(fromText(text)) === text`). Every writer of `state.text` maintains it: `parseDashboardUrl` normalises with `scan(text).map(c => c.raw).join(' ')` (§8.2), the input emits `toText(...)` (§6.1), and the splices in §5 keep single spaces.
+**Invariant:** `state.text` always has single-space separators between clauses and no leading or trailing whitespace (`normalizeQuerySpacing(text) === text`). Every writer of `state.text` maintains it: `parseDashboardUrl` normalises with `scan(text).map(c => c.raw).join(' ')` (§8.2), the input emits the normalised form of its local text (§6.1), and the splices in §5 keep single spaces.
 
 ### 4.1 `useDashboardFilters` API (rewritten)
 
@@ -255,8 +255,8 @@ export function useDashboardFilters(): {
 
 | Entry point | Kind | History |
 |---|---|---|
-| Keystrokes, paste, cut in the input; draft commits by space, Enter, Escape or blur | `typing` | `replaceState` |
-| Dropdown/control edits, title-menu tab switch, sidebar Workflow rows, sidebar repo rows, saved-search open (Phase 3), chip ×, clear button, undo/redo in the input | `edit` | `pushState` |
+| Keystrokes, paste, cut, IME commits and accepted suggestions in the input | `typing` | `replaceState` |
+| Dropdown/control edits, title-menu tab switch, sidebar Workflow rows, sidebar repo rows, saved-search open (Phase 3), hover remove ×, clear button, undo/redo in the input | `edit` | `pushState` |
 | Initial load, `popstate` | `edit` | none (URL already current; legacy URLs rewritten with `replaceState`, §8.2) |
 
 The request text is derived by one effect keyed on `(text, kind)`, so a dropdown click arriving while a typing debounce is pending is applied immediately and the stale timer cannot overwrite it:
@@ -269,7 +269,7 @@ useEffect(() => {
 }, [text, kind]);
 ```
 
-All text-editing setters (`setControl`, `setTriageTab`, `toggleRepo`, `clearQuery`, and Phase 3's saved-search open) compute from the **latest** state inside the updater: `setState(prev => ({ ...prev, text: setControlInText(prev.text, parseQuery(prev.text), key, value), kind: 'edit' }))`. Owners and spans are never taken from render scope: a pointer-down on a dropdown first blurs the input (committing the draft) and then clicks, which are two state updates in one tick.
+All text-editing setters (`setControl`, `setTriageTab`, `toggleRepo`, `clearQuery`, and Phase 3's saved-search open) compute from the **latest** state inside the updater: `setState(prev => ({ ...prev, text: setControlInText(prev.text, parseQuery(prev.text), key, value), kind: 'edit' }))`. Owners and spans are never taken from render scope: a pointer-down on a dropdown first blurs the input and then clicks, which are two state updates in one tick.
 
 `openSavedSearch` is not part of Phase 2; Phase 3 adds it ([Phase 3 §7](query_model_phase3_saved_searches.md#7-opening-a-saved-search-and-the-triage-tabs-p16)).
 
@@ -301,136 +301,115 @@ Triage tabs are now visible as chips: the New tab is a `new:any` chip and the Ac
 
 ### 5.2 Free text
 
-Bare words and quoted phrases are clauses like any other; there is no separate search field. They render as plain text inside the input (not pills).
+Bare words and quoted phrases are clauses like any other; there is no separate search field. They get a neutral pill in the input (§6.3).
 
 ### 5.3 Clearing
 
-The input's clear (×) button sets the text to `''`, including tab chips such as `triage:acked` and `new:any` (U8); sort, order and the selected item are unchanged. It is the only clear control (the Phase 1 "Clear filters" button and `clearSecondary` are removed). It is undoable with Ctrl/Cmd+Z while the input has focus (§6.5). Browser Back also restores the previous URL.
+The input's clear (×) button sets the text to `''`, including tab chips such as `triage:acked` and `new:any` (U8); sort, order and the selected item are unchanged. It is the only clear control (the Phase 1 "Clear filters" button and `clearSecondary` are removed). While the input has focus it is applied as one native edit, so Ctrl/Cmd+Z undoes it (§6.4). Browser Back also restores the previous URL.
 
 ### 5.4 `@me`
 
 The author menu's "you" row writes `author:@me` from Phase 2 on (structured URLs are no longer written, so the legacy `author=@me` quirk does not apply). The row is ticked when the author clause contains `@me` or the current login.
 
-## 6. Tokenized input (U1)
+## 6. Highlighted query input (U1)
 
 Files:
-- `frontend/src/logic/query/editor.ts`: pure editor state and transitions (no DOM), unit-tested exhaustively.
-- `frontend/src/components/query/QueryInput.tsx`: the component.
-- `frontend/src/components/query/QueryChip.tsx`: one clause rendered with segments.
+- `frontend/src/components/query/QueryInput.tsx`: the component (thin: renders the frame, the decoration layer, the textarea, the clear button, the hover remove button, the suggestion popup, the summary line and the live region).
+- `frontend/src/hooks/useQueryField.ts`: local text, controlled-value sync, selection and focus, native edit planning, hover hit-testing, popup anchoring, announcements.
+- `frontend/src/components/query/queryInputStyles.ts`: shared metrics and class strings (both layers take their text metrics from here; the single-line height derives from `TOOLBAR_CONTROL_HEIGHT_PX` in `components/dashboard/menuStyles.ts`).
 - `frontend/src/components/query/SuggestionList.tsx`: the autocomplete listbox.
 - `frontend/src/hooks/useQuerySuggestions.ts`: suggestion state (§6.7).
+- Pure, unit-tested logic in `frontend/src/logic/query/`: `displayText.ts` (display mapping and edit planning), `clauseDisplay.ts` (clause tone, clause at offset, removal range, spacing normalisation), `fieldGeometry.ts` (pill hit-testing, remove-button placement, popup clamping).
 
-Use the prototype (`frontend/src/prototypes/queryInput/TokenizedInput.tsx`, `useSuggestions.ts`, `parser.ts`, read from git history at Phase 1 commit 1.0, §11) as a behavioural reference only. Do not copy its parser (it uses string field names and has no escapes, spans for issues or `Field` enums).
+The chip design first built for this phase (a chips row plus one editable draft, custom undo stack, select-all mode, click-to-caret) was replaced after hands-on use showed chip editing to be clunky; the input is now plain text with highlighting, chosen from the highlighted-text prototypes (variant "Flow chips" with the inset remove ×).
 
 ### 6.1 Editor model
 
-```ts
-export interface EditorState {
-  readonly chips: readonly string[]; // raw clause text, exactly as typed
-  readonly index: number;            // draft position: rendered before chips[index]
-  readonly draft: string;            // the one editable clause (may be empty)
-  readonly caret: number;            // caret offset within draft
-  readonly allSelected: boolean;     // select-all mode (§6.4)
-}
-export const toText = (s: EditorState): string; // chips with the trimmed draft at index, joined by ' '
-```
+A real `<textarea>` owns the text, caret, selection, undo/redo, IME composition and clipboard. Its text is transparent and sits over an `aria-hidden` decoration layer (a "mirror") with identical box metrics that draws the pills; the mirror is in normal flow, so it defines the field height. The query **text** is the state of record, parsed with the real parser (`parseQuery`) on every change; nothing forks the grammar. Spellcheck, autocorrect and autocapitalize are off.
 
-Transitions (pure functions returning a new state):
-- `fromText(text)`: `chips = scan(text)` raws, `index = chips.length`, `draft = ''`.
-- `edit(state, draft, caret)`: after any change to the draft, **normalise**: clauses entirely before the caret become chips before `index`, clauses entirely after it become chips after `index`, and only the clause under the caret stays in the draft. This is what makes a space (outside quotes) finish a token and what turns a pasted query into chips, while a comma does **not** finish a token (it is part of the value list), and a space inside quotes does not either.
-- `commitDraft(state)`: the whole draft becomes chips at `index`; draft empty.
-- `openChip(state, i, caret | 'end')`: commits the current draft first (an unfinished draft is never lost when a chip is opened), then removes chip `i` and makes its raw text the draft.
-- `removeChip(state, i)`.
-- `moveDraftToEnd(state)`.
+Display form (`displayText.ts`): the textarea and the mirror show the text with two one-for-one substitutions, so offsets, parser spans and selections are identical in both forms:
+- a space inside a quoted value is shown as U+2005 (CSS word spacing does not widen it, so quoted values keep natural spacing while the gutters between clauses are wide), following the scanner's quote and escape rules;
+- every `-` is shown as U+2011 (non-breaking hyphen), so lines wrap only at spaces.
 
-Text of record: `toText(state)`. Whitespace between clauses is normalised to single spaces; the raw text of each clause is preserved exactly.
+Every read from the control goes through `fromDisplay`, so the query text, the URL and the parser never see the substitutes, and copy/cut put plain text on the clipboard. Edits are planned in the native `beforeinput` event (`editRange` + `planEdit`): when the plain native edit would leave a non-canonical display value (a space typed inside quotes, a typed `-`, a typed or deleted quote that re-maps later spaces, pasted newlines), the edit is cancelled and applied as **one** `execCommand('insertText' | 'delete')` covering every changed unit, which keeps it on the browser's undo stack. Edits `beforeinput` cannot predict (IME commits, drops, word and line deletions, history) run natively and the change handler re-syncs the control (assigning `value`, which resets native undo, so it is only a fallback). Without `execCommand` (jsdom) the planned edit falls back to `setRangeText` plus a synthetic `input` event. During IME composition the control shows exactly what the IME produced and is re-synced on `compositionend`.
 
-Controlled component contract: `QueryInput` receives `value` (the text of record, which always satisfies the §4 invariant, so `toText(fromText(value)) === value` from the first render) and calls `onChange(text, kind)`. It keeps `EditorState` locally. **The external value always wins:** whenever `value` changes and differs from `toText(local)` (a dropdown edit, a sidebar click, Back/Forward), it re-initialises with `fromText(value)` and resets the undo history (§6.5), even while focused and even if a draft was open. The only concession to focus: if the input is focused, it keeps focus and puts the caret in an empty draft at the end. (Keeping the old draft would make the next keystroke emit the old text and silently undo the navigation.) In practice a pointer-down on a dropdown blurs the input first, so the draft has already been committed.
+Controlled component contract: `QueryInput` receives `value` (the text of record, satisfying the §4 invariant) and calls `onChange(text, kind)`. It keeps the local text, which may hold extra whitespace the user is typing (a trailing space, a double space), and emits `normalizeQuerySpacing(local)` (single spaces, trimmed) only when that normalised text changes. **The external value always wins:** whenever `value` changes and differs from the normalised local text (a dropdown edit, a sidebar click, Back/Forward), the local text is replaced by `value`, even while focused; the browser then puts the caret at the end. In practice a pointer-down on a dropdown blurs the input first.
+
+Edit kinds: typing, paste, cut, drops, IME and accepted suggestions emit `typing`; native undo/redo (`inputType` `historyUndo`/`historyRedo`), the hover remove × and the clear button emit `edit`.
 
 ### 6.2 Keyboard
 
 | Key | Condition | Behaviour |
 |---|---|---|
-| printable / paste | | edits the draft, then normalises (§6.1); newlines in pasted text become spaces |
-| `,` | | a literal comma: adds a value to the current qualifier |
-| Space | outside quotes | finishes the token (via normalisation) |
-| Enter | suggestions open | accept the suggestion; accepting a **value** also finishes the token |
-| Enter | otherwise | `commitDraft`; caret to the trailing draft |
+| printable / paste / delete | | native editing (planned in `beforeinput` when the display form needs it, §6.1); pasted newlines become spaces |
+| Enter | suggestions open | accept the suggestion; accepting a **value** also finishes the clause (a separating space is inserted if needed and the caret moves past it) |
+| Enter (any modifiers) | otherwise | never inserts a newline; plain Enter moves the caret to the end of the text |
 | Tab | suggestions open | accept without finishing (so `,` can follow) |
-| Tab | otherwise | default focus movement; blur commits the draft |
-| Backspace / ArrowLeft | caret at draft start, collapsed, chip before | `openChip(index - 1, 'end')` (turns the chip back into text; does not delete a character) |
-| Delete / ArrowRight | caret at draft end, collapsed, chip after | `openChip(index, 0)` |
-| Home | chips before the draft | `openChip(0, 0)` |
-| End | chips after the draft | `commitDraft` + `moveDraftToEnd` |
+| Tab | otherwise | default focus movement |
 | ArrowDown / ArrowUp | | open / move within suggestions |
 | Escape | suggestions open | close suggestions |
-| Escape | otherwise | `commitDraft`, keep focus |
-| Ctrl/Cmd+A | | select-all (§6.4) |
-| Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl+Y | | undo / redo (§6.5) |
-| `/` | focus is not in a text field | `preventDefault()` (Firefox quick-find) and focus the query input (added to [`useKeyboardNavigation.ts`](../../frontend/src/hooks/useKeyboardNavigation.ts), which already returns early when an input is focused, and to the shortcuts modal) |
+| Escape | otherwise | leaves the field (blur); the text is kept |
+| Ctrl/Cmd+A, Ctrl/Cmd+Z, Shift+Z, Ctrl+Y, arrows, Home/End, word moves | | native |
+| `/` | focus is not in a text field | `preventDefault()` (Firefox quick-find) and focus the query input (`useKeyboardNavigation.ts`, which returns early when an input or textarea is focused, and the shortcuts modal) |
 
-Modifier combinations other than those listed fall through to the browser. Shift+Arrow selection is limited to the draft (no cross-chip selection); select-all covers the common "select everything" case.
+Keys are ignored while composing (`isComposing` or `keyCode === 229`). `beforeinput` events of type `insertLineBreak`/`insertParagraph` are cancelled too.
 
-### 6.3 Chips and click-to-caret
+### 6.3 Pills
 
-- Each chip renders its **exact raw text**, split into segments by `segmentClause` (`neg`, `key`, `colon`, `value`, `badvalue`, `badkey`, `comma`, `text`). Every segment span carries `data-off={segment.start}`.
-- Pointer-down on a chip calls `preventDefault()` (so the input does not blur), maps the pointer to a character offset with `document.caretPositionFromPoint` (Firefox, Chrome 128+) or `document.caretRangeFromPoint` (Safari, older Chrome), adds the segment's `data-off`, and calls `openChip(i, offset)`. If neither API returns a text node inside the chip, the caret goes to the end of the chip. jsdom implements neither API: tests stub `document.caretPositionFromPoint` to return the **real rendered** segment text node (so `parentElement.dataset.off` is exercised) and also test the fallback; jsdom does not move focus on mousedown, so tests assert `event.defaultPrevented` rather than an absent blur (real-browser behaviour is a manual check). This only works because chips show raw text; never render a canonical or prettified form.
-- Styles: see the chip style table below. Terms render as plain text with a hover background (negated terms get the same minus marker as negated qualifiers; error terms get the error style).
+- The mirror holds only each clause's coloured glyphs, as undecorated inline spans that lay out exactly like the textarea's text. The pill surfaces (tint and border) are painted separately as absolutely positioned boxes behind the glyphs, one per line fragment of the clause (`pillBoxes` in `logic/query/fieldGeometry.ts`): horizontally they wrap the glyph rects from `getClientRects` (merged per line) plus padding and border; vertically they come from the line box, not font metrics, with an explicit 22px height centred in the 28px line, so every pill has the same height and position at any font or zoom. A wrapped pill's boxes are open at the line break (no border, square corners) and rounded at the outer ends only. Boxes are re-measured after every render, on resize and when web fonts load; measurements are converted to the mirror's own coordinates (including any CSS zoom on an ancestor), and the boxes never change a glyph's advance.
+- Segments come from `segmentClause` (`neg`, `key`, `colon`, `value`, `badvalue`, `badkey`, `comma`, `text`) and are coloured per tone. Emphasis is colour only, never font weight; kerning, ligatures and contextual alternates are off on both layers, so splitting text into spans cannot move a glyph. Glyph parity is verified in a real browser by forcing the textarea text visible in red over the layer.
+- Gutters: 0.5em CSS word spacing on both layers.
+- Wrapping: the field grows line by line up to four lines (`QUERY_MAX_LINES`), then scrolls; the mirror's overflow-hidden wrapper, which also holds the pill boxes and the remove button, is scrolled to the textarea's offset. Text is 14px on 28px lines (`QUERY_LINE_HEIGHT_PX`, the 26px `TOOLBAR_CONTROL_HEIGHT_PX` plus 2), so each 22px pill is centred in its line and wrapped pill rows are 6px apart; both layers add 1px of vertical padding (`QUERY_PAD_Y_PX`), so the first and last rows sit 4px inside the border and a single-line field is 32px (the four-line cap is 114px of text box).
+- Focus and blur only cross-fade pill borders: every pill keeps its tone's opaque fill in both states; at rest every pill is a bordered chip, and while editing only the clause under the caret keeps its border (the others' borders turn transparent). Nothing changes size.
 
-Chip style table (U9: error and negated chips must be distinguishable, and **neither uses strikethrough**; the prototype struck through illegal values, which read like negation):
+Tones (`clauseTone`, U9: error and negated clauses must be distinguishable, and **neither uses strikethrough**):
 
-| Chip | Container classes | Leading marker | Offending part | Attributes | Tooltip / announcement |
-|---|---|---|---|---|---|
-| ok qualifier | `rounded-full bg-blue-50 border border-blue-200 text-blue-800 dark:bg-blue-950/60 dark:border-blue-700/50 dark:text-blue-300` | none | none | `data-status="ok"` | none |
-| **negated** ok qualifier | same as ok (normal chip colours) | the typed `-` rendered as a muted marker: `rounded bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300 font-semibold px-1 mr-0.5` | none | `data-status="ok" data-negated="true"`, `aria-description="Excludes items matching <key>:<values>"` | none |
-| **error** | `rounded-full bg-red-50 border border-red-500 text-red-800 dark:bg-red-950/50 dark:border-red-500/70 dark:text-red-200` | lucide `AlertTriangle` (12 px, `text-red-600`, `aria-hidden`, `data-testid="chip-error-icon"`) before the text | bad key/value segment: `font-semibold underline decoration-dotted decoration-red-500 underline-offset-2` | `data-status="error" aria-invalid="true"`, `aria-description="Error: <message>"` | `title` = message; the live region announces the message when the error first appears |
-| incomplete (after blur, e.g. `label:`) | `rounded-full border border-dashed border-amber-400 bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200` | none | none | `data-status="incomplete"`, `aria-description="Incomplete: <message>"` | `title` = message |
+| Tone | When | Look |
+|---|---|---|
+| ok | valid qualifier | blue tint and border |
+| negated | valid negated qualifier | rose tint and border; the typed `-` in rose |
+| error | parse error, or a server `ExprError` mapped to the clause (§7) | red tint and border; wavy red underline on the bad key/value segment, or on the whole clause if no segment is bad |
+| incomplete | e.g. `label:` with the caret elsewhere or the field blurred | dashed amber border |
+| draft | incomplete clause containing the caret (focused) | neutral dashed border, so typing `label:` does not flash amber |
+| term / negatedTerm | free-text term | neutral pill (rose text when negated) |
 
-- A negated clause with an error (`-lable:x`) uses the error style; the minus marker keeps its muted style inside it.
-- The minus marker is the real `-` character (one code unit, inside the `neg` segment with `data-off`), so click-to-caret offsets stay exact. Phase 1's chips row shows the word "NOT" in the same muted badge ([Phase 1 §3.5](query_model_phase1_multiselect.md)) because those chips do not show raw text.
-- No chip style uses `line-through` (asserted in tests, §13 commit 2.5).
-- Qualifier chips have a remove × (`tabIndex={-1}`, pointer-down prevented) that calls `removeChip`.
-- Pointer-down on empty space inside the box commits the draft and moves it to the end.
+Light and dark mode are both supported. The glyph spans expose `data-testid="query-pill"`, `data-clause`, `data-status`, `data-tone` and `data-negated`, and the painted boxes `data-pill-box`, for tests.
 
-### 6.4 Selection and clipboard
+### 6.4 Removing clauses and clearing
 
-Native selection cannot span chips, so:
-- **Select-all:** the first Ctrl/Cmd+A selects the draft text natively if the draft is non-empty and not already fully selected. Otherwise it enters `allSelected` mode: every chip gets the selected style via `data-selected="true"` (chips have no ARIA role, so `aria-selected` would be invalid) and the live region announces "All selected". In this mode Backspace/Delete clears the query, a printable key replaces the query with that character, paste replaces the query, and Escape, arrows or a click leave the mode.
-- **Copy/cut:** an `onCopy`/`onCut` handler on the container writes `toText(state)` to `clipboardData` (`text/plain`) when in `allSelected` mode; cut then clears. Within the draft the browser's native copy applies.
-- **Paste:** handled by the draft's change event plus normalisation; in `allSelected` mode paste replaces everything.
+- **Inset remove ×:** at rest (field not focused), hovering a pill **with the mouse** reveals a × over the pill's trailing glyphs, just inside its border; the button is an opaque copy of the pill's rest surface whose left edge fades out, so the glyphs fade underneath it, and hovering the × itself shows a subtle tone-tinted circle behind the icon (short fade). The pill under the pointer is found by hit-testing the painted pill boxes (`pillAtPoint`). The button needs no placement math: the hovered pill's last box is rendered again above the textarea (inside the same scrolling wrapper, which has no stacking context) with identical geometry and a transparent border, and the button is pinned to the right of that box's padding box (`inset-y-0 right-0`) with the pill's inner corner radius. CSS layout therefore keeps it inside the border, vertically centred, at any zoom or device pixel ratio. It is never caret-triggered and never shown while the field is focused (focusing hides it). Mouse-down calls `preventDefault()`, so focus and caret never move. Removal uses `removeClause` semantics (§5) and, since the field is unfocused, sets the text directly (`edit`). It fades in subtly and respects `prefers-reduced-motion`.
+- The decoration layer, including the ×, is `aria-hidden`, and the × has `tabIndex={-1}`. Keyboard and screen-reader users edit the text; the textarea carries the full value.
+- **Clear (×):** empties the whole query (§5.3) via `onClear` (or `onChange('', 'edit')`). While the field is focused, the clear is applied as one native edit, so Ctrl/Cmd+Z restores the query.
 
 ### 6.5 Undo/redo
 
-The draft's value is controlled by React, so native undo is unreliable; intercept Ctrl/Cmd+Z (always `preventDefault`) and keep an explicit stack in the component:
-- Snapshots of `EditorState`. A snapshot is pushed before every transition except consecutive character edits within the same draft, which are coalesced until a token boundary, a caret jump, or 500 ms without typing.
-- Redo stack cleared on any new edit. Limit 100 entries.
-- External value changes (§6.1) reset both stacks. Navigation history is the browser's job (Back/Forward).
-- Undo/redo call `onChange(toText(state), 'edit')`.
+Native: the textarea's own undo stack. Planned display edits (§6.1) and accepted suggestions are applied with `execCommand`, so they are undoable steps. External value changes and the rest-state remove × set the value directly, which starts a fresh native stack; navigation history is the browser's job (Back/Forward).
 
 ### 6.6 IME and accessibility
 
-- **IME:** between `compositionstart` and `compositionend` do not normalise, do not treat Space/Enter as token boundaries, and ignore `keydown` with `event.nativeEvent.isComposing` (or `keyCode === 229`). Normalise once on `compositionend`.
-- **Combobox:** the draft `<input>` has `role="combobox"`, `aria-autocomplete="list"`, `aria-expanded`, `aria-controls` (the listbox id) and `aria-activedescendant` (active option). Options are `role="option"` in a `role="listbox"`.
-- **Labels:** the container is `role="group"` with `aria-label="Query"`. The input has `aria-describedby` pointing at a visually hidden element containing "Current query: <text>" and the issue summary.
-- **Live region:** a polite `aria-live` region announces "Added label:bug", "Editing label:bug", "Removed label:bug", "Query cleared" and newly appearing issues ("lable is not a known filter").
-- Chips are not in the tab order; keyboard users reach them with Backspace/arrows (§6.2). The Phase 1 menus remain a fully keyboard-accessible alternative for every field they cover.
+- **IME:** composition runs natively; no planning or re-sync until `compositionend` (§6.1).
+- **Combobox:** the `<textarea>` has `role="combobox"`, `aria-label="Filter or search query"`, `aria-autocomplete="list"`, `aria-expanded`, `aria-controls` (the listbox id), `aria-activedescendant` (active option) and `aria-invalid` while an issue is shown. Options are `role="option"` in a `role="listbox"`.
+- **Labels:** the frame is `role="group"` with `aria-label="Query"`. The textarea has `aria-describedby` pointing at a visually hidden element containing "Current query: <text>" and the issue summary.
+- **Live region:** a polite `aria-live` region announces "Removed label:bug", "Query cleared" and newly appearing issues (a bad clause once the caret leaves it, a server `ExprError`); repeated identical messages re-announce.
+- Placeholder: "Filter or search, e.g. is:open label:bug". The Phase 1 menus remain a fully keyboard-accessible alternative for every field they cover.
 
 ### 6.7 Autocomplete (`useQuerySuggestions`)
 
-- **Key context** (caret in a clause with no `key:` yet): keys from the vocabulary table with a one-line description, plus `is:` shorthands once at least two characters are typed. On an empty draft only after ArrowDown.
+- Suggestions are computed over the **full text** at the caret (only while focused with a collapsed selection), and the popup is anchored under the first character of the token being completed, on whichever line it wrapped to.
+- **Key context** (caret in a clause with no `key:` yet): keys from the vocabulary table with a one-line description, plus `is:` shorthands once at least two characters are typed. With nothing typed at the caret only after ArrowDown.
 - **Value context** (caret after `key:` or after a comma): closed fields offer their closed values (for `is:` the shorthand values, with the expansion as detail). Open fields offer facet values: `repo`, `org`, `author`, `assignee`, `milestone`, `label` all come from the selector `GetFacets` response already fetched by `useDashboardData` (Phase 1 added `ASSIGNEE` to `SELECTOR_FIELDS`; own-field excluded, so the list is relevant). `author`/`assignee` also offer `@me`.
 - Ranking: prefix matches before substring matches, then alphabetical; values already in the clause are excluded; at most 8 items. Inserted text uses `formatValue` (quotes as needed). The list hides when the only item equals what is typed.
-- Suggestion state is keyed by `(draft, caret)` so it resets whenever either changes (prototype behaviour).
+- Suggestion state is keyed by `(text, caret)` so it resets whenever either changes.
 
 ## 7. Error reporting
 
 Two sources, one presentation:
-1. **Parse issues** (`parsed.issues`): the clause is excluded from the `Expr` (P9) and its chip gets the **error** or **incomplete** style from the chip style table in §6.3 (red border and tint, warning icon, `aria-invalid`, message as tooltip and live-region announcement; never strikethrough). Unknown keys are errors (U9).
-2. **Server `ExprError`** (`exprErrorOf` in [`api/errors.ts`](../../frontend/src/api/errors.ts)): parse `path` with `/^and\.exprs\[(\d+)\]/`; map index `i` to `clauses[parsed.clauseOfPredicate[i]]` and give that chip the same error style with the server message. A root-level or unmatched path is shown only in the summary line.
+1. **Parse issues** (`parsed.issues`): the clause is excluded from the `Expr` (P9) and its pill gets the **error** or **incomplete** tone from the tone table in §6.3 (red tint and border with a wavy underline on the offending key or value, or a dashed amber border; the textarea gets `aria-invalid`; the message appears in the summary line and the live region; never strikethrough). Unknown keys are errors (U9).
+2. **Server `ExprError`** (`exprErrorOf` in [`api/errors.ts`](../../frontend/src/api/errors.ts)): parse `path` with `/^and\.exprs\[(\d+)\]/`; map index `i` to `clauses[parsed.clauseOfPredicate[i]]` and give that pill the error tone, with the server message in the summary line and the live region. A root-level or unmatched path is shown only in the summary line.
 
-Negated clauses are never errors because of their negation (except `-in:`, which is `negated-in`); they keep the negated style, which differs from the error style in colour (blue vs. red), icon (none vs. warning), marker (muted minus) and ARIA (`aria-description="Excludes…"` vs. `aria-invalid="true"` + `"Error: …"`).
+Negated clauses are never errors because of their negation (except `-in:`, which is `negated-in`); they keep the negated tone, which differs from the error tone in colour (rose vs. red) and underline (none vs. wavy under the offending part).
 
-Below the input, a single muted line summarises: "1 part of the query is ignored: lable is not a known filter" (first issue; count if more), prefixed by the same `AlertTriangle` icon. While the input is focused, the clause under the caret (the draft) is excluded from the summary line and the live region, so typing `label:` does not flicker an error; it is excluded from the `Expr` anyway. The existing "invalid query" inline report in `Dashboard.tsx` is replaced by this line. Invalid-query responses must still never show the "Disconnected" banner (existing `isConnectivityError` rule).
+Below the input, a single muted line summarises: "1 part of the query is ignored: lable is not a known filter" (first issue; count if more), prefixed by the same `AlertTriangle` icon. While the input is focused, the clause under the caret is excluded from the summary line and the live region, so typing `label:` does not flicker an error; it is excluded from the `Expr` anyway. The existing "invalid query" inline report in `Dashboard.tsx` is replaced by this line. Invalid-query responses must still never show the "Disconnected" banner (existing `isConnectivityError` rule).
 
 ## 8. URL scheme (U5)
 
@@ -486,7 +465,7 @@ Examples (golden tests):
 
 ## 9. Layout (U7)
 
-- The query input moves out of the top nav (`Dashboard.tsx` lines ~568–578) into the list header, directly under the title row, at the full width of the header column (`max-w-4xl`). It wraps onto more lines as chips are added. The nav keeps the logo and sync status.
+- The query input moves out of the top nav (`Dashboard.tsx` lines ~568–578) into the list header, directly under the title row, at the full width of the header column (`max-w-4xl`). It grows onto more lines as the query wraps (up to four lines, then it scrolls; §6.3). The nav keeps the logo and sync status.
 - The Phase 1 chips row (`ActiveFilterChips`) is deleted: the chips are in the input. The menus' trigger buttons keep the active (blue) style they have had since Phase 1, so a field with a selection is still visible at a glance.
 - Placeholder: "Filter or search, e.g. is:open label:bug".
 - The pin button (Phase 3) sits at the right end of the input row, outside the input box.
@@ -591,15 +570,15 @@ Commit 2.4 is split in two so each half is reviewable and green.
 
 | Risk / edge case | Handling |
 |---|---|
-| Controlled `<input>` inside a tokenized editor loses the caret on re-render. | Restore focus and selection in `useLayoutEffect` from `EditorState.caret` (prototype pattern); test caret position after every transition. |
-| `caretPositionFromPoint`/`caretRangeFromPoint` differ by browser or return a node outside the chip. | Feature-detect both; accept only text nodes whose parent has `data-off` inside the clicked chip; otherwise caret at the chip end. |
-| The 3 s poll re-renders while typing. | Editor state is local and only re-initialised when `value` differs from `toText(local)`; polling never changes the text. |
-| Popstate or a sidebar click arrives while a draft is open. | The external value always wins, focused or not (§6.1); a focused input keeps focus with an empty draft at the end. Pointer-down on a control blurs and commits first. Test both. |
+| A controlled `<textarea>` re-rendered with a different value loses the caret and the native undo stack, and breaks IME. | Planned edits keep the control's value canonical, so React never re-assigns it while typing; during composition the control shows the IME's own value and re-syncs on `compositionend` (§6.1). |
+| The decoration layer drifts from the textarea's glyphs or wraps differently. | Both layers take every text metric from `queryInputStyles.ts` (kerning, ligatures and contextual alternates off, colour-only emphasis, hidden textarea scrollbar); checked in a real browser with the textarea text forced visible over the layer. |
+| The 3 s poll re-renders while typing. | The local text is only replaced when `value` differs from its normalised form (§6.1); polling never changes the text. |
+| Popstate or a sidebar click arrives while typing. | The external value always wins, focused or not (§6.1); a focused input keeps focus with the caret at the end. Pointer-down on a control blurs the input first. |
 | Hand-written `?q=` with runs of spaces. | `parseDashboardUrl` normalises clause whitespace and rewrites the URL (§8.2), so the §4 invariant holds from the first render. |
 | Legacy URL plus `?q=` with conflicting predicates (`?repo=a/b&q=repo:c/d`). | ANDed as specified (matches nothing), consistent with the rule; no special case. |
 | Old `?q=` values change meaning (§8.4). | Accepted and documented. |
 | URL length with very long queries. | Browsers handle several KB; no cap. |
 | Values with quotes/backslashes (GitHub labels). | Escapes (P10); covered by the round-trip generator. |
-| Error chips confused with negated chips. | Distinct colour, icon, marker and ARIA (§6.3); asserted in commit 2.5. |
+| Error pills confused with negated pills. | Distinct colour (red vs. rose) and a wavy underline on the offending part (§6.3); asserted in the `QueryInput` tests. |
 | Keyboard navigation (`j`/`k`, `x`, `s`) firing while typing in the query input. | `useKeyboardNavigation` already ignores events from text inputs; add a test with the new input, and keep the `/` shortcut ignored inside inputs. |
 | Phase 3 parses saved-search text with this parser. | Keep `parseQuery` pure and exported from `logic/query/syntax/index.ts`; any later grammar change must keep previously valid text valid or Phase 3 rows will show errors ([Phase 3 §12](query_model_phase3_saved_searches.md)). |
