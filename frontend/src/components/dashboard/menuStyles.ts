@@ -15,6 +15,12 @@
  */
 const TOOLBAR_CONTROL_HEIGHT = 'h-6.5';
 
+/**
+ * TOOLBAR_CONTROL_HEIGHT in px, for controls that size themselves from text metrics instead of a
+ * height class (the query input's single-line height). Keep in sync with the class above.
+ */
+export const TOOLBAR_CONTROL_HEIGHT_PX = 26;
+
 /** Keyboard focus ring for toolbar controls; mouse clicks do not show it. */
 const FOCUS_RING =
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500';
