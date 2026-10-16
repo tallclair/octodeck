@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, type KeyboardEvent } from 'react';
 import {
+  Activity as ActivityIcon,
   ChevronRight,
   FolderGit,
   Milestone as MilestoneIcon,
@@ -18,6 +19,7 @@ import {
 } from '../../logic/query/facets';
 import { MENU_ITEM_PROPS, useMenuPanelKeyboard } from '../../hooks/useMenuPanelKeyboard';
 import type { ControlKey, FilterControls } from '../../types/filters';
+import { ActivityMenu, type ActivityMenuData } from './ActivityMenu';
 import { MultiSelectMenu, type MultiSelectOption } from './MultiSelectMenu';
 import { RepoOrgMenu, type RepoOrgMenuData } from './RepoOrgMenu';
 import {
@@ -46,9 +48,14 @@ export interface OverflowFilterMenuProps {
    * Repository row that opens the Repository menu as a flyout (menu id 'repo').
    */
   readonly repository?: RepoOrgMenuData;
+  /**
+   * Set when the toolbar is too narrow for the Activity selector: the menu then gets an
+   * Activity row that opens the Activity menu as a flyout (menu id 'activity').
+   */
+  readonly activity?: ActivityMenuData;
 }
 
-type SubmenuId = 'assignee' | 'milestone' | 'repo';
+type SubmenuId = 'assignee' | 'milestone' | 'repo' | 'activity';
 
 interface SubmenuRow {
   readonly id: SubmenuId;
@@ -69,10 +76,12 @@ export function OverflowFilterMenu({
   menus,
   setFilter,
   repository,
+  activity,
 }: OverflowFilterMenuProps) {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const hoverTimeoutRef = useRef<number | null>(null);
   const hasRepository = repository !== undefined;
+  const hasActivity = activity !== undefined;
 
   const clearHoverTimeout = useCallback(() => {
     if (hoverTimeoutRef.current !== null) {
@@ -84,18 +93,18 @@ export function OverflowFilterMenu({
   useEffect(() => clearHoverTimeout, [clearHoverTimeout]);
 
   // Every menu id this component owns points at its container, so useMenuGroup's outside-click
-  // check treats the parent panel and its flyouts as one menu. 'repo' is owned only while the
-  // Repository selector is collapsed into this menu (otherwise the toolbar's RepoOrgMenu owns it).
+  // check treats the parent panel and its flyouts as one menu. 'repo' and 'activity' are owned
+  // only while collapsed into this menu.
   const setContainerRef = useCallback(
     (node: HTMLDivElement | null) => {
-      const owned: DashboardMenuId[] = hasRepository
-        ? ['more', 'assignee', 'milestone', 'repo']
-        : ['more', 'assignee', 'milestone'];
+      const owned: DashboardMenuId[] = ['more', 'assignee', 'milestone'];
+      if (hasRepository) owned.push('repo');
+      if (hasActivity) owned.push('activity');
       for (const id of owned) {
         menus.refFor(id).current = node;
       }
     },
-    [menus, hasRepository]
+    [menus, hasRepository, hasActivity]
   );
 
   const openSubmenuImmediate = useCallback(
@@ -166,7 +175,34 @@ export function OverflowFilterMenu({
     repository !== undefined &&
     (repository.selectedOrgs.length > 0 || repository.selectedRepos.length > 0);
 
+  const hasActivitySelection =
+    activity !== undefined &&
+    (activity.tracking !== 'all' ||
+      (activity.triage !== 'activity' && activity.activity.length > 0));
+
   const rows: readonly SubmenuRow[] = [
+    ...(hasRepository
+      ? [
+          {
+            id: 'repo',
+            label: 'Repository',
+            ariaLabel: 'Filter by repository',
+            Icon: FolderGit,
+            active: hasRepoSelection,
+          } as const,
+        ]
+      : []),
+    ...(hasActivity
+      ? [
+          {
+            id: 'activity',
+            label: 'Activity',
+            ariaLabel: 'Filter by activity',
+            Icon: ActivityIcon,
+            active: hasActivitySelection,
+          } as const,
+        ]
+      : []),
     {
       id: 'assignee',
       label: 'Assignee',
@@ -181,24 +217,15 @@ export function OverflowFilterMenu({
       Icon: MilestoneIcon,
       active: milestone.length > 0,
     },
-    ...(hasRepository
-      ? [
-          {
-            id: 'repo',
-            label: 'Repository',
-            ariaLabel: 'Filter by repository',
-            Icon: FolderGit,
-            active: hasRepoSelection,
-          } as const,
-        ]
-      : []),
   ];
 
   const isMoreOpen = menus.isOpen('more');
   const isAssigneeOpen = menus.isOpen('assignee');
   const isMilestoneOpen = menus.isOpen('milestone');
   const isRepoOpen = hasRepository && menus.isOpen('repo');
-  const isAnyOpen = isMoreOpen || isAssigneeOpen || isMilestoneOpen || isRepoOpen;
+  const isActivityOpen = hasActivity && menus.isOpen('activity');
+  const isAnyOpen =
+    isMoreOpen || isAssigneeOpen || isMilestoneOpen || isRepoOpen || isActivityOpen;
   const hasSelection = rows.some((row) => row.active);
 
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -269,6 +296,28 @@ export function OverflowFilterMenu({
             </button>
           ))}
 
+          {isRepoOpen && repository && (
+            <RepoOrgMenu
+              {...repository}
+              open={true}
+              onToggle={closeMenus}
+              onClose={closeMenus}
+              flyoutTriggerRef={triggerRef}
+            />
+          )}
+
+          {isActivityOpen && activity && (
+            <ActivityMenu
+              {...activity}
+              open={true}
+              onToggle={closeMenus}
+              onClose={closeMenus}
+              hideTrigger={true}
+              externalTriggerRef={triggerRef}
+              panelPositionClassName={MENU_PANEL_FLYOUT_LEFT}
+            />
+          )}
+
           {isAssigneeOpen && (
             <MultiSelectMenu
               label="Assignee"
@@ -307,16 +356,6 @@ export function OverflowFilterMenu({
               buildOptions={buildMilestoneMenuOptions}
               filterPlaceholder="Filter milestones…"
               emptyMessage="No milestones found"
-            />
-          )}
-
-          {isRepoOpen && repository && (
-            <RepoOrgMenu
-              {...repository}
-              open={true}
-              onToggle={closeMenus}
-              onClose={closeMenus}
-              flyoutTriggerRef={triggerRef}
             />
           )}
         </div>

@@ -179,16 +179,16 @@ describe('Dashboard (RPC-level)', () => {
       });
       render({
         getItems: async (req) => {
-          if (describeQuery(req.query) === 'type:pr') {
+          if (describeQuery(req.query) === 'state:open') {
             await pending;
-            return { items: [item('PR_2', 'Only PRs')] };
+            return { items: [item('PR_2', 'Only Open')] };
           }
           return { items: [item('PR_1', 'Everything')] };
         },
       });
       expect(await screen.findByText('Everything')).toBeDefined();
 
-      fireEvent.click(within(screen.getByRole('group', { name: /Filter item type/i })).getByRole('button', { name: /PRs/i }));
+      fireEvent.click(within(screen.getByRole('group', { name: /Filter item state/i })).getByRole('button', { name: /Open/i }));
       await act(async () => {
         await new Promise((r) => setTimeout(r, 50));
       });
@@ -196,7 +196,7 @@ describe('Dashboard (RPC-level)', () => {
       expect(screen.getByText('Everything')).toBeDefined();
 
       release();
-      expect(await screen.findByText('Only PRs')).toBeDefined();
+      expect(await screen.findByText('Only Open')).toBeDefined();
       expect(screen.queryByText('Everything')).toBeNull();
     });
 
@@ -231,28 +231,54 @@ describe('Dashboard (RPC-level)', () => {
   });
 
   describe('controls send predicates', () => {
-    it('filters by type with the segmented control', async () => {
+    it('filters by state with the segmented control', async () => {
+      const open = item('PR_1', 'Open PR');
+      const closed = item('PR_2', 'Closed PR', { state: ItemState.CLOSED });
+      const { daemon } = render({ getItems: itemsByQuery({ '': [open, closed], 'state:open': [open], 'state:closed': [closed] }) });
+      expect(await screen.findByText('Closed PR')).toBeDefined();
+      const stateGroup = screen.getByRole('group', { name: /Filter item state/i });
+
+      fireEvent.click(within(stateGroup).getByRole('button', { name: /^Open$/i }));
+      await waitFor(() => expect(screen.queryByText('Closed PR')).toBeNull());
+      expect(lastItemsQuery(daemon)).toBe('state:open');
+      expect(window.location.search).toBe('?q=state:open');
+      assertNoLegacyUrlKeys();
+
+      fireEvent.click(within(stateGroup).getByRole('button', { name: /^Closed$/i }));
+      await waitFor(() => expect(screen.queryByText('Open PR')).toBeNull());
+      expect(lastItemsQuery(daemon)).toBe('state:closed');
+      expect(window.location.search).toBe('?q=state:closed');
+      assertNoLegacyUrlKeys();
+
+      fireEvent.click(within(stateGroup).getByRole('button', { name: /^All$/i }));
+      expect(await screen.findByText('Closed PR')).toBeDefined();
+      expect(window.location.search).toBe('');
+    });
+
+    it('filters by type with the Type menu', async () => {
       const pr = item('PR_1', 'Fix bug PR');
       const issue = item('ISSUE_1', 'Open feature issue', { type: ItemType.ISSUE });
       const { daemon } = render({ getItems: itemsByQuery({ '': [pr, issue], 'type:pr': [pr], 'type:issue': [issue] }) });
       expect(await screen.findByText('Open feature issue')).toBeDefined();
-      const typeGroup = screen.getByRole('group', { name: /Filter item type/i });
+      const typeTrigger = screen.getByRole('button', { name: /Filter by type/i });
 
-      fireEvent.click(within(typeGroup).getByRole('button', { name: /PRs/i }));
+      fireEvent.click(typeTrigger);
+      fireEvent.click(screen.getByRole('button', { name: /^Pull requests$/i }));
       await waitFor(() => expect(screen.queryByText('Open feature issue')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('type:pr');
       expect(window.location.search).toBe('?q=type:pr');
       assertNoLegacyUrlKeys();
 
-      fireEvent.click(within(typeGroup).getByRole('button', { name: /Issues/i }));
+      fireEvent.click(typeTrigger);
+      fireEvent.click(screen.getByRole('button', { name: /^Issues$/i }));
       await waitFor(() => expect(screen.queryByText('Fix bug PR')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('type:issue');
       expect(window.location.search).toBe('?q=type:issue');
       assertNoLegacyUrlKeys();
 
-      fireEvent.click(within(typeGroup).getByRole('button', { name: /^All$/i }));
+      fireEvent.click(typeTrigger);
+      fireEvent.click(screen.getByRole('button', { name: /^Issues$/i }));
       expect(await screen.findByText('Fix bug PR')).toBeDefined();
-      // Back to the unfiltered query: its cached result is shown (the query key includes the request).
       expect(window.location.search).toBe('');
     });
 
@@ -294,43 +320,6 @@ describe('Dashboard (RPC-level)', () => {
       // Back to the unfiltered query: its cached result is shown (the query key includes the request).
     });
 
-    it('filters by state (open, closed, merged) with the state menu', async () => {
-      const open = item('PR_1', 'Open PR');
-      const closed = item('PR_2', 'Closed PR', { state: ItemState.CLOSED });
-      const merged = item('PR_3', 'Merged PR', { state: ItemState.MERGED });
-      const { daemon } = render({
-        getItems: itemsByQuery({
-          '': [open, closed, merged],
-          'state:closed': [closed],
-          'state:open': [open],
-          'state:merged': [merged],
-        }),
-      });
-      expect(await screen.findByText('Closed PR')).toBeDefined();
-      const stateTrigger = screen.getByRole('button', { name: /Filter by state/i });
-
-      fireEvent.click(stateTrigger);
-      fireEvent.click(screen.getByRole('button', { name: /^Closed$/i }));
-      await waitFor(() => expect(screen.queryByText('Open PR')).toBeNull());
-      expect(lastItemsQuery(daemon)).toBe('state:closed');
-      expect(window.location.search).toBe('?q=state:closed');
-      assertNoLegacyUrlKeys();
-
-      fireEvent.click(stateTrigger);
-      fireEvent.click(within(stateTrigger.parentElement!).getByRole('button', { name: /^Merged$/i }));
-      await waitFor(() => expect(screen.queryByText('Closed PR')).toBeNull());
-      expect(lastItemsQuery(daemon)).toBe('state:merged');
-      expect(window.location.search).toBe('?q=state:merged');
-      assertNoLegacyUrlKeys();
-
-      fireEvent.click(stateTrigger);
-      fireEvent.click(within(stateTrigger.parentElement!).getByRole('button', { name: /^Open$/i }));
-      await waitFor(() => expect(screen.queryByText('Merged PR')).toBeNull());
-      expect(lastItemsQuery(daemon)).toBe('state:open');
-      expect(window.location.search).toBe('?q=state:open');
-      assertNoLegacyUrlKeys();
-    });
-
     it('filters by tracking and removes the filter with its chip', async () => {
       const tracked = item('PR_T', 'Tracked PR', { viewerSubscription: SubscriptionState.SUBSCRIBED });
       const untracked = item('PR_U', 'Untracked PR', { viewerSubscription: SubscriptionState.UNSUBSCRIBED });
@@ -338,18 +327,18 @@ describe('Dashboard (RPC-level)', () => {
         getItems: itemsByQuery({ '': [tracked, untracked], 'tracking:false': [untracked], 'tracking:true': [tracked] }),
       });
       expect(await screen.findByText('Tracked PR')).toBeDefined();
-      const stateTrigger = screen.getByRole('button', { name: /Filter by state/i });
+      const activityTrigger = screen.getByRole('button', { name: /Filter by activity/i });
 
-      fireEvent.click(stateTrigger);
-      fireEvent.click(within(stateTrigger.parentElement!).getByRole('button', { name: /^Untracked$/i }));
+      fireEvent.click(activityTrigger);
+      fireEvent.click(within(activityTrigger.parentElement!).getByRole('button', { name: /^Unsubscribed$/i }));
       await waitFor(() => expect(screen.queryByText('Tracked PR')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('tracking:false');
       expect(window.location.search).toBe('?q=tracking:false');
       assertNoLegacyUrlKeys();
       expect(queryPillTexts()).toContain('tracking:false');
 
-      fireEvent.click(stateTrigger);
-      fireEvent.click(within(stateTrigger.parentElement!).getByRole('button', { name: /^Tracked$/i }));
+      fireEvent.click(activityTrigger);
+      fireEvent.click(within(activityTrigger.parentElement!).getByRole('button', { name: /^Subscribed$/i }));
       await waitFor(() => expect(screen.queryByText('Untracked PR')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('tracking:true');
       expect(window.location.search).toBe('?q=tracking:true');
@@ -362,12 +351,12 @@ describe('Dashboard (RPC-level)', () => {
       expect(window.location.search).toBe('');
     });
 
-    it('filters by assignee:@me with the Assigned to me toggle', async () => {
+    it('filters by assignee:@me with the Assigned toggle', async () => {
       const mine = item('PR_1', 'Assigned PR');
       const other = item('PR_2', 'Unassigned PR');
       const { daemon } = render({ getItems: itemsByQuery({ '': [mine, other], 'assignee:@me': [mine] }) });
       expect(await screen.findByText('Unassigned PR')).toBeDefined();
-      const toggle = screen.getByRole('button', { name: /Assigned to me/i });
+      const toggle = screen.getByRole('button', { name: /^Assigned$/i });
 
       fireEvent.click(toggle);
       await waitFor(() => expect(screen.queryByText('Unassigned PR')).toBeNull());
@@ -455,18 +444,17 @@ describe('Dashboard (RPC-level)', () => {
         }),
       });
       expect(await screen.findByText('Go lang')).toBeDefined();
-      const repoTrigger = screen.getByRole('button', { name: /Filter by repository/i });
-      const repoMenu = repoTrigger.parentElement!;
 
-      fireEvent.click(repoTrigger);
-      fireEvent.click(within(repoMenu).getByRole('option', { name: /^kubernetes$/i }));
+      fireEvent.click(screen.getByRole('button', { name: /More filters/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Filter by repository/i }));
+      fireEvent.click(await screen.findByRole('option', { name: /^kubernetes$/i }));
       await waitFor(() => expect(screen.queryByText('Go lang')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('org:kubernetes');
       expect(window.location.search).toBe('?q=org:kubernetes');
       assertNoLegacyUrlKeys();
 
       // Menu stays open; selecting a repo clears the org selection (P3)
-      fireEvent.click(within(repoMenu).getByRole('option', { name: /kubernetes\/minikube/i }));
+      fireEvent.click(screen.getByRole('option', { name: /kubernetes\/minikube/i }));
       await waitFor(() => expect(screen.queryByText('K8s core')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('repo:kubernetes/minikube');
       expect(window.location.search).toBe('?q=repo:kubernetes/minikube');
@@ -557,7 +545,7 @@ describe('Dashboard (RPC-level)', () => {
       expect(await screen.findByText('Docs 3')).toBeDefined();
     });
 
-    it('filters by activity from the State menu, updates chips on Acked + Mentions, and resets to new:any on sidebar New', async () => {
+    it('filters by activity from the Activity menu, updates chips on Acked + Mentions, and resets to new:any on sidebar New', async () => {
       const mentioned = item('PR_1', 'Mentioned PR');
       const newAny = item('PR_2', 'New activity PR');
       const allInbox = item('PR_3', 'Idle PR');
@@ -582,8 +570,8 @@ describe('Dashboard (RPC-level)', () => {
       });
       expect(await screen.findByText('Idle PR')).toBeDefined();
 
-      const stateTrigger = screen.getByRole('button', { name: /Filter by state/i });
-      fireEvent.click(stateTrigger);
+      const activityTrigger = screen.getByRole('button', { name: /Filter by activity/i });
+      fireEvent.click(activityTrigger);
       fireEvent.click(screen.getByRole('option', { name: /^Mentions$/i }));
       await waitFor(() => expect(lastItemsQuery(daemon)).toBe('new:mention'));
       expect(window.location.search).toBe('?q=new:mention');
@@ -613,7 +601,7 @@ describe('Dashboard (RPC-level)', () => {
       expect(queryPillTexts()).not.toContain('new:mention');
       expect(sidebarNew.className).toContain('bg-blue-600');
 
-      fireEvent.click(stateTrigger);
+      fireEvent.click(activityTrigger);
       const anyOption = screen.getByRole('option', { name: /^New Activity$/i });
       expect(anyOption.getAttribute('aria-selected')).toBe('true');
     });
@@ -886,15 +874,14 @@ describe('Dashboard (RPC-level)', () => {
       expect(screen.getByRole('option', { name: /^v2\.0$/i })).toBeDefined();
       fireEvent.keyDown(window, { key: 'Escape' });
 
-      const repoTrigger = screen.getByRole('button', { name: /Filter by repository/i });
-      const repoMenu = repoTrigger.parentElement!;
-      fireEvent.click(repoTrigger);
-      expect(within(repoMenu).getByRole('option', { name: /kubernetes\/minikube/i })).toBeDefined();
-      expect(within(repoMenu).queryByRole('option', { name: /^golang$/i })).toBeNull();
-      expect(within(repoMenu).queryByRole('option', { name: /golang\/go/i })).toBeNull();
-      fireEvent.click(within(repoMenu).getByRole('button', { name: /^Show all$/i }));
-      expect(within(repoMenu).getByRole('option', { name: /^golang$/i })).toBeDefined();
-      expect(within(repoMenu).getByRole('option', { name: /golang\/go/i })).toBeDefined();
+      fireEvent.click(screen.getByRole('button', { name: /More filters/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Filter by repository/i }));
+      expect(screen.getByRole('option', { name: /kubernetes\/minikube/i })).toBeDefined();
+      expect(screen.queryByRole('option', { name: /^golang$/i })).toBeNull();
+      expect(screen.queryByRole('option', { name: /golang\/go/i })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: /^Show all$/i }));
+      expect(screen.getByRole('option', { name: /^golang$/i })).toBeDefined();
+      expect(screen.getByRole('option', { name: /golang\/go/i })).toBeDefined();
     });
 
     it('hides Show all when every value has matches', async () => {
@@ -911,10 +898,10 @@ describe('Dashboard (RPC-level)', () => {
       expect(within(authorTrigger.parentElement!).queryByRole('button', { name: /^Show all$/i })).toBeNull();
       fireEvent.keyDown(window, { key: 'Escape' });
 
-      const repoTrigger = screen.getByRole('button', { name: /Filter by repository/i });
-      fireEvent.click(repoTrigger);
-      expect(within(repoTrigger.parentElement!).getByRole('option', { name: /kubernetes\/kubernetes/i })).toBeDefined();
-      expect(within(repoTrigger.parentElement!).queryByRole('button', { name: /^Show all$/i })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: /More filters/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Filter by repository/i }));
+      expect(screen.getByRole('option', { name: /kubernetes\/kubernetes/i })).toBeDefined();
+      expect(screen.queryByRole('button', { name: /^Show all$/i })).toBeNull();
     });
 
     it('always lists the selected value, even when the facet does not contain it or has zero count', async () => {
@@ -1190,10 +1177,8 @@ describe('Dashboard (RPC-level)', () => {
       // Editing only the error clause leaves the valid predicate list unchanged, so scrollTop is preserved
       expect(scrollContainer.scrollTop).toBe(120);
 
-      // Editing the valid clause via State menu changes settledKey and resets scrollTop to 0
-      const stateTrigger = screen.getByRole('button', { name: /Filter by state/i });
-      fireEvent.click(stateTrigger);
-      fireEvent.click(within(stateTrigger.parentElement!).getByRole('button', { name: /^Closed$/i }));
+      // Editing the valid clause via State switch changes settledKey and resets scrollTop to 0
+      fireEvent.click(screen.getByRole('button', { name: /^Closed$/i }));
       await screen.findByText('Closed PR 3');
       expect(scrollContainer.scrollTop).toBe(0);
     });

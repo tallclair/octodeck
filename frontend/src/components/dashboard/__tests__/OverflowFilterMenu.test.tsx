@@ -14,10 +14,12 @@ function Harness({
   initialFilters = {},
   initialMenu = null,
   withRepository = false,
+  withActivity = false,
 }: {
   initialFilters?: Partial<FilterControls>;
   initialMenu?: DashboardMenuId | null;
   withRepository?: boolean;
+  withActivity?: boolean;
 }) {
   const [filters, setFiltersState] = useState<FilterControls>({
     ...DEFAULT_FILTER_CONTROLS,
@@ -61,6 +63,17 @@ function Harness({
                   repo: kind === 'repo' ? [...values] : [],
                 })),
               setFilters: (partial) => setFiltersState((prev) => ({ ...prev, ...partial })),
+            }
+          : undefined
+      }
+      activity={
+        withActivity
+          ? {
+              tracking: filters.tracking,
+              triage: filters.triage,
+              activity: filters.activity,
+              activityFacets: [fc('mention', 2), fc('code', 1)],
+              setFilter,
             }
           : undefined
       }
@@ -179,7 +192,7 @@ describe('OverflowFilterMenu', () => {
       .getAllByRole('button')
       .filter((b) => b.getAttribute('aria-haspopup') === 'listbox')
       .map((b) => b.getAttribute('aria-label'));
-    expect(rows).toEqual(['Filter by assignee', 'Filter by milestone', 'Filter by repository']);
+    expect(rows).toEqual(['Filter by repository', 'Filter by assignee', 'Filter by milestone']);
 
     // Hovering opens the Repository flyout next to the parent menu
     const repoRow = screen.getByRole('button', { name: /Filter by repository/i });
@@ -198,14 +211,43 @@ describe('OverflowFilterMenu', () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  it('opens straight into the Repository flyout for the repo menu id (Repo:/Org: chips) when collapsed', () => {
-    render(<Harness withRepository initialFilters={{ org: ['kubernetes'] }} initialMenu="repo" />);
-    expect(screen.getByPlaceholderText('Filter repositories…')).toBeDefined();
-    expect(screen.getByRole('option', { name: 'kubernetes' }).getAttribute('aria-selected')).toBe(
-      'true'
-    );
-    expect(screen.getByRole('button', { name: /More filters/i }).className).toBe(
-      iconTriggerClass(true, true)
-    );
+  it('shows an Activity row when the selector is collapsed into the menu and opens it as a flyout', () => {
+    vi.useFakeTimers();
+    render(<Harness withActivity />);
+    const trigger = screen.getByRole('button', { name: /More filters/i });
+    fireEvent.click(trigger);
+
+    const rows = screen
+      .getAllByRole('button')
+      .filter((b) => b.getAttribute('aria-haspopup') === 'listbox')
+      .map((b) => b.getAttribute('aria-label'));
+    expect(rows).toEqual(['Filter by activity', 'Filter by assignee', 'Filter by milestone']);
+
+    // Hovering opens the Activity flyout next to the parent menu
+    const activityRow = screen.getByRole('button', { name: /Filter by activity/i });
+    fireEvent.mouseEnter(activityRow);
+    expect(screen.getByRole('dialog', { name: 'Activity filters' })).toBeDefined();
+    expect(activityRow.getAttribute('aria-expanded')).toBe('true');
+
+    // Selecting Subscribed updates filter and highlights the overflow trigger
+    fireEvent.click(screen.getByRole('button', { name: /^Subscribed$/i }));
+    expect(trigger.className).toBe(iconTriggerClass(true, true));
+  });
+
+  it('shows both Repository and Activity rows when both are collapsed', () => {
+    render(<Harness withRepository withActivity />);
+    const trigger = screen.getByRole('button', { name: /More filters/i });
+    fireEvent.click(trigger);
+
+    const rows = screen
+      .getAllByRole('button')
+      .filter((b) => b.getAttribute('aria-haspopup') === 'listbox')
+      .map((b) => b.getAttribute('aria-label'));
+    expect(rows).toEqual([
+      'Filter by repository',
+      'Filter by activity',
+      'Filter by assignee',
+      'Filter by milestone',
+    ]);
   });
 });

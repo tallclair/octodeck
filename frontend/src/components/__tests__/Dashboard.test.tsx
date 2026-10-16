@@ -987,26 +987,26 @@ describe('Dashboard Component - Generalized Filters & URL Sync', () => {
     });
   });
 
-  describe('Tracking Filter in State Dropdown', () => {
-    it('renders Tracked and Untracked options separated by a divider in State dropdown without All or section header', () => {
+  describe('Tracking Filter in Activity Dropdown', () => {
+    it('renders Subscribed and Unsubscribed options separated by a divider in Activity dropdown without All or section header', () => {
       render(<Dashboard />);
 
-      const stateTrigger = screen.getByRole('button', { name: /Filter by state/i });
-      fireEvent.click(stateTrigger);
+      const activityTrigger = screen.getByRole('button', { name: /Filter by activity/i });
+      fireEvent.click(activityTrigger);
 
-      const stateMenu = stateTrigger.parentElement!;
+      const activityMenu = activityTrigger.parentElement!;
       // No "Tracking" text header
-      expect(within(stateMenu).queryByText(/^Tracking$/i)).toBeNull();
+      expect(within(activityMenu).queryByText(/^Tracking$/i)).toBeNull();
 
-      // No "All" option in the state menu
-      expect(within(stateMenu).queryByRole('button', { name: /^All$/i })).toBeNull();
+      // No "All" option in the activity menu
+      expect(within(activityMenu).queryByRole('button', { name: /^All$/i })).toBeNull();
 
-      // Tracked and Untracked options are present
-      const trackedOption = within(stateMenu).getByRole('button', { name: /^Tracked$/i });
-      const untrackedOption = within(stateMenu).getByRole('button', { name: /^Untracked$/i });
+      // Subscribed and Unsubscribed options are present
+      const subscribedOption = within(activityMenu).getByRole('button', { name: /^Subscribed$/i });
+      const unsubscribedOption = within(activityMenu).getByRole('button', { name: /^Unsubscribed$/i });
 
-      expect(trackedOption).toBeDefined();
-      expect(untrackedOption).toBeDefined();
+      expect(subscribedOption).toBeDefined();
+      expect(unsubscribedOption).toBeDefined();
     });
 
     it('resets tracking filter when clicking Clear filters button', () => {
@@ -1043,13 +1043,13 @@ describe('Dashboard Component - Generalized Filters & URL Sync', () => {
       render(<Dashboard />);
 
       // Set tracking to untracked
-      const stateTrigger = screen.getByRole('button', { name: /Filter by state/i });
+      const activityTrigger = screen.getByRole('button', { name: /Filter by activity/i });
       act(() => {
-        fireEvent.click(stateTrigger);
+        fireEvent.click(activityTrigger);
       });
-      const stateMenu = stateTrigger.parentElement!;
+      const activityMenu = activityTrigger.parentElement!;
       act(() => {
-        fireEvent.click(within(stateMenu).getByRole('button', { name: /^Untracked$/i }));
+        fireEvent.click(within(activityMenu).getByRole('button', { name: /^Unsubscribed$/i }));
       });
 
       expect(queryPillTexts()).toContain('tracking:false');

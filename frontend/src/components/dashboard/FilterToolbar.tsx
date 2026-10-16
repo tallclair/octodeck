@@ -1,11 +1,8 @@
 import { useCallback } from 'react';
 import {
-  GitPullRequest,
-  Disc,
   User as UserIcon,
   UserCheck,
   Tag as LabelIcon,
-  type LucideIcon,
 } from 'lucide-react';
 import type { ControlKey, FilterControls } from '../../types/filters';
 import { useToolbarCollapse } from '../../hooks/useToolbarCollapse';
@@ -18,10 +15,11 @@ import {
 } from '../../logic/query/facets';
 import type { SelectorFacets } from '../../hooks/useDashboardData';
 import type { DashboardMenuId, MenuGroup } from '../../hooks/useMenuGroup';
+import { ActivityMenu, type ActivityMenuData } from './ActivityMenu';
 import { MultiSelectMenu, type MultiSelectOption } from './MultiSelectMenu';
 import { OverflowFilterMenu } from './OverflowFilterMenu';
 import { RepoOrgMenu, type RepoOrgMenuData } from './RepoOrgMenu';
-import { StateMenu } from './StateMenu';
+import { TypeMenu } from './TypeMenu';
 import {
   MENU_ICON_SIZE,
   SEGMENTED_GROUP_CLASS,
@@ -40,22 +38,20 @@ export interface FilterToolbarProps {
   menus: MenuGroup<DashboardMenuId>;
 }
 
-const TYPE_SEGMENTS: readonly {
-  readonly value: FilterControls['type'];
+const STATE_SEGMENTS: readonly {
+  readonly value: Exclude<FilterControls['state'], 'merged'>;
   readonly label: string;
-  readonly Icon?: LucideIcon;
 }[] = [
   { value: 'all', label: 'All' },
-  { value: 'pr', label: 'PRs', Icon: GitPullRequest },
-  { value: 'issue', label: 'Issues', Icon: Disc },
+  { value: 'open', label: 'Open' },
+  { value: 'closed', label: 'Closed' },
 ];
 
 /**
  * What the toolbar gives up, in order, when its row is too narrow (collapse level n applies the
- * first n steps): first the Repository selector moves into the overflow "..." menu, then the
- * "Assigned to me" shortcut is dropped (Assignee in the overflow menu covers it).
+ * first n steps): first Activity moves into the overflow "..." menu, then Repository.
  */
-const TOOLBAR_COLLAPSE_LEVELS = ['repository', 'assignedToMe'] as const;
+const TOOLBAR_COLLAPSE_LEVELS = ['activity', 'repository'] as const;
 
 const hasCi = (list: readonly string[], value: string | null | undefined) =>
   Boolean(value && list.some((item) => item.toLowerCase() === value.toLowerCase()));
@@ -102,8 +98,8 @@ export function FilterToolbar({
   const { ref: rowRef, level: collapseLevel } = useToolbarCollapse<HTMLDivElement>(
     TOOLBAR_COLLAPSE_LEVELS.length
   );
+  const collapseActivity = collapseLevel > TOOLBAR_COLLAPSE_LEVELS.indexOf('activity');
   const collapseRepository = collapseLevel > TOOLBAR_COLLAPSE_LEVELS.indexOf('repository');
-  const hideAssignedToMe = collapseLevel > TOOLBAR_COLLAPSE_LEVELS.indexOf('assignedToMe');
 
   const handleSetRepoFilters = useCallback(
     (partial: Partial<FilterControls>) => {
@@ -123,49 +119,42 @@ export function FilterToolbar({
     setFilters: handleSetRepoFilters,
   };
 
+  const activityData: ActivityMenuData = {
+    tracking: filters.tracking,
+    triage: filters.triage,
+    activity: filters.activity,
+    activityFacets: facets.activity,
+    setFilter: setControl,
+  };
+
   return (
     // Never wraps: when the row is too narrow, controls collapse instead (see TOOLBAR_COLLAPSE_LEVELS).
     <div ref={rowRef} className="flex items-center justify-between gap-4 text-xs">
-      {/* Left-aligned: PRs / Issues Type Slider (Segmented Control) */}
-      <div className={SEGMENTED_GROUP_CLASS} role="group" aria-label="Filter item type">
-        {TYPE_SEGMENTS.map(({ value, label, Icon }) => (
+      {/* Left-aligned: State Switch (Segmented Control) */}
+      <div className={SEGMENTED_GROUP_CLASS} role="group" aria-label="Filter item state">
+        {STATE_SEGMENTS.map(({ value, label }) => (
           <button
             key={value}
             type="button"
-            onClick={() => setControl('type', value)}
-            aria-pressed={filters.type === value}
-            className={segmentedButtonClass(filters.type === value)}
+            onClick={() => setControl('state', value)}
+            aria-pressed={filters.state === value}
+            className={segmentedButtonClass(filters.state === value)}
           >
-            {Icon && <Icon size={12} className="shrink-0" />}
             <span>{label}</span>
           </button>
         ))}
       </div>
 
-      {/* Right-aligned: Dropdown Menus for State (+ Activity), Repo, Author, Label, Assigned-to-me, and More (...) */}
+      {/* Right-aligned: Dropdown Menus for Type, Author, Assigned, Label, Repository, Activity, and More (...) */}
       <div className="flex items-center gap-2">
-        <StateMenu
-          state={filters.state}
-          tracking={filters.tracking}
-          triage={filters.triage}
-          activity={filters.activity}
-          activityFacets={facets.activity}
-          open={menus.isOpen('state')}
-          onToggle={() => menus.toggle('state')}
+        <TypeMenu
+          type={filters.type}
+          open={menus.isOpen('type')}
+          onToggle={() => menus.toggle('type')}
           onClose={() => menus.close()}
-          menuRef={menus.refFor('state')}
+          menuRef={menus.refFor('type')}
           setFilter={setControl}
         />
-
-        {!collapseRepository && (
-          <RepoOrgMenu
-            {...repository}
-            open={menus.isOpen('repo')}
-            onToggle={() => menus.toggle('repo')}
-            onClose={() => menus.close()}
-            menuRef={menus.refFor('repo')}
-          />
-        )}
 
         <MultiSelectMenu
           label="Author"
@@ -185,6 +174,18 @@ export function FilterToolbar({
           emptyMessage="No authors found"
         />
 
+        {/* Assigned toggle */}
+        <button
+          type="button"
+          onClick={() => toggleAssignedToMe()}
+          aria-pressed={isAssignedToMe}
+          className={filterTriggerClass(isAssignedToMe)}
+          title={currentUser ? `Assigned to @${currentUser}` : 'Assigned'}
+        >
+          <UserCheck size={MENU_ICON_SIZE} className={triggerIconClass(isAssignedToMe)} />
+          <span>Assigned</span>
+        </button>
+
         <MultiSelectMenu
           label="Label"
           ariaLabel="Filter by label"
@@ -200,18 +201,24 @@ export function FilterToolbar({
           emptyMessage="No labels found"
         />
 
-        {/* Assigned to me toggle (dropped on very narrow rows; Assignee in the overflow menu covers it) */}
-        {!hideAssignedToMe && (
-          <button
-            type="button"
-            onClick={() => toggleAssignedToMe()}
-            aria-pressed={isAssignedToMe}
-            className={filterTriggerClass(isAssignedToMe)}
-            title={currentUser ? `Assigned to @${currentUser}` : 'Assigned to me'}
-          >
-            <UserCheck size={MENU_ICON_SIZE} className={triggerIconClass(isAssignedToMe)} />
-            <span>Assigned to me</span>
-          </button>
+        {!collapseRepository && (
+          <RepoOrgMenu
+            {...repository}
+            open={menus.isOpen('repo')}
+            onToggle={() => menus.toggle('repo')}
+            onClose={() => menus.close()}
+            menuRef={menus.refFor('repo')}
+          />
+        )}
+
+        {!collapseActivity && (
+          <ActivityMenu
+            {...activityData}
+            open={menus.isOpen('activity')}
+            onToggle={() => menus.toggle('activity')}
+            onClose={() => menus.close()}
+            menuRef={menus.refFor('activity')}
+          />
         )}
 
         <OverflowFilterMenu
@@ -223,6 +230,7 @@ export function FilterToolbar({
           menus={menus}
           setFilter={setControl}
           repository={collapseRepository ? repository : undefined}
+          activity={collapseActivity ? activityData : undefined}
         />
       </div>
     </div>

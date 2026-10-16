@@ -3,7 +3,6 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
-  type ReactNode,
   type Ref,
   type RefObject,
 } from 'react';
@@ -55,7 +54,6 @@ export interface MultiSelectMenuProps<V extends string = string> {
   readonly filterPlaceholder?: string;
   readonly sortOptions?: boolean;
   readonly valuePrefix?: string;
-  readonly headerSlot?: ReactNode;
   readonly align?: 'left' | 'right';
   readonly panelPositionClassName?: string;
   readonly hideTrigger?: boolean;
@@ -87,7 +85,6 @@ export function MultiSelectMenu<V extends string = string>({
   filterPlaceholder,
   sortOptions = true,
   valuePrefix = '',
-  headerSlot,
   align = 'right',
   panelPositionClassName,
   hideTrigger = false,
@@ -261,8 +258,6 @@ export function MultiSelectMenu<V extends string = string>({
           </button>
         </div>
       )}
-
-      {headerSlot}
 
       <div
         ref={listboxRef}

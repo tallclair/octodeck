@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useMemo, useRef, type RefObject } fro
 
 export type DashboardMenuId =
   | 'status'
-  | 'state'
+  | 'type'
+  | 'activity'
   | 'repo'
   | 'author'
   | 'label'

@@ -60,11 +60,12 @@ OctoDeck pairs multidimensional filter menus with a highlighted query input in t
 
 ### 3.1 Toolbar & Filter Menus
 
-* **PRs vs Issues:** Quickly toggle between Pull Requests only, Issues only, or All.
-* **State, Tracking & Activity:** From the **State** menu, filter by **Open**, **Closed**, or **Merged**, **Tracked** (subscribed) or **Untracked** items, and one or more **New Activity** types (the **New Activity** header itself is equivalent to the **New** tab, or pick specific types: **New items**, **Mentions**, **Comments & reviews**, **New commits**, or **Noise (bots)**).
-* **Repository & Organization (Multi-Select):** Select one or more organizations (e.g. `kubernetes`, `golang`) or one or more specific repositories (`kubernetes/kubernetes`, `kubernetes/website`). Selecting an organization clears repository selections and vice versa.
-* **Author & Labels (Multi-Select):** Select one or more author logins (including `@your-login (you)` pinned at the top, which writes `author:@me`) or multiple GitHub labels (with live counts and label color swatches) to match items carrying any of the selected values.
-* **Assigned to Me & More Filters (`...`):** Use the one-click **Assigned to me** toggle to add/remove `assignee:@me`, or open the **`...` (More filters)** menu on the right to drill into multi-select **Assignee** and **Milestone** filters. When the window is narrow, the **Repository** filter moves into the `...` menu, and on very narrow windows the **Assigned to me** toggle is hidden (use **Assignee** in the `...` menu instead).
+* **Item State:** Quickly toggle between **All**, **Open**, or **Closed** items using the segmented switch on the left.
+* **Item Type:** From the **Type** menu, filter by **Pull requests** or **Issues** (or click the active selection again to revert to All).
+* **Activity & Subscriptions:** From the **Activity** menu, filter by **Subscribed** or **Unsubscribed** notifications, and one or more **New Activity** types (the **New Activity** header itself is equivalent to the **New** tab, or pick specific types: **New items**, **Mentions**, **Comments & reviews**, **New commits**, or **Noise (bots)**).
+* **Author & Assigned:** Select one or more author logins (including `@your-login (you)` pinned at the top, which writes `author:@me`) or use the one-click **Assigned** toggle to add/remove `assignee:@me`.
+* **Labels & Repository:** Filter by multiple GitHub labels (with live counts and label color swatches) or select one or more repositories (grouped by organization).
+* **Activity & More Filters (`...`):** From the **Activity** menu, filter by **Subscribed** or **Unsubscribed** notifications and specific **New Activity** types. Opening the **`...` (More filters)** menu reveals multi-select **Assignee** and **Milestone** filters. When space is constrained, the toolbar collapses progressively from the right: **Activity** moves into the `...` menu first, followed by **Repository**.
 * **Sorting:** Sort by **Latest Activity**, **Last Acked**, or **Creation Date** in ascending or descending order.
 
 ### 3.2 Query Input & Query Syntax

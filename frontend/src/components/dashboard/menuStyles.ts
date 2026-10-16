@@ -3,7 +3,7 @@
  * list-level menus (sort, triage title).
  *
  * Every toolbar control and menu panel takes its classes from here so heights, borders, colours
- * and row metrics cannot drift apart between hand-written components (StateMenu, SortMenu,
+ * and row metrics cannot drift apart between hand-written components (TypeMenu, ActivityMenu, SortMenu,
  * OverflowFilterMenu, ...) and MultiSelectMenu. Prefer adding a new helper here over writing a
  * one-off class string in a component.
  */
@@ -77,7 +77,7 @@ export function chevronClass(open: boolean): string {
   return `shrink-0 transition-transform duration-150 ${open ? 'rotate-180' : 'opacity-70'}`;
 }
 
-/** Container of the PRs / Issues segmented control; same outer height as the triggers. */
+/** Container of the State segmented control; same outer height as the triggers. */
 export const SEGMENTED_GROUP_CLASS = `inline-flex ${TOOLBAR_CONTROL_HEIGHT} shrink-0 p-0.5 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 shadow-2xs`;
 
 /**
@@ -125,7 +125,7 @@ export const MENU_SECTION_HEADER_CLASS =
 const ROW_FOCUS_VISIBLE = 'focus:outline-none focus-visible:bg-slate-100 dark:focus-visible:bg-slate-800';
 
 /**
- * Single-select / action row (State, Sort, triage title, overflow submenu rows).
+ * Single-select / action row (Type, Activity, Sort, triage title, overflow submenu rows).
  * `highlighted` marks a row whose submenu is currently open.
  */
 export function menuRowClass(active: boolean, highlighted = false): string {
@@ -151,7 +151,7 @@ export interface OptionRowState {
   readonly indented?: boolean;
 }
 
-/** Checkbox-style multi-select option row (MultiSelectMenu, StateMenu activity section). */
+/** Checkbox-style multi-select option row (MultiSelectMenu, ActivityMenu activity section). */
 export function optionRowClass({
   selected,
   focused = false,
@@ -173,7 +173,7 @@ export function optionRowClass({
 
 /**
  * Selectable group header row with options indented beneath it (organizations in the Repository
- * menu, "New Activity" in the State menu): bold uppercase label on a tinted background.
+ * menu, "New Activity" in the Activity menu): bold uppercase label on a tinted background.
  */
 export function groupHeaderRowClass({
   selected,

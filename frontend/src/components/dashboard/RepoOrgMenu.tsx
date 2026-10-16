@@ -83,13 +83,6 @@ export function RepoOrgMenu({
     [selectedOrgs, selectedRepos, setOrgOrRepo]
   );
 
-  const modeHint =
-    selectedOrgs.length > 0
-      ? 'Selecting a repository clears organizations'
-      : selectedRepos.length > 0
-        ? 'Selecting an organization clears repositories'
-        : null;
-
   return (
     <MultiSelectMenu
       label="Repository"
@@ -110,13 +103,6 @@ export function RepoOrgMenu({
       onToggleOption={handleToggleOption}
       filterPlaceholder="Filter repositories…"
       emptyMessage="No repositories found"
-      headerSlot={
-        modeHint ? (
-          <div className="px-3 py-1 text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50/30 dark:bg-slate-900/30 border-b border-slate-100 dark:border-slate-800/60 shrink-0">
-            {modeHint}
-          </div>
-        ) : undefined
-      }
     />
   );
 }

@@ -1,5 +1,5 @@
-import { useMemo, useRef, type KeyboardEvent, type Ref } from 'react';
-import { Check, ChevronDown, CircleDot } from 'lucide-react';
+import { useMemo, useRef, type KeyboardEvent, type Ref, type RefObject } from 'react';
+import { Activity, Check, ChevronDown } from 'lucide-react';
 import type { FacetValue } from '../../api/octodeck/v1/query_pb';
 import { buildActivityOptions } from '../../logic/query/facets';
 import { useStableOptions } from '../../hooks/useStableOptions';
@@ -23,46 +23,37 @@ import {
   triggerIconClass,
 } from './menuStyles';
 
-export interface StateMenuProps {
-  readonly state: FilterControls['state'];
+export interface ActivityMenuData {
   readonly tracking: FilterControls['tracking'];
   readonly triage: FilterControls['triage'];
   readonly activity: FilterControls['activity'];
   readonly activityFacets: readonly FacetValue[];
-  readonly open: boolean;
-  readonly onToggle: () => void;
-  readonly onClose: () => void;
-  readonly menuRef?: Ref<HTMLDivElement>;
   readonly setFilter: <K extends ControlKey>(
     key: K,
     value: FilterControls[K]
   ) => void;
 }
 
-type StateMenuRow =
-  | {
-      readonly key: 'state';
-      readonly value: Exclude<FilterControls['state'], 'all'>;
-      readonly label: string;
-      readonly dividerBefore?: boolean;
-    }
-  | {
-      readonly key: 'tracking';
-      readonly value: Exclude<FilterControls['tracking'], 'all'>;
-      readonly label: string;
-      readonly dividerBefore?: boolean;
-    };
+export interface ActivityMenuProps extends ActivityMenuData {
+  readonly open: boolean;
+  readonly onToggle: () => void;
+  readonly onClose: () => void;
+  readonly menuRef?: Ref<HTMLDivElement>;
+  /**
+   * When set, the menu renders only its panel, as a flyout to the left of a parent menu (the
+   * overflow "..." menu), and returns focus to this trigger on Escape/Tab.
+   */
+  readonly hideTrigger?: boolean;
+  readonly externalTriggerRef?: RefObject<HTMLButtonElement | null>;
+  readonly panelPositionClassName?: string;
+}
 
-const STATE_MENU_ROWS: readonly StateMenuRow[] = [
-  { key: 'state', value: 'open', label: 'Open' },
-  { key: 'state', value: 'closed', label: 'Closed' },
-  { key: 'state', value: 'merged', label: 'Merged' },
-  { key: 'tracking', value: 'tracked', label: 'Tracked', dividerBefore: true },
-  { key: 'tracking', value: 'untracked', label: 'Untracked' },
+const TRACKING_ROWS = [
+  { value: 'tracked' as const, label: 'Subscribed' },
+  { value: 'untracked' as const, label: 'Unsubscribed' },
 ];
 
-export function StateMenu({
-  state,
+export function ActivityMenu({
   tracking,
   triage,
   activity,
@@ -72,12 +63,16 @@ export function StateMenu({
   onClose,
   menuRef,
   setFilter,
-}: StateMenuProps) {
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  hideTrigger = false,
+  externalTriggerRef,
+  panelPositionClassName,
+}: ActivityMenuProps) {
+  const internalTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const triggerRef = externalTriggerRef ?? internalTriggerRef;
   const panelRef = useRef<HTMLDivElement | null>(null);
   const handlePanelKeyDown = useMenuPanelKeyboard({ open, panelRef, triggerRef, onClose });
 
-  const rawActivityOptions = useMemo< readonly MultiSelectOption<ActivityValue>[] >(
+  const rawActivityOptions = useMemo<readonly MultiSelectOption<ActivityValue>[]>(
     () => buildActivityOptions(activityFacets),
     [activityFacets]
   );
@@ -85,9 +80,14 @@ export function StateMenu({
   const activityOptions = useStableOptions(open, rawActivityOptions, { sort: false });
 
   const hasSelection =
-    state !== 'all' ||
     tracking !== 'all' ||
     (triage !== 'activity' && activity.length > 0);
+
+  const handleSelectTracking = (val: 'tracked' | 'untracked') => {
+    setFilter('tracking', tracking === val ? 'all' : val);
+    triggerRef.current?.focus();
+    onClose();
+  };
 
   const toggleActivity = (val: ActivityValue, currentlySelected: boolean) => {
     const next = currentlySelected
@@ -110,60 +110,50 @@ export function StateMenu({
 
   return (
     <div className="relative" ref={menuRef}>
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={onToggle}
-        aria-label="Filter by state"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        className={filterTriggerClass(hasSelection)}
-      >
-        <CircleDot size={MENU_ICON_SIZE} className={triggerIconClass(hasSelection)} />
-        <span>State</span>
-        <ChevronDown size={CHEVRON_SIZE} className={chevronClass(open)} />
-      </button>
+      {!hideTrigger && (
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={onToggle}
+          aria-label="Filter by activity"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          className={filterTriggerClass(hasSelection)}
+        >
+          <Activity size={MENU_ICON_SIZE} className={triggerIconClass(hasSelection)} />
+          <span>Activity</span>
+          <ChevronDown size={CHEVRON_SIZE} className={chevronClass(open)} />
+        </button>
+      )}
 
       {open && (
         <div
           ref={panelRef}
           role="dialog"
-          aria-label="State and activity filters"
+          aria-label="Activity filters"
           tabIndex={-1}
           onKeyDown={handlePanelKeyDown}
-          className={`${MENU_PANEL_CLASS} ${MENU_PANEL_BELOW_RIGHT} w-56 py-1`}
+          className={`${MENU_PANEL_CLASS} ${panelPositionClassName ?? MENU_PANEL_BELOW_RIGHT} w-56 py-1`}
         >
-          {STATE_MENU_ROWS.map((row) => {
-            const isActive =
-              row.key === 'state' ? state === row.value : tracking === row.value;
+          {TRACKING_ROWS.map((row) => {
+            const isActive = tracking === row.value;
             return (
-              <div key={`${row.key}:${row.value}`}>
-                {row.dividerBefore && <div aria-hidden="true" className={MENU_DIVIDER_CLASS} />}
-                <button
-                  {...MENU_ITEM_PROPS}
-                  type="button"
-                  tabIndex={-1}
-                  onClick={() => {
-                    if (row.key === 'state') {
-                      setFilter('state', row.value);
-                    } else {
-                      setFilter('tracking', row.value);
-                    }
-                    triggerRef.current?.focus();
-                    onClose();
-                  }}
-                  className={menuRowClass(isActive)}
-                >
-                  <span>{row.label}</span>
-                  {isActive && <Check size={MENU_ICON_SIZE} className={MENU_ROW_CHECK_CLASS} />}
-                </button>
-              </div>
+              <button
+                {...MENU_ITEM_PROPS}
+                key={row.value}
+                type="button"
+                tabIndex={-1}
+                onClick={() => handleSelectTracking(row.value)}
+                className={menuRowClass(isActive)}
+              >
+                <span>{row.label}</span>
+                {isActive && <Check size={MENU_ICON_SIZE} className={MENU_ROW_CHECK_CLASS} />}
+              </button>
             );
           })}
 
           <div aria-hidden="true" className={MENU_DIVIDER_CLASS} />
-          {/* "New Activity" is both the section heading and the new:any option, styled like an
-              organization header in the Repository menu, with the specific flags indented. */}
+
           <div
             role="listbox"
             aria-multiselectable="true"

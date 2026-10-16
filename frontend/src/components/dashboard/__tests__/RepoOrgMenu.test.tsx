@@ -85,10 +85,9 @@ describe('RepoOrgMenu', () => {
     fireEvent.keyDown(firstRepoOption, { key: 'ArrowDown' });
     expect(document.activeElement).toBe(secondRepoOption);
 
-    // Space on a repo row selects that repo and shows the P3 hint
+    // Space on a repo row selects that repo
     fireEvent.keyDown(secondRepoOption, { key: ' ' });
     expect(secondRepoOption.getAttribute('aria-selected')).toBe('true');
-    expect(screen.getByText('Selecting an organization clears repositories')).toBeDefined();
 
     // ArrowUp back to the org row and Enter on the org row selects the org and clears the repo
     fireEvent.keyDown(secondRepoOption, { key: 'ArrowUp' });
@@ -99,7 +98,6 @@ describe('RepoOrgMenu', () => {
     fireEvent.keyDown(orgOption, { key: 'Enter' });
     expect(orgOption.getAttribute('aria-selected')).toBe('true');
     expect(secondRepoOption.getAttribute('aria-selected')).toBe('false');
-    expect(screen.getByText('Selecting a repository clears organizations')).toBeDefined();
 
     // Escape closes the menu and returns focus to the trigger button
     fireEvent.keyDown(orgOption, { key: 'Escape' });

@@ -33,11 +33,12 @@ function Harness({ filters }: { filters: FilterControls }) {
 }
 
 const BORDERED_TRIGGERS = [
-  /Filter by state/i,
-  /Filter by repository/i,
+  /Filter by type/i,
   /Filter by author/i,
+  /^Assigned$/i,
   /Filter by label/i,
-  /Assigned to me/i,
+  /Filter by repository/i,
+  /Filter by activity/i,
 ];
 
 /** The height utility class of an element; every toolbar control must use the same one. */
@@ -55,10 +56,11 @@ describe('FilterToolbar', () => {
       <Harness
         filters={{
           ...DEFAULT_FILTER_CONTROLS,
-          state: 'open',
-          repo: ['a/b'],
+          type: 'pr',
+          activity: ['item'],
           author: ['bob'],
           label: ['bug'],
+          repo: ['org/repo'],
           assignee: ['@me'],
         }}
       />
@@ -70,18 +72,18 @@ describe('FilterToolbar', () => {
 
   it('gives the segmented control, the triggers and the overflow trigger the same height', () => {
     render(<Harness filters={DEFAULT_FILTER_CONTROLS} />);
-    const expected = heightClass(screen.getByRole('button', { name: /Filter by state/i }));
+    const expected = heightClass(screen.getByRole('button', { name: /Filter by type/i }));
     expect(expected).toHaveLength(1);
-    expect(heightClass(screen.getByRole('group', { name: 'Filter item type' }))).toEqual(expected);
+    expect(heightClass(screen.getByRole('group', { name: 'Filter item state' }))).toEqual(expected);
     expect(heightClass(screen.getByRole('button', { name: /More filters/i }))).toEqual(expected);
   });
 
-  it('exposes the selected item type and the Assigned to me toggle state via aria-pressed', () => {
-    render(<Harness filters={{ ...DEFAULT_FILTER_CONTROLS, type: 'pr' }} />);
-    expect(screen.getByRole('button', { name: 'PRs' }).getAttribute('aria-pressed')).toBe('true');
+  it('exposes the selected item state and the Assigned toggle state via aria-pressed', () => {
+    render(<Harness filters={{ ...DEFAULT_FILTER_CONTROLS, state: 'open' }} />);
+    expect(screen.getByRole('button', { name: 'Open' }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByRole('button', { name: 'All' }).getAttribute('aria-pressed')).toBe('false');
     expect(
-      screen.getByRole('button', { name: /Assigned to me/i }).getAttribute('aria-pressed')
+      screen.getByRole('button', { name: /^Assigned$/i }).getAttribute('aria-pressed')
     ).toBe('false');
   });
 
@@ -121,41 +123,47 @@ describe('FilterToolbar', () => {
       act(() => observerCallback?.());
     };
 
-    it('moves Repository into the overflow menu, then drops Assigned to me, and expands again', () => {
+    it('collapses from the right: Activity moves into the overflow menu, then Repository, and expands again', () => {
       installLayoutStubs();
-      // 3 segments + State + Repository + Author + Label + Assigned to me + More = 9 buttons
-      rowWidth = 900;
+      // 3 segments + Type + Author + Assigned + Label + Repository + Activity + More = 10 buttons
+      rowWidth = 1000;
       render(<Harness filters={DEFAULT_FILTER_CONTROLS} />);
+      expect(screen.getByRole('button', { name: /Filter by activity/i })).toBeDefined();
       expect(screen.getByRole('button', { name: /Filter by repository/i })).toBeDefined();
-      expect(screen.getByRole('button', { name: /Assigned to me/i })).toBeDefined();
 
-      // Level 1: Repository leaves the row and becomes a row of the overflow menu
+      // Level 1: Activity leaves the row and becomes a row of the overflow menu
+      resize(950);
+      expect(screen.queryByRole('button', { name: /Filter by activity/i })).toBeNull();
+      expect(screen.getByRole('button', { name: /Filter by repository/i })).toBeDefined();
+      act(() => screen.getByRole('button', { name: /More filters/i }).click());
+      expect(screen.getByRole('button', { name: /Filter by activity/i })).toBeDefined();
+      act(() => screen.getByRole('button', { name: /More filters/i }).click());
+
+      // Level 2: Repository leaves the row too
       resize(850);
+      expect(screen.queryByRole('button', { name: /Filter by activity/i })).toBeNull();
       expect(screen.queryByRole('button', { name: /Filter by repository/i })).toBeNull();
-      expect(screen.getByRole('button', { name: /Assigned to me/i })).toBeDefined();
       act(() => screen.getByRole('button', { name: /More filters/i }).click());
+      expect(screen.getByRole('button', { name: /Filter by activity/i })).toBeDefined();
       expect(screen.getByRole('button', { name: /Filter by repository/i })).toBeDefined();
       act(() => screen.getByRole('button', { name: /More filters/i }).click());
 
-      // Level 2: Assigned to me is dropped too
-      resize(750);
-      expect(screen.queryByRole('button', { name: /Assigned to me/i })).toBeNull();
-
-      // 800px fits level 1 (8 buttons) and matches the width it needed: expand one level only
-      resize(800);
-      expect(screen.getByRole('button', { name: /Assigned to me/i })).toBeDefined();
-      expect(screen.queryByRole('button', { name: /Filter by repository/i })).toBeNull();
+      // 900px fits level 1 (9 buttons): expand one level only
+      resize(900);
+      expect(screen.getByRole('button', { name: /Filter by repository/i })).toBeDefined();
+      expect(screen.queryByRole('button', { name: /Filter by activity/i })).toBeNull();
 
       // Back to full width
-      resize(900);
+      resize(1000);
+      expect(screen.getByRole('button', { name: /Filter by activity/i })).toBeDefined();
       expect(screen.getByRole('button', { name: /Filter by repository/i })).toBeDefined();
     });
 
     it('stays fully expanded without ResizeObserver (jsdom)', () => {
       expect(typeof ResizeObserver).toBe('undefined');
       render(<Harness filters={DEFAULT_FILTER_CONTROLS} />);
+      expect(screen.getByRole('button', { name: /Filter by activity/i })).toBeDefined();
       expect(screen.getByRole('button', { name: /Filter by repository/i })).toBeDefined();
-      expect(screen.getByRole('button', { name: /Assigned to me/i })).toBeDefined();
     });
   });
 });
