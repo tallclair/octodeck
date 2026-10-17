@@ -4,6 +4,7 @@ import { Settings } from '../../Settings';
 import { ThemeProvider } from '../../context/ThemeContext';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as connectQuery from '@connectrpc/connect-query';
+import { RepoSortMode } from '../../api/octodeck/v1/service_pb';
 
 const invalidateQueriesMock = vi.fn().mockResolvedValue(undefined);
 const refetchQueriesMock = vi.fn().mockResolvedValue(undefined);
@@ -89,6 +90,53 @@ describe('Settings Component', () => {
     expect(screen.getByRole('button', { name: /Close settings/i })).toBeDefined();
     expect(screen.getByRole('button', { name: /^Cancel$/i })).toBeDefined();
     expect(screen.getByRole('button', { name: /Save Settings/i })).toBeDefined();
+  });
+
+  it('renders Sidebar Repository Sort select dropdown, allows changing sort mode, and saves with repo_sort_mode mask', async () => {
+    const mockMutateAsync = vi.fn().mockResolvedValue({});
+    vi.mocked(connectQuery.useMutation).mockReturnValue({
+      mutateAsync: mockMutateAsync,
+      isPending: false,
+    } as any);
+
+    vi.mocked(connectQuery.useQuery).mockReturnValue({
+      data: {
+        config: {
+          ...mockConfig,
+          repoSortMode: RepoSortMode.ALPHABETICAL,
+        },
+      },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as any);
+
+    render(<Settings />);
+
+    const select = screen.getByLabelText(/Sidebar Repository Sort/i) as HTMLSelectElement;
+    expect(select).toBeDefined();
+    expect(select.tagName).toBe('SELECT');
+    expect(select.value).toBe(String(RepoSortMode.ALPHABETICAL));
+
+    // Change sort mode to Recent Activity
+    fireEvent.change(select, { target: { value: String(RepoSortMode.RECENT_ACTIVITY) } });
+    expect(select.value).toBe(String(RepoSortMode.RECENT_ACTIVITY));
+
+    // Save settings
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Save Settings/i }));
+    });
+
+    expect(mockMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          repoSortMode: RepoSortMode.RECENT_ACTIVITY,
+        }),
+        updateMask: expect.objectContaining({
+          paths: expect.arrayContaining(['repo_sort_mode']),
+        }),
+      })
+    );
   });
 
   it('switches themes when clicking Appearance radio buttons in Settings', () => {
@@ -231,6 +279,7 @@ describe('Settings Component', () => {
       'included_labels',
       'known_bots',
       'polling_interval_min',
+      'repo_sort_mode',
       'tracked_queries',
       'watched_repos',
     ]);

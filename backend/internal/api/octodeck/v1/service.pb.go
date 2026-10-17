@@ -23,6 +23,58 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// How repositories are ordered in the dashboard sidebar.
+type RepoSortMode int32
+
+const (
+	// Treated as REPO_SORT_MODE_ALPHABETICAL.
+	RepoSortMode_REPO_SORT_MODE_UNSPECIFIED RepoSortMode = 0
+	// Sorted alphabetically by owner/repo.
+	RepoSortMode_REPO_SORT_MODE_ALPHABETICAL RepoSortMode = 1
+	// Sorted by number of items with non-noise activity in the last 30 days.
+	RepoSortMode_REPO_SORT_MODE_RECENT_ACTIVITY RepoSortMode = 2
+	// Sorted by total number of cached items for the repository.
+	RepoSortMode_REPO_SORT_MODE_TOTAL_ITEMS RepoSortMode = 3
+)
+
+// Enum value maps for RepoSortMode.
+var (
+	RepoSortMode_name = map[int32]string{
+		0: "REPO_SORT_MODE_UNSPECIFIED",
+		1: "REPO_SORT_MODE_ALPHABETICAL",
+		2: "REPO_SORT_MODE_RECENT_ACTIVITY",
+		3: "REPO_SORT_MODE_TOTAL_ITEMS",
+	}
+	RepoSortMode_value = map[string]int32{
+		"REPO_SORT_MODE_UNSPECIFIED":     0,
+		"REPO_SORT_MODE_ALPHABETICAL":    1,
+		"REPO_SORT_MODE_RECENT_ACTIVITY": 2,
+		"REPO_SORT_MODE_TOTAL_ITEMS":     3,
+	}
+)
+
+func (x RepoSortMode) Enum() *RepoSortMode {
+	p := new(RepoSortMode)
+	*p = x
+	return p
+}
+
+func (x RepoSortMode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RepoSortMode) Descriptor() protoreflect.EnumDescriptor {
+	return file_octodeck_v1_service_proto_enumTypes[0].Descriptor()
+}
+
+func (RepoSortMode) Type() protoreflect.EnumType {
+	return &file_octodeck_v1_service_proto_enumTypes[0]
+}
+
+func (x RepoSortMode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
 // How the extension toolbar badge counts items.
 type BadgeCountMode int32
 
@@ -64,11 +116,11 @@ func (x BadgeCountMode) String() string {
 }
 
 func (BadgeCountMode) Descriptor() protoreflect.EnumDescriptor {
-	return file_octodeck_v1_service_proto_enumTypes[0].Descriptor()
+	return file_octodeck_v1_service_proto_enumTypes[1].Descriptor()
 }
 
 func (BadgeCountMode) Type() protoreflect.EnumType {
-	return &file_octodeck_v1_service_proto_enumTypes[0]
+	return &file_octodeck_v1_service_proto_enumTypes[1]
 }
 
 func (x BadgeCountMode) Number() protoreflect.EnumNumber {
@@ -123,11 +175,11 @@ func (x NotificationCategory) String() string {
 }
 
 func (NotificationCategory) Descriptor() protoreflect.EnumDescriptor {
-	return file_octodeck_v1_service_proto_enumTypes[1].Descriptor()
+	return file_octodeck_v1_service_proto_enumTypes[2].Descriptor()
 }
 
 func (NotificationCategory) Type() protoreflect.EnumType {
-	return &file_octodeck_v1_service_proto_enumTypes[1]
+	return &file_octodeck_v1_service_proto_enumTypes[2]
 }
 
 func (x NotificationCategory) Number() protoreflect.EnumNumber {
@@ -170,11 +222,11 @@ func (x SyncResponse_Stage) String() string {
 }
 
 func (SyncResponse_Stage) Descriptor() protoreflect.EnumDescriptor {
-	return file_octodeck_v1_service_proto_enumTypes[2].Descriptor()
+	return file_octodeck_v1_service_proto_enumTypes[3].Descriptor()
 }
 
 func (SyncResponse_Stage) Type() protoreflect.EnumType {
-	return &file_octodeck_v1_service_proto_enumTypes[2]
+	return &file_octodeck_v1_service_proto_enumTypes[3]
 }
 
 func (x SyncResponse_Stage) Number() protoreflect.EnumNumber {
@@ -2162,6 +2214,7 @@ type Config struct {
 	xxx_hidden_AutoSubscribeQueries []string               `protobuf:"bytes,13,rep,name=auto_subscribe_queries,json=autoSubscribeQueries"`
 	xxx_hidden_NotificationSettings *NotificationSettings  `protobuf:"bytes,14,opt,name=notification_settings,json=notificationSettings"`
 	xxx_hidden_SavedSearches        *[]*SavedSearch        `protobuf:"bytes,15,rep,name=saved_searches,json=savedSearches"`
+	xxx_hidden_RepoSortMode         RepoSortMode           `protobuf:"varint,16,opt,name=repo_sort_mode,json=repoSortMode,enum=octodeck.v1.RepoSortMode"`
 	XXX_raceDetectHookData          protoimpl.RaceDetectHookData
 	XXX_presence                    [1]uint32
 	unknownFields                   protoimpl.UnknownFields
@@ -2303,6 +2356,15 @@ func (x *Config) GetSavedSearches() []*SavedSearch {
 	return nil
 }
 
+func (x *Config) GetRepoSortMode() RepoSortMode {
+	if x != nil {
+		if protoimpl.X.Present(&(x.XXX_presence[0]), 15) {
+			return x.xxx_hidden_RepoSortMode
+		}
+	}
+	return RepoSortMode_REPO_SORT_MODE_UNSPECIFIED
+}
+
 func (x *Config) SetWatchedRepos(v []string) {
 	x.xxx_hidden_WatchedRepos = v
 }
@@ -2317,7 +2379,7 @@ func (x *Config) SetExcludedRepos(v []string) {
 
 func (x *Config) SetPollingIntervalMin(v int32) {
 	x.xxx_hidden_PollingIntervalMin = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 15)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 16)
 }
 
 func (x *Config) SetKnownBots(v []string) {
@@ -2326,17 +2388,17 @@ func (x *Config) SetKnownBots(v []string) {
 
 func (x *Config) SetAutoAckOwnActivity(v bool) {
 	x.xxx_hidden_AutoAckOwnActivity = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 15)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 16)
 }
 
 func (x *Config) SetPort(v int32) {
 	x.xxx_hidden_Port = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 15)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 16)
 }
 
 func (x *Config) SetDbPath(v string) {
 	x.xxx_hidden_DbPath = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 15)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 16)
 }
 
 func (x *Config) SetIncludedLabels(v []string) {
@@ -2353,7 +2415,7 @@ func (x *Config) SetTrackedQueries(v []string) {
 
 func (x *Config) SetDiscoveryIntervalMin(v int32) {
 	x.xxx_hidden_DiscoveryIntervalMin = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 11, 15)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 11, 16)
 }
 
 func (x *Config) SetAutoSubscribeQueries(v []string) {
@@ -2366,6 +2428,11 @@ func (x *Config) SetNotificationSettings(v *NotificationSettings) {
 
 func (x *Config) SetSavedSearches(v []*SavedSearch) {
 	x.xxx_hidden_SavedSearches = &v
+}
+
+func (x *Config) SetRepoSortMode(v RepoSortMode) {
+	x.xxx_hidden_RepoSortMode = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 15, 16)
 }
 
 func (x *Config) HasPollingIntervalMin() bool {
@@ -2410,6 +2477,13 @@ func (x *Config) HasNotificationSettings() bool {
 	return x.xxx_hidden_NotificationSettings != nil
 }
 
+func (x *Config) HasRepoSortMode() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 15)
+}
+
 func (x *Config) ClearPollingIntervalMin() {
 	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 3)
 	x.xxx_hidden_PollingIntervalMin = 0
@@ -2439,6 +2513,11 @@ func (x *Config) ClearNotificationSettings() {
 	x.xxx_hidden_NotificationSettings = nil
 }
 
+func (x *Config) ClearRepoSortMode() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 15)
+	x.xxx_hidden_RepoSortMode = RepoSortMode_REPO_SORT_MODE_UNSPECIFIED
+}
+
 type Config_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -2461,6 +2540,8 @@ type Config_builder struct {
 	// Saved searches, in display order. Changed only through the saved search RPCs; UpdateConfig
 	// rejects masks that include this field and preserves it on a full update.
 	SavedSearches []*SavedSearch
+	// How repositories are ordered in the dashboard sidebar.
+	RepoSortMode *RepoSortMode
 }
 
 func (b0 Config_builder) Build() *Config {
@@ -2471,32 +2552,36 @@ func (b0 Config_builder) Build() *Config {
 	x.xxx_hidden_PinnedRepos = b.PinnedRepos
 	x.xxx_hidden_ExcludedRepos = b.ExcludedRepos
 	if b.PollingIntervalMin != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 15)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 16)
 		x.xxx_hidden_PollingIntervalMin = *b.PollingIntervalMin
 	}
 	x.xxx_hidden_KnownBots = b.KnownBots
 	if b.AutoAckOwnActivity != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 15)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 16)
 		x.xxx_hidden_AutoAckOwnActivity = *b.AutoAckOwnActivity
 	}
 	if b.Port != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 15)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 16)
 		x.xxx_hidden_Port = *b.Port
 	}
 	if b.DbPath != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 15)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 16)
 		x.xxx_hidden_DbPath = b.DbPath
 	}
 	x.xxx_hidden_IncludedLabels = b.IncludedLabels
 	x.xxx_hidden_ExcludedLabels = b.ExcludedLabels
 	x.xxx_hidden_TrackedQueries = b.TrackedQueries
 	if b.DiscoveryIntervalMin != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 11, 15)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 11, 16)
 		x.xxx_hidden_DiscoveryIntervalMin = *b.DiscoveryIntervalMin
 	}
 	x.xxx_hidden_AutoSubscribeQueries = b.AutoSubscribeQueries
 	x.xxx_hidden_NotificationSettings = b.NotificationSettings
 	x.xxx_hidden_SavedSearches = &b.SavedSearches
+	if b.RepoSortMode != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 15, 16)
+		x.xxx_hidden_RepoSortMode = *b.RepoSortMode
+	}
 	return m0
 }
 
@@ -6420,7 +6505,7 @@ const file_octodeck_v1_service_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
 	"\x05query\x18\x03 \x01(\tR\x05query\x12%\n" +
-	"\x04sort\x18\x04 \x01(\v2\x11.octodeck.v1.SortR\x04sort\"\xa8\x05\n" +
+	"\x04sort\x18\x04 \x01(\v2\x11.octodeck.v1.SortR\x04sort\"\xe9\x05\n" +
 	"\x06Config\x12#\n" +
 	"\rwatched_repos\x18\x01 \x03(\tR\fwatchedRepos\x12!\n" +
 	"\fpinned_repos\x18\x02 \x03(\tR\vpinnedRepos\x12%\n" +
@@ -6438,7 +6523,8 @@ const file_octodeck_v1_service_proto_rawDesc = "" +
 	"\x16discovery_interval_min\x18\f \x01(\x05R\x14discoveryIntervalMin\x124\n" +
 	"\x16auto_subscribe_queries\x18\r \x03(\tR\x14autoSubscribeQueries\x12V\n" +
 	"\x15notification_settings\x18\x0e \x01(\v2!.octodeck.v1.NotificationSettingsR\x14notificationSettings\x12?\n" +
-	"\x0esaved_searches\x18\x0f \x03(\v2\x18.octodeck.v1.SavedSearchR\rsavedSearches\"\xd9\x04\n" +
+	"\x0esaved_searches\x18\x0f \x03(\v2\x18.octodeck.v1.SavedSearchR\rsavedSearches\x12?\n" +
+	"\x0erepo_sort_mode\x18\x10 \x01(\x0e2\x19.octodeck.v1.RepoSortModeR\frepoSortMode\"\xd9\x04\n" +
 	"\x14NotificationSettings\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12#\n" +
 	"\rrepo_includes\x18\x02 \x03(\tR\frepoIncludes\x12#\n" +
@@ -6576,7 +6662,12 @@ const file_octodeck_v1_service_proto_rawDesc = "" +
 	"\asummary\x18\x03 \x01(\v2 .octodeck.v1.NotificationSummaryH\x00R\asummary\x120\n" +
 	"\x05badge\x18\x04 \x01(\v2\x18.octodeck.v1.BadgeUpdateH\x00R\x05badge\x126\n" +
 	"\theartbeat\x18\x05 \x01(\v2\x16.octodeck.v1.HeartbeatH\x00R\theartbeatB\a\n" +
-	"\x05event*\x8a\x01\n" +
+	"\x05event*\x93\x01\n" +
+	"\fRepoSortMode\x12\x1e\n" +
+	"\x1aREPO_SORT_MODE_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bREPO_SORT_MODE_ALPHABETICAL\x10\x01\x12\"\n" +
+	"\x1eREPO_SORT_MODE_RECENT_ACTIVITY\x10\x02\x12\x1e\n" +
+	"\x1aREPO_SORT_MODE_TOTAL_ITEMS\x10\x03*\x8a\x01\n" +
 	"\x0eBadgeCountMode\x12 \n" +
 	"\x1cBADGE_COUNT_MODE_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16BADGE_COUNT_MODE_INBOX\x10\x01\x12\x1b\n" +
@@ -6614,175 +6705,177 @@ const file_octodeck_v1_service_proto_rawDesc = "" +
 	"\x12WatchNotifications\x12&.octodeck.v1.WatchNotificationsRequest\x1a'.octodeck.v1.WatchNotificationsResponse0\x01B\xb7\x01\n" +
 	"\x0fcom.octodeck.v1B\fServiceProtoP\x01ZIgithub.com/tallclair/octodeck/backend/internal/api/octodeck/v1;octodeckv1\xa2\x02\x03OXX\xaa\x02\vOctodeck.V1\xca\x02\vOctodeck\\V1\xe2\x02\x17Octodeck\\V1\\GPBMetadata\xea\x02\fOctodeck::V1b\beditionsp\xe8\a"
 
-var file_octodeck_v1_service_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_octodeck_v1_service_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
 var file_octodeck_v1_service_proto_msgTypes = make([]protoimpl.MessageInfo, 53)
 var file_octodeck_v1_service_proto_goTypes = []any{
-	(BadgeCountMode)(0),                  // 0: octodeck.v1.BadgeCountMode
-	(NotificationCategory)(0),            // 1: octodeck.v1.NotificationCategory
-	(SyncResponse_Stage)(0),              // 2: octodeck.v1.SyncResponse.Stage
-	(*GetItemsRequest)(nil),              // 3: octodeck.v1.GetItemsRequest
-	(*GetItemsResponse)(nil),             // 4: octodeck.v1.GetItemsResponse
-	(*GetItemRequest)(nil),               // 5: octodeck.v1.GetItemRequest
-	(*GetItemResponse)(nil),              // 6: octodeck.v1.GetItemResponse
-	(*GetFacetsRequest)(nil),             // 7: octodeck.v1.GetFacetsRequest
-	(*GetFacetsResponse)(nil),            // 8: octodeck.v1.GetFacetsResponse
-	(*SyncRequest)(nil),                  // 9: octodeck.v1.SyncRequest
-	(*SyncResponse)(nil),                 // 10: octodeck.v1.SyncResponse
-	(*ViewItemRequest)(nil),              // 11: octodeck.v1.ViewItemRequest
-	(*ViewItemResponse)(nil),             // 12: octodeck.v1.ViewItemResponse
-	(*AckItemRequest)(nil),               // 13: octodeck.v1.AckItemRequest
-	(*AckItemResponse)(nil),              // 14: octodeck.v1.AckItemResponse
-	(*StarItemRequest)(nil),              // 15: octodeck.v1.StarItemRequest
-	(*StarItemResponse)(nil),             // 16: octodeck.v1.StarItemResponse
-	(*SetNotesRequest)(nil),              // 17: octodeck.v1.SetNotesRequest
-	(*SetNotesResponse)(nil),             // 18: octodeck.v1.SetNotesResponse
-	(*RefetchItemRequest)(nil),           // 19: octodeck.v1.RefetchItemRequest
-	(*RefetchItemResponse)(nil),          // 20: octodeck.v1.RefetchItemResponse
-	(*DeleteItemRequest)(nil),            // 21: octodeck.v1.DeleteItemRequest
-	(*DeleteItemResponse)(nil),           // 22: octodeck.v1.DeleteItemResponse
-	(*UpdateSubscriptionRequest)(nil),    // 23: octodeck.v1.UpdateSubscriptionRequest
-	(*UpdateSubscriptionResponse)(nil),   // 24: octodeck.v1.UpdateSubscriptionResponse
-	(*SavedSearch)(nil),                  // 25: octodeck.v1.SavedSearch
-	(*Config)(nil),                       // 26: octodeck.v1.Config
-	(*NotificationSettings)(nil),         // 27: octodeck.v1.NotificationSettings
-	(*TrackedQueryStats)(nil),            // 28: octodeck.v1.TrackedQueryStats
-	(*GetConfigRequest)(nil),             // 29: octodeck.v1.GetConfigRequest
-	(*GetConfigResponse)(nil),            // 30: octodeck.v1.GetConfigResponse
-	(*UpdateConfigRequest)(nil),          // 31: octodeck.v1.UpdateConfigRequest
-	(*TrackedQueryWarning)(nil),          // 32: octodeck.v1.TrackedQueryWarning
-	(*UpdateConfigResponse)(nil),         // 33: octodeck.v1.UpdateConfigResponse
-	(*CreateSavedSearchRequest)(nil),     // 34: octodeck.v1.CreateSavedSearchRequest
-	(*CreateSavedSearchResponse)(nil),    // 35: octodeck.v1.CreateSavedSearchResponse
-	(*UpdateSavedSearchRequest)(nil),     // 36: octodeck.v1.UpdateSavedSearchRequest
-	(*UpdateSavedSearchResponse)(nil),    // 37: octodeck.v1.UpdateSavedSearchResponse
-	(*DeleteSavedSearchRequest)(nil),     // 38: octodeck.v1.DeleteSavedSearchRequest
-	(*DeleteSavedSearchResponse)(nil),    // 39: octodeck.v1.DeleteSavedSearchResponse
-	(*ReorderSavedSearchesRequest)(nil),  // 40: octodeck.v1.ReorderSavedSearchesRequest
-	(*ReorderSavedSearchesResponse)(nil), // 41: octodeck.v1.ReorderSavedSearchesResponse
-	(*GetSyncStatusRequest)(nil),         // 42: octodeck.v1.GetSyncStatusRequest
-	(*SyncStatus)(nil),                   // 43: octodeck.v1.SyncStatus
-	(*GetSyncStatusResponse)(nil),        // 44: octodeck.v1.GetSyncStatusResponse
-	(*GetSyncTracesRequest)(nil),         // 45: octodeck.v1.GetSyncTracesRequest
-	(*GetSyncTracesResponse)(nil),        // 46: octodeck.v1.GetSyncTracesResponse
-	(*DatabaseStats)(nil),                // 47: octodeck.v1.DatabaseStats
-	(*GetDatabaseStatsRequest)(nil),      // 48: octodeck.v1.GetDatabaseStatsRequest
-	(*GetDatabaseStatsResponse)(nil),     // 49: octodeck.v1.GetDatabaseStatsResponse
-	(*Notification)(nil),                 // 50: octodeck.v1.Notification
-	(*NotificationSummary)(nil),          // 51: octodeck.v1.NotificationSummary
-	(*BadgeUpdate)(nil),                  // 52: octodeck.v1.BadgeUpdate
-	(*Heartbeat)(nil),                    // 53: octodeck.v1.Heartbeat
-	(*WatchNotificationsRequest)(nil),    // 54: octodeck.v1.WatchNotificationsRequest
-	(*WatchNotificationsResponse)(nil),   // 55: octodeck.v1.WatchNotificationsResponse
-	(*Expr)(nil),                         // 56: octodeck.v1.Expr
-	(*Sort)(nil),                         // 57: octodeck.v1.Sort
-	(*Item)(nil),                         // 58: octodeck.v1.Item
-	(Field)(0),                           // 59: octodeck.v1.Field
-	(*Facet)(nil),                        // 60: octodeck.v1.Facet
-	(*CountResult)(nil),                  // 61: octodeck.v1.CountResult
-	(SubscriptionState)(0),               // 62: octodeck.v1.SubscriptionState
-	(*fieldmaskpb.FieldMask)(nil),        // 63: google.protobuf.FieldMask
-	(*timestamppb.Timestamp)(nil),        // 64: google.protobuf.Timestamp
-	(*SyncTrace)(nil),                    // 65: octodeck.v1.SyncTrace
+	(RepoSortMode)(0),                    // 0: octodeck.v1.RepoSortMode
+	(BadgeCountMode)(0),                  // 1: octodeck.v1.BadgeCountMode
+	(NotificationCategory)(0),            // 2: octodeck.v1.NotificationCategory
+	(SyncResponse_Stage)(0),              // 3: octodeck.v1.SyncResponse.Stage
+	(*GetItemsRequest)(nil),              // 4: octodeck.v1.GetItemsRequest
+	(*GetItemsResponse)(nil),             // 5: octodeck.v1.GetItemsResponse
+	(*GetItemRequest)(nil),               // 6: octodeck.v1.GetItemRequest
+	(*GetItemResponse)(nil),              // 7: octodeck.v1.GetItemResponse
+	(*GetFacetsRequest)(nil),             // 8: octodeck.v1.GetFacetsRequest
+	(*GetFacetsResponse)(nil),            // 9: octodeck.v1.GetFacetsResponse
+	(*SyncRequest)(nil),                  // 10: octodeck.v1.SyncRequest
+	(*SyncResponse)(nil),                 // 11: octodeck.v1.SyncResponse
+	(*ViewItemRequest)(nil),              // 12: octodeck.v1.ViewItemRequest
+	(*ViewItemResponse)(nil),             // 13: octodeck.v1.ViewItemResponse
+	(*AckItemRequest)(nil),               // 14: octodeck.v1.AckItemRequest
+	(*AckItemResponse)(nil),              // 15: octodeck.v1.AckItemResponse
+	(*StarItemRequest)(nil),              // 16: octodeck.v1.StarItemRequest
+	(*StarItemResponse)(nil),             // 17: octodeck.v1.StarItemResponse
+	(*SetNotesRequest)(nil),              // 18: octodeck.v1.SetNotesRequest
+	(*SetNotesResponse)(nil),             // 19: octodeck.v1.SetNotesResponse
+	(*RefetchItemRequest)(nil),           // 20: octodeck.v1.RefetchItemRequest
+	(*RefetchItemResponse)(nil),          // 21: octodeck.v1.RefetchItemResponse
+	(*DeleteItemRequest)(nil),            // 22: octodeck.v1.DeleteItemRequest
+	(*DeleteItemResponse)(nil),           // 23: octodeck.v1.DeleteItemResponse
+	(*UpdateSubscriptionRequest)(nil),    // 24: octodeck.v1.UpdateSubscriptionRequest
+	(*UpdateSubscriptionResponse)(nil),   // 25: octodeck.v1.UpdateSubscriptionResponse
+	(*SavedSearch)(nil),                  // 26: octodeck.v1.SavedSearch
+	(*Config)(nil),                       // 27: octodeck.v1.Config
+	(*NotificationSettings)(nil),         // 28: octodeck.v1.NotificationSettings
+	(*TrackedQueryStats)(nil),            // 29: octodeck.v1.TrackedQueryStats
+	(*GetConfigRequest)(nil),             // 30: octodeck.v1.GetConfigRequest
+	(*GetConfigResponse)(nil),            // 31: octodeck.v1.GetConfigResponse
+	(*UpdateConfigRequest)(nil),          // 32: octodeck.v1.UpdateConfigRequest
+	(*TrackedQueryWarning)(nil),          // 33: octodeck.v1.TrackedQueryWarning
+	(*UpdateConfigResponse)(nil),         // 34: octodeck.v1.UpdateConfigResponse
+	(*CreateSavedSearchRequest)(nil),     // 35: octodeck.v1.CreateSavedSearchRequest
+	(*CreateSavedSearchResponse)(nil),    // 36: octodeck.v1.CreateSavedSearchResponse
+	(*UpdateSavedSearchRequest)(nil),     // 37: octodeck.v1.UpdateSavedSearchRequest
+	(*UpdateSavedSearchResponse)(nil),    // 38: octodeck.v1.UpdateSavedSearchResponse
+	(*DeleteSavedSearchRequest)(nil),     // 39: octodeck.v1.DeleteSavedSearchRequest
+	(*DeleteSavedSearchResponse)(nil),    // 40: octodeck.v1.DeleteSavedSearchResponse
+	(*ReorderSavedSearchesRequest)(nil),  // 41: octodeck.v1.ReorderSavedSearchesRequest
+	(*ReorderSavedSearchesResponse)(nil), // 42: octodeck.v1.ReorderSavedSearchesResponse
+	(*GetSyncStatusRequest)(nil),         // 43: octodeck.v1.GetSyncStatusRequest
+	(*SyncStatus)(nil),                   // 44: octodeck.v1.SyncStatus
+	(*GetSyncStatusResponse)(nil),        // 45: octodeck.v1.GetSyncStatusResponse
+	(*GetSyncTracesRequest)(nil),         // 46: octodeck.v1.GetSyncTracesRequest
+	(*GetSyncTracesResponse)(nil),        // 47: octodeck.v1.GetSyncTracesResponse
+	(*DatabaseStats)(nil),                // 48: octodeck.v1.DatabaseStats
+	(*GetDatabaseStatsRequest)(nil),      // 49: octodeck.v1.GetDatabaseStatsRequest
+	(*GetDatabaseStatsResponse)(nil),     // 50: octodeck.v1.GetDatabaseStatsResponse
+	(*Notification)(nil),                 // 51: octodeck.v1.Notification
+	(*NotificationSummary)(nil),          // 52: octodeck.v1.NotificationSummary
+	(*BadgeUpdate)(nil),                  // 53: octodeck.v1.BadgeUpdate
+	(*Heartbeat)(nil),                    // 54: octodeck.v1.Heartbeat
+	(*WatchNotificationsRequest)(nil),    // 55: octodeck.v1.WatchNotificationsRequest
+	(*WatchNotificationsResponse)(nil),   // 56: octodeck.v1.WatchNotificationsResponse
+	(*Expr)(nil),                         // 57: octodeck.v1.Expr
+	(*Sort)(nil),                         // 58: octodeck.v1.Sort
+	(*Item)(nil),                         // 59: octodeck.v1.Item
+	(Field)(0),                           // 60: octodeck.v1.Field
+	(*Facet)(nil),                        // 61: octodeck.v1.Facet
+	(*CountResult)(nil),                  // 62: octodeck.v1.CountResult
+	(SubscriptionState)(0),               // 63: octodeck.v1.SubscriptionState
+	(*fieldmaskpb.FieldMask)(nil),        // 64: google.protobuf.FieldMask
+	(*timestamppb.Timestamp)(nil),        // 65: google.protobuf.Timestamp
+	(*SyncTrace)(nil),                    // 66: octodeck.v1.SyncTrace
 }
 var file_octodeck_v1_service_proto_depIdxs = []int32{
-	56, // 0: octodeck.v1.GetItemsRequest.query:type_name -> octodeck.v1.Expr
-	57, // 1: octodeck.v1.GetItemsRequest.sort:type_name -> octodeck.v1.Sort
-	58, // 2: octodeck.v1.GetItemsResponse.items:type_name -> octodeck.v1.Item
-	58, // 3: octodeck.v1.GetItemResponse.item:type_name -> octodeck.v1.Item
-	56, // 4: octodeck.v1.GetFacetsRequest.query:type_name -> octodeck.v1.Expr
-	59, // 5: octodeck.v1.GetFacetsRequest.fields:type_name -> octodeck.v1.Field
-	56, // 6: octodeck.v1.GetFacetsRequest.queries:type_name -> octodeck.v1.Expr
-	60, // 7: octodeck.v1.GetFacetsResponse.facets:type_name -> octodeck.v1.Facet
-	61, // 8: octodeck.v1.GetFacetsResponse.counts:type_name -> octodeck.v1.CountResult
-	2,  // 9: octodeck.v1.SyncResponse.stage:type_name -> octodeck.v1.SyncResponse.Stage
-	58, // 10: octodeck.v1.ViewItemResponse.item:type_name -> octodeck.v1.Item
-	58, // 11: octodeck.v1.AckItemResponse.item:type_name -> octodeck.v1.Item
-	58, // 12: octodeck.v1.StarItemResponse.item:type_name -> octodeck.v1.Item
-	58, // 13: octodeck.v1.SetNotesResponse.item:type_name -> octodeck.v1.Item
-	58, // 14: octodeck.v1.RefetchItemResponse.item:type_name -> octodeck.v1.Item
-	62, // 15: octodeck.v1.UpdateSubscriptionRequest.state:type_name -> octodeck.v1.SubscriptionState
-	58, // 16: octodeck.v1.UpdateSubscriptionResponse.item:type_name -> octodeck.v1.Item
-	57, // 17: octodeck.v1.SavedSearch.sort:type_name -> octodeck.v1.Sort
-	27, // 18: octodeck.v1.Config.notification_settings:type_name -> octodeck.v1.NotificationSettings
-	25, // 19: octodeck.v1.Config.saved_searches:type_name -> octodeck.v1.SavedSearch
-	0,  // 20: octodeck.v1.NotificationSettings.badge_count_mode:type_name -> octodeck.v1.BadgeCountMode
-	26, // 21: octodeck.v1.GetConfigResponse.config:type_name -> octodeck.v1.Config
-	28, // 22: octodeck.v1.GetConfigResponse.query_stats:type_name -> octodeck.v1.TrackedQueryStats
-	26, // 23: octodeck.v1.UpdateConfigRequest.config:type_name -> octodeck.v1.Config
-	63, // 24: octodeck.v1.UpdateConfigRequest.update_mask:type_name -> google.protobuf.FieldMask
-	26, // 25: octodeck.v1.UpdateConfigResponse.config:type_name -> octodeck.v1.Config
-	32, // 26: octodeck.v1.UpdateConfigResponse.query_warnings:type_name -> octodeck.v1.TrackedQueryWarning
-	28, // 27: octodeck.v1.UpdateConfigResponse.query_stats:type_name -> octodeck.v1.TrackedQueryStats
-	25, // 28: octodeck.v1.CreateSavedSearchRequest.saved_search:type_name -> octodeck.v1.SavedSearch
-	25, // 29: octodeck.v1.CreateSavedSearchResponse.saved_search:type_name -> octodeck.v1.SavedSearch
-	25, // 30: octodeck.v1.CreateSavedSearchResponse.saved_searches:type_name -> octodeck.v1.SavedSearch
-	25, // 31: octodeck.v1.UpdateSavedSearchRequest.saved_search:type_name -> octodeck.v1.SavedSearch
-	63, // 32: octodeck.v1.UpdateSavedSearchRequest.update_mask:type_name -> google.protobuf.FieldMask
-	25, // 33: octodeck.v1.UpdateSavedSearchResponse.saved_searches:type_name -> octodeck.v1.SavedSearch
-	25, // 34: octodeck.v1.DeleteSavedSearchResponse.saved_searches:type_name -> octodeck.v1.SavedSearch
-	25, // 35: octodeck.v1.ReorderSavedSearchesResponse.saved_searches:type_name -> octodeck.v1.SavedSearch
-	64, // 36: octodeck.v1.SyncStatus.last_successful_sync_at:type_name -> google.protobuf.Timestamp
-	64, // 37: octodeck.v1.SyncStatus.last_sync_attempt_at:type_name -> google.protobuf.Timestamp
-	64, // 38: octodeck.v1.SyncStatus.last_update_received_at:type_name -> google.protobuf.Timestamp
-	43, // 39: octodeck.v1.GetSyncStatusResponse.status:type_name -> octodeck.v1.SyncStatus
-	65, // 40: octodeck.v1.GetSyncTracesResponse.traces:type_name -> octodeck.v1.SyncTrace
-	47, // 41: octodeck.v1.GetDatabaseStatsResponse.stats:type_name -> octodeck.v1.DatabaseStats
-	1,  // 42: octodeck.v1.Notification.category:type_name -> octodeck.v1.NotificationCategory
-	64, // 43: octodeck.v1.Notification.created_at:type_name -> google.protobuf.Timestamp
-	0,  // 44: octodeck.v1.BadgeUpdate.mode:type_name -> octodeck.v1.BadgeCountMode
-	64, // 45: octodeck.v1.WatchNotificationsRequest.last_received_at:type_name -> google.protobuf.Timestamp
-	64, // 46: octodeck.v1.WatchNotificationsResponse.sent_at:type_name -> google.protobuf.Timestamp
-	50, // 47: octodeck.v1.WatchNotificationsResponse.notification:type_name -> octodeck.v1.Notification
-	51, // 48: octodeck.v1.WatchNotificationsResponse.summary:type_name -> octodeck.v1.NotificationSummary
-	52, // 49: octodeck.v1.WatchNotificationsResponse.badge:type_name -> octodeck.v1.BadgeUpdate
-	53, // 50: octodeck.v1.WatchNotificationsResponse.heartbeat:type_name -> octodeck.v1.Heartbeat
-	3,  // 51: octodeck.v1.OctoDeckService.GetItems:input_type -> octodeck.v1.GetItemsRequest
-	5,  // 52: octodeck.v1.OctoDeckService.GetItem:input_type -> octodeck.v1.GetItemRequest
-	7,  // 53: octodeck.v1.OctoDeckService.GetFacets:input_type -> octodeck.v1.GetFacetsRequest
-	9,  // 54: octodeck.v1.OctoDeckService.Sync:input_type -> octodeck.v1.SyncRequest
-	11, // 55: octodeck.v1.OctoDeckService.ViewItem:input_type -> octodeck.v1.ViewItemRequest
-	13, // 56: octodeck.v1.OctoDeckService.AckItem:input_type -> octodeck.v1.AckItemRequest
-	15, // 57: octodeck.v1.OctoDeckService.StarItem:input_type -> octodeck.v1.StarItemRequest
-	17, // 58: octodeck.v1.OctoDeckService.SetNotes:input_type -> octodeck.v1.SetNotesRequest
-	19, // 59: octodeck.v1.OctoDeckService.RefetchItem:input_type -> octodeck.v1.RefetchItemRequest
-	21, // 60: octodeck.v1.OctoDeckService.DeleteItem:input_type -> octodeck.v1.DeleteItemRequest
-	23, // 61: octodeck.v1.OctoDeckService.UpdateSubscription:input_type -> octodeck.v1.UpdateSubscriptionRequest
-	42, // 62: octodeck.v1.OctoDeckService.GetSyncStatus:input_type -> octodeck.v1.GetSyncStatusRequest
-	45, // 63: octodeck.v1.OctoDeckService.GetSyncTraces:input_type -> octodeck.v1.GetSyncTracesRequest
-	48, // 64: octodeck.v1.OctoDeckService.GetDatabaseStats:input_type -> octodeck.v1.GetDatabaseStatsRequest
-	29, // 65: octodeck.v1.OctoDeckService.GetConfig:input_type -> octodeck.v1.GetConfigRequest
-	31, // 66: octodeck.v1.OctoDeckService.UpdateConfig:input_type -> octodeck.v1.UpdateConfigRequest
-	34, // 67: octodeck.v1.OctoDeckService.CreateSavedSearch:input_type -> octodeck.v1.CreateSavedSearchRequest
-	36, // 68: octodeck.v1.OctoDeckService.UpdateSavedSearch:input_type -> octodeck.v1.UpdateSavedSearchRequest
-	38, // 69: octodeck.v1.OctoDeckService.DeleteSavedSearch:input_type -> octodeck.v1.DeleteSavedSearchRequest
-	40, // 70: octodeck.v1.OctoDeckService.ReorderSavedSearches:input_type -> octodeck.v1.ReorderSavedSearchesRequest
-	54, // 71: octodeck.v1.OctoDeckService.WatchNotifications:input_type -> octodeck.v1.WatchNotificationsRequest
-	4,  // 72: octodeck.v1.OctoDeckService.GetItems:output_type -> octodeck.v1.GetItemsResponse
-	6,  // 73: octodeck.v1.OctoDeckService.GetItem:output_type -> octodeck.v1.GetItemResponse
-	8,  // 74: octodeck.v1.OctoDeckService.GetFacets:output_type -> octodeck.v1.GetFacetsResponse
-	10, // 75: octodeck.v1.OctoDeckService.Sync:output_type -> octodeck.v1.SyncResponse
-	12, // 76: octodeck.v1.OctoDeckService.ViewItem:output_type -> octodeck.v1.ViewItemResponse
-	14, // 77: octodeck.v1.OctoDeckService.AckItem:output_type -> octodeck.v1.AckItemResponse
-	16, // 78: octodeck.v1.OctoDeckService.StarItem:output_type -> octodeck.v1.StarItemResponse
-	18, // 79: octodeck.v1.OctoDeckService.SetNotes:output_type -> octodeck.v1.SetNotesResponse
-	20, // 80: octodeck.v1.OctoDeckService.RefetchItem:output_type -> octodeck.v1.RefetchItemResponse
-	22, // 81: octodeck.v1.OctoDeckService.DeleteItem:output_type -> octodeck.v1.DeleteItemResponse
-	24, // 82: octodeck.v1.OctoDeckService.UpdateSubscription:output_type -> octodeck.v1.UpdateSubscriptionResponse
-	44, // 83: octodeck.v1.OctoDeckService.GetSyncStatus:output_type -> octodeck.v1.GetSyncStatusResponse
-	46, // 84: octodeck.v1.OctoDeckService.GetSyncTraces:output_type -> octodeck.v1.GetSyncTracesResponse
-	49, // 85: octodeck.v1.OctoDeckService.GetDatabaseStats:output_type -> octodeck.v1.GetDatabaseStatsResponse
-	30, // 86: octodeck.v1.OctoDeckService.GetConfig:output_type -> octodeck.v1.GetConfigResponse
-	33, // 87: octodeck.v1.OctoDeckService.UpdateConfig:output_type -> octodeck.v1.UpdateConfigResponse
-	35, // 88: octodeck.v1.OctoDeckService.CreateSavedSearch:output_type -> octodeck.v1.CreateSavedSearchResponse
-	37, // 89: octodeck.v1.OctoDeckService.UpdateSavedSearch:output_type -> octodeck.v1.UpdateSavedSearchResponse
-	39, // 90: octodeck.v1.OctoDeckService.DeleteSavedSearch:output_type -> octodeck.v1.DeleteSavedSearchResponse
-	41, // 91: octodeck.v1.OctoDeckService.ReorderSavedSearches:output_type -> octodeck.v1.ReorderSavedSearchesResponse
-	55, // 92: octodeck.v1.OctoDeckService.WatchNotifications:output_type -> octodeck.v1.WatchNotificationsResponse
-	72, // [72:93] is the sub-list for method output_type
-	51, // [51:72] is the sub-list for method input_type
-	51, // [51:51] is the sub-list for extension type_name
-	51, // [51:51] is the sub-list for extension extendee
-	0,  // [0:51] is the sub-list for field type_name
+	57, // 0: octodeck.v1.GetItemsRequest.query:type_name -> octodeck.v1.Expr
+	58, // 1: octodeck.v1.GetItemsRequest.sort:type_name -> octodeck.v1.Sort
+	59, // 2: octodeck.v1.GetItemsResponse.items:type_name -> octodeck.v1.Item
+	59, // 3: octodeck.v1.GetItemResponse.item:type_name -> octodeck.v1.Item
+	57, // 4: octodeck.v1.GetFacetsRequest.query:type_name -> octodeck.v1.Expr
+	60, // 5: octodeck.v1.GetFacetsRequest.fields:type_name -> octodeck.v1.Field
+	57, // 6: octodeck.v1.GetFacetsRequest.queries:type_name -> octodeck.v1.Expr
+	61, // 7: octodeck.v1.GetFacetsResponse.facets:type_name -> octodeck.v1.Facet
+	62, // 8: octodeck.v1.GetFacetsResponse.counts:type_name -> octodeck.v1.CountResult
+	3,  // 9: octodeck.v1.SyncResponse.stage:type_name -> octodeck.v1.SyncResponse.Stage
+	59, // 10: octodeck.v1.ViewItemResponse.item:type_name -> octodeck.v1.Item
+	59, // 11: octodeck.v1.AckItemResponse.item:type_name -> octodeck.v1.Item
+	59, // 12: octodeck.v1.StarItemResponse.item:type_name -> octodeck.v1.Item
+	59, // 13: octodeck.v1.SetNotesResponse.item:type_name -> octodeck.v1.Item
+	59, // 14: octodeck.v1.RefetchItemResponse.item:type_name -> octodeck.v1.Item
+	63, // 15: octodeck.v1.UpdateSubscriptionRequest.state:type_name -> octodeck.v1.SubscriptionState
+	59, // 16: octodeck.v1.UpdateSubscriptionResponse.item:type_name -> octodeck.v1.Item
+	58, // 17: octodeck.v1.SavedSearch.sort:type_name -> octodeck.v1.Sort
+	28, // 18: octodeck.v1.Config.notification_settings:type_name -> octodeck.v1.NotificationSettings
+	26, // 19: octodeck.v1.Config.saved_searches:type_name -> octodeck.v1.SavedSearch
+	0,  // 20: octodeck.v1.Config.repo_sort_mode:type_name -> octodeck.v1.RepoSortMode
+	1,  // 21: octodeck.v1.NotificationSettings.badge_count_mode:type_name -> octodeck.v1.BadgeCountMode
+	27, // 22: octodeck.v1.GetConfigResponse.config:type_name -> octodeck.v1.Config
+	29, // 23: octodeck.v1.GetConfigResponse.query_stats:type_name -> octodeck.v1.TrackedQueryStats
+	27, // 24: octodeck.v1.UpdateConfigRequest.config:type_name -> octodeck.v1.Config
+	64, // 25: octodeck.v1.UpdateConfigRequest.update_mask:type_name -> google.protobuf.FieldMask
+	27, // 26: octodeck.v1.UpdateConfigResponse.config:type_name -> octodeck.v1.Config
+	33, // 27: octodeck.v1.UpdateConfigResponse.query_warnings:type_name -> octodeck.v1.TrackedQueryWarning
+	29, // 28: octodeck.v1.UpdateConfigResponse.query_stats:type_name -> octodeck.v1.TrackedQueryStats
+	26, // 29: octodeck.v1.CreateSavedSearchRequest.saved_search:type_name -> octodeck.v1.SavedSearch
+	26, // 30: octodeck.v1.CreateSavedSearchResponse.saved_search:type_name -> octodeck.v1.SavedSearch
+	26, // 31: octodeck.v1.CreateSavedSearchResponse.saved_searches:type_name -> octodeck.v1.SavedSearch
+	26, // 32: octodeck.v1.UpdateSavedSearchRequest.saved_search:type_name -> octodeck.v1.SavedSearch
+	64, // 33: octodeck.v1.UpdateSavedSearchRequest.update_mask:type_name -> google.protobuf.FieldMask
+	26, // 34: octodeck.v1.UpdateSavedSearchResponse.saved_searches:type_name -> octodeck.v1.SavedSearch
+	26, // 35: octodeck.v1.DeleteSavedSearchResponse.saved_searches:type_name -> octodeck.v1.SavedSearch
+	26, // 36: octodeck.v1.ReorderSavedSearchesResponse.saved_searches:type_name -> octodeck.v1.SavedSearch
+	65, // 37: octodeck.v1.SyncStatus.last_successful_sync_at:type_name -> google.protobuf.Timestamp
+	65, // 38: octodeck.v1.SyncStatus.last_sync_attempt_at:type_name -> google.protobuf.Timestamp
+	65, // 39: octodeck.v1.SyncStatus.last_update_received_at:type_name -> google.protobuf.Timestamp
+	44, // 40: octodeck.v1.GetSyncStatusResponse.status:type_name -> octodeck.v1.SyncStatus
+	66, // 41: octodeck.v1.GetSyncTracesResponse.traces:type_name -> octodeck.v1.SyncTrace
+	48, // 42: octodeck.v1.GetDatabaseStatsResponse.stats:type_name -> octodeck.v1.DatabaseStats
+	2,  // 43: octodeck.v1.Notification.category:type_name -> octodeck.v1.NotificationCategory
+	65, // 44: octodeck.v1.Notification.created_at:type_name -> google.protobuf.Timestamp
+	1,  // 45: octodeck.v1.BadgeUpdate.mode:type_name -> octodeck.v1.BadgeCountMode
+	65, // 46: octodeck.v1.WatchNotificationsRequest.last_received_at:type_name -> google.protobuf.Timestamp
+	65, // 47: octodeck.v1.WatchNotificationsResponse.sent_at:type_name -> google.protobuf.Timestamp
+	51, // 48: octodeck.v1.WatchNotificationsResponse.notification:type_name -> octodeck.v1.Notification
+	52, // 49: octodeck.v1.WatchNotificationsResponse.summary:type_name -> octodeck.v1.NotificationSummary
+	53, // 50: octodeck.v1.WatchNotificationsResponse.badge:type_name -> octodeck.v1.BadgeUpdate
+	54, // 51: octodeck.v1.WatchNotificationsResponse.heartbeat:type_name -> octodeck.v1.Heartbeat
+	4,  // 52: octodeck.v1.OctoDeckService.GetItems:input_type -> octodeck.v1.GetItemsRequest
+	6,  // 53: octodeck.v1.OctoDeckService.GetItem:input_type -> octodeck.v1.GetItemRequest
+	8,  // 54: octodeck.v1.OctoDeckService.GetFacets:input_type -> octodeck.v1.GetFacetsRequest
+	10, // 55: octodeck.v1.OctoDeckService.Sync:input_type -> octodeck.v1.SyncRequest
+	12, // 56: octodeck.v1.OctoDeckService.ViewItem:input_type -> octodeck.v1.ViewItemRequest
+	14, // 57: octodeck.v1.OctoDeckService.AckItem:input_type -> octodeck.v1.AckItemRequest
+	16, // 58: octodeck.v1.OctoDeckService.StarItem:input_type -> octodeck.v1.StarItemRequest
+	18, // 59: octodeck.v1.OctoDeckService.SetNotes:input_type -> octodeck.v1.SetNotesRequest
+	20, // 60: octodeck.v1.OctoDeckService.RefetchItem:input_type -> octodeck.v1.RefetchItemRequest
+	22, // 61: octodeck.v1.OctoDeckService.DeleteItem:input_type -> octodeck.v1.DeleteItemRequest
+	24, // 62: octodeck.v1.OctoDeckService.UpdateSubscription:input_type -> octodeck.v1.UpdateSubscriptionRequest
+	43, // 63: octodeck.v1.OctoDeckService.GetSyncStatus:input_type -> octodeck.v1.GetSyncStatusRequest
+	46, // 64: octodeck.v1.OctoDeckService.GetSyncTraces:input_type -> octodeck.v1.GetSyncTracesRequest
+	49, // 65: octodeck.v1.OctoDeckService.GetDatabaseStats:input_type -> octodeck.v1.GetDatabaseStatsRequest
+	30, // 66: octodeck.v1.OctoDeckService.GetConfig:input_type -> octodeck.v1.GetConfigRequest
+	32, // 67: octodeck.v1.OctoDeckService.UpdateConfig:input_type -> octodeck.v1.UpdateConfigRequest
+	35, // 68: octodeck.v1.OctoDeckService.CreateSavedSearch:input_type -> octodeck.v1.CreateSavedSearchRequest
+	37, // 69: octodeck.v1.OctoDeckService.UpdateSavedSearch:input_type -> octodeck.v1.UpdateSavedSearchRequest
+	39, // 70: octodeck.v1.OctoDeckService.DeleteSavedSearch:input_type -> octodeck.v1.DeleteSavedSearchRequest
+	41, // 71: octodeck.v1.OctoDeckService.ReorderSavedSearches:input_type -> octodeck.v1.ReorderSavedSearchesRequest
+	55, // 72: octodeck.v1.OctoDeckService.WatchNotifications:input_type -> octodeck.v1.WatchNotificationsRequest
+	5,  // 73: octodeck.v1.OctoDeckService.GetItems:output_type -> octodeck.v1.GetItemsResponse
+	7,  // 74: octodeck.v1.OctoDeckService.GetItem:output_type -> octodeck.v1.GetItemResponse
+	9,  // 75: octodeck.v1.OctoDeckService.GetFacets:output_type -> octodeck.v1.GetFacetsResponse
+	11, // 76: octodeck.v1.OctoDeckService.Sync:output_type -> octodeck.v1.SyncResponse
+	13, // 77: octodeck.v1.OctoDeckService.ViewItem:output_type -> octodeck.v1.ViewItemResponse
+	15, // 78: octodeck.v1.OctoDeckService.AckItem:output_type -> octodeck.v1.AckItemResponse
+	17, // 79: octodeck.v1.OctoDeckService.StarItem:output_type -> octodeck.v1.StarItemResponse
+	19, // 80: octodeck.v1.OctoDeckService.SetNotes:output_type -> octodeck.v1.SetNotesResponse
+	21, // 81: octodeck.v1.OctoDeckService.RefetchItem:output_type -> octodeck.v1.RefetchItemResponse
+	23, // 82: octodeck.v1.OctoDeckService.DeleteItem:output_type -> octodeck.v1.DeleteItemResponse
+	25, // 83: octodeck.v1.OctoDeckService.UpdateSubscription:output_type -> octodeck.v1.UpdateSubscriptionResponse
+	45, // 84: octodeck.v1.OctoDeckService.GetSyncStatus:output_type -> octodeck.v1.GetSyncStatusResponse
+	47, // 85: octodeck.v1.OctoDeckService.GetSyncTraces:output_type -> octodeck.v1.GetSyncTracesResponse
+	50, // 86: octodeck.v1.OctoDeckService.GetDatabaseStats:output_type -> octodeck.v1.GetDatabaseStatsResponse
+	31, // 87: octodeck.v1.OctoDeckService.GetConfig:output_type -> octodeck.v1.GetConfigResponse
+	34, // 88: octodeck.v1.OctoDeckService.UpdateConfig:output_type -> octodeck.v1.UpdateConfigResponse
+	36, // 89: octodeck.v1.OctoDeckService.CreateSavedSearch:output_type -> octodeck.v1.CreateSavedSearchResponse
+	38, // 90: octodeck.v1.OctoDeckService.UpdateSavedSearch:output_type -> octodeck.v1.UpdateSavedSearchResponse
+	40, // 91: octodeck.v1.OctoDeckService.DeleteSavedSearch:output_type -> octodeck.v1.DeleteSavedSearchResponse
+	42, // 92: octodeck.v1.OctoDeckService.ReorderSavedSearches:output_type -> octodeck.v1.ReorderSavedSearchesResponse
+	56, // 93: octodeck.v1.OctoDeckService.WatchNotifications:output_type -> octodeck.v1.WatchNotificationsResponse
+	73, // [73:94] is the sub-list for method output_type
+	52, // [52:73] is the sub-list for method input_type
+	52, // [52:52] is the sub-list for extension type_name
+	52, // [52:52] is the sub-list for extension extendee
+	0,  // [0:52] is the sub-list for field type_name
 }
 
 func init() { file_octodeck_v1_service_proto_init() }
@@ -6803,7 +6896,7 @@ func file_octodeck_v1_service_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_octodeck_v1_service_proto_rawDesc), len(file_octodeck_v1_service_proto_rawDesc)),
-			NumEnums:      3,
+			NumEnums:      4,
 			NumMessages:   53,
 			NumExtensions: 0,
 			NumServices:   1,

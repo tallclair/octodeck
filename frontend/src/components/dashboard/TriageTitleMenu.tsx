@@ -32,7 +32,7 @@ export function TriageTitleMenu({
     triage === 'inbox'
       ? 'Inbox'
       : triage === 'activity'
-      ? 'New'
+      ? 'New Activity'
       : triage === 'acked'
       ? 'Acked'
       : 'All Items';
@@ -71,7 +71,7 @@ export function TriageTitleMenu({
     },
     {
       tab: 'activity',
-      label: 'New',
+      label: 'New Activity',
       icon: <Zap size={MENU_ICON_SIZE} className="shrink-0 text-orange-500 dark:text-orange-400" />,
     },
     {

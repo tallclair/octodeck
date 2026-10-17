@@ -18,6 +18,7 @@ import {
   facetValues,
   newCountOf,
   valuesWithNew,
+  type SidebarRepoSort,
 } from '../logic/query/facets';
 import { exprErrorOf, isConnectivityError } from '../api/errors';
 import { mapServerErrorToRequest } from '../logic/query/predicates';
@@ -59,6 +60,7 @@ export interface DashboardDataOptions {
   requestText: string;
   savedSearchQueries?: readonly ExprInit[];
   savedSearchesReady?: boolean;
+  repoSortMode?: SidebarRepoSort;
 }
 
 function matchesSelection(item: Item, selectedId: string): boolean {
@@ -70,6 +72,7 @@ export function useDashboardData({
   requestText,
   savedSearchQueries = NO_SAVED_QUERIES,
   savedSearchesReady = true,
+  repoSortMode = 'alphabetical',
 }: DashboardDataOptions) {
   const requestParsed = useMemo(() => parseQuery(requestText), [requestText]);
   const expr = useMemo(() => toExpr(requestParsed), [requestParsed]);
@@ -164,7 +167,10 @@ export function useDashboardData({
 
   const sidebarRepos = facetValues(sidebarQ.data, Field.REPO);
   const sidebarTriage = facetValues(sidebarQ.data, Field.TRIAGE);
-  const sidebar = useMemo(() => buildSidebar(sidebarRepos), [sidebarRepos]);
+  const sidebar = useMemo(
+    () => buildSidebar(sidebarRepos, undefined, repoSortMode),
+    [sidebarRepos, repoSortMode]
+  );
   const repoInboxCounts = useMemo(() => countsByValue(sidebarRepos), [sidebarRepos]);
   const repoHasUnread = useMemo(() => valuesWithNew(sidebarRepos), [sidebarRepos]);
   const savedSearchCounts = sidebarQ.data?.counts ?? NO_COUNTS;

@@ -23,6 +23,7 @@ import { useDashboardFilters } from '../hooks/useDashboardFilters';
 import { useDashboardData } from '../hooks/useDashboardData';
 import { useSavedSearches } from '../hooks/useSavedSearches';
 import { toSort } from '../logic/query/expr';
+import { toSidebarRepoSort } from '../logic/query/facets';
 import {
   attachCounts,
   findActiveSearch,
@@ -146,6 +147,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   };
 
   const currentUser = configData?.currentUserLogin || null;
+  const repoSortMode = toSidebarRepoSort(configData?.config?.repoSortMode);
   const savedSearches = useSavedSearches();
   if (originSearchId !== null && state.text.trim() === '') {
     setOriginSearchId(null);
@@ -181,6 +183,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
     requestText,
     savedSearchQueries: savedSearches.countRequest.queries,
     savedSearchesReady: !savedSearches.isLoading,
+    repoSortMode,
   });
 
   const currentCountIds = useMemo(
@@ -629,6 +632,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
           filters={controls}
           hasNoSecondaryFilters={hasNoSecondaryFilters}
           sidebar={data.sidebar}
+          repoSortMode={repoSortMode}
           repoInboxCounts={data.repoInboxCounts}
           repoHasUnread={data.repoHasUnread}
           totals={data.totals}

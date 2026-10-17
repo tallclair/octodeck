@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { create } from '@bufbuild/protobuf';
 import { timestampFromMs } from '@bufbuild/protobuf/wkt';
 import { FacetValueSchema, Field, type FacetValue } from '../../../api/octodeck/v1/query_pb';
-import { GetFacetsResponseSchema } from '../../../api/octodeck/v1/service_pb';
+import { GetFacetsResponseSchema, RepoSortMode } from '../../../api/octodeck/v1/service_pb';
 import {
   buildActivityOptions,
   buildAssigneeMenuOptions,
@@ -16,15 +16,23 @@ import {
   countsByValue,
   facetValues,
   isAssigneeOptionSelected,
+  splitAtVisible,
+  toSidebarRepoSort,
   toggleAssigneeOption,
 } from '../facets';
 
-const fv = (value: string, count: number, extra: { color?: string; latestMs?: number } = {}): FacetValue =>
+const fv = (
+  value: string,
+  count: number,
+  extra: { color?: string; latestMs?: number; recentCount?: number; totalCount?: number } = {}
+): FacetValue =>
   create(FacetValueSchema, {
     value,
     count,
     color: extra.color ?? '',
     latestActivityAt: extra.latestMs === undefined ? undefined : timestampFromMs(extra.latestMs),
+    recentCount: extra.recentCount ?? 0,
+    totalCount: extra.totalCount ?? 0,
   });
 
 describe('facetValues', () => {
@@ -271,6 +279,16 @@ describe('buildAuthorMenuOptions and buildAssigneeMenuOptions', () => {
   });
 });
 
+describe('toSidebarRepoSort', () => {
+  it('maps proto RepoSortMode enum to SidebarRepoSort union', () => {
+    expect(toSidebarRepoSort(RepoSortMode.RECENT_ACTIVITY)).toBe('recent_activity');
+    expect(toSidebarRepoSort(RepoSortMode.TOTAL_ITEMS)).toBe('total_items');
+    expect(toSidebarRepoSort(RepoSortMode.ALPHABETICAL)).toBe('alphabetical');
+    expect(toSidebarRepoSort(RepoSortMode.UNSPECIFIED)).toBe('alphabetical');
+    expect(toSidebarRepoSort(undefined)).toBe('alphabetical');
+  });
+});
+
 describe('buildSidebar', () => {
   const now = 1700000000000;
   const day = 86400 * 1000;
@@ -294,6 +312,79 @@ describe('buildSidebar', () => {
     const s = buildSidebar(repos, now);
     expect(s.activeList).toEqual(['a/edge']);
     expect(s.hiddenList).toEqual(['a/unknown']);
+  });
+
+  it('sorts by recent_activity and slices at maxVisibleRepos', () => {
+    const repos = [
+      fv('repo/low', 1, { recentCount: 2, totalCount: 100 }),
+      fv('repo/high', 1, { recentCount: 10, totalCount: 10 }),
+      fv('repo/mid', 1, { recentCount: 5, totalCount: 50 }),
+      fv('repo/zero', 0, { recentCount: 0, totalCount: 10 }),
+    ];
+    // Without maxVisibleRepos:
+    const full = buildSidebar(repos, now, 'recent_activity');
+    expect(full.repoList).toEqual(['repo/high', 'repo/mid', 'repo/low', 'repo/zero']);
+    expect(full.activeList).toEqual(['repo/high', 'repo/mid', 'repo/low', 'repo/zero']);
+    expect(full.hiddenList).toEqual([]);
+
+    // With maxVisibleRepos = 2:
+    const sliced = buildSidebar(repos, now, 'recent_activity', 2);
+    expect(sliced.repoList).toEqual(['repo/high', 'repo/mid', 'repo/low', 'repo/zero']);
+    expect(sliced.activeList).toEqual(['repo/high', 'repo/mid']);
+    expect(sliced.hiddenList).toEqual(['repo/low', 'repo/zero']);
+  });
+
+  it('sorts by total_items and slices at maxVisibleRepos', () => {
+    const repos = [
+      fv('repo/few', 1, { recentCount: 10, totalCount: 5 }),
+      fv('repo/many', 1, { recentCount: 2, totalCount: 100 }),
+      fv('repo/medium', 1, { recentCount: 5, totalCount: 50 }),
+    ];
+    const full = buildSidebar(repos, now, 'total_items');
+    expect(full.repoList).toEqual(['repo/many', 'repo/medium', 'repo/few']);
+    expect(full.activeList).toEqual(['repo/many', 'repo/medium', 'repo/few']);
+    expect(full.hiddenList).toEqual([]);
+
+    const sliced = buildSidebar(repos, now, 'total_items', 1);
+    expect(sliced.activeList).toEqual(['repo/many']);
+    expect(sliced.hiddenList).toEqual(['repo/medium', 'repo/few']);
+  });
+
+  it('breaks ties using secondary criteria in non-alphabetical sorts', () => {
+    const repos = [
+      fv('repo/a', 1, { totalCount: 10, recentCount: 5, latestMs: now - 1000 }),
+      fv('repo/b', 1, { totalCount: 10, recentCount: 5, latestMs: now - 500 }),
+      fv('repo/c', 1, { totalCount: 10, recentCount: 2, latestMs: now }),
+    ];
+    // In total_items, totalCount is equal (10). Next is recentCount: repo/a and repo/b have 5, repo/c has 2.
+    // Between repo/a and repo/b, repo/b has newer latestMs (now - 500 vs now - 1000).
+    const s = buildSidebar(repos, now, 'total_items');
+    expect(s.repoList).toEqual(['repo/b', 'repo/a', 'repo/c']);
+  });
+});
+
+describe('splitAtVisible', () => {
+  it('splits list into activeList and hiddenList when maxVisibleRepos is less than length', () => {
+    const list = ['a', 'b', 'c', 'd'];
+    expect(splitAtVisible(list, 2)).toEqual({
+      repoList: ['a', 'b', 'c', 'd'],
+      activeList: ['a', 'b'],
+      hiddenList: ['c', 'd'],
+    });
+  });
+
+  it('keeps all items in activeList when maxVisibleRepos is undefined or greater than length', () => {
+    const list = ['a', 'b'];
+    expect(splitAtVisible(list)).toEqual({
+      repoList: ['a', 'b'],
+      activeList: ['a', 'b'],
+      hiddenList: [],
+    });
+    expect(splitAtVisible(list, 5)).toEqual({
+      repoList: ['a', 'b'],
+      activeList: ['a', 'b'],
+      hiddenList: [],
+    });
   });
 });
 

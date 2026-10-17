@@ -902,6 +902,8 @@ type FacetValue struct {
 	xxx_hidden_LatestActivityAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=latest_activity_at,json=latestActivityAt"`
 	xxx_hidden_NewCount         int32                  `protobuf:"varint,5,opt,name=new_count,json=newCount"`
 	xxx_hidden_InboxCount       int32                  `protobuf:"varint,6,opt,name=inbox_count,json=inboxCount"`
+	xxx_hidden_TotalCount       int32                  `protobuf:"varint,7,opt,name=total_count,json=totalCount"`
+	xxx_hidden_RecentCount      int32                  `protobuf:"varint,8,opt,name=recent_count,json=recentCount"`
 	XXX_raceDetectHookData      protoimpl.RaceDetectHookData
 	XXX_presence                [1]uint32
 	unknownFields               protoimpl.UnknownFields
@@ -981,19 +983,33 @@ func (x *FacetValue) GetInboxCount() int32 {
 	return 0
 }
 
+func (x *FacetValue) GetTotalCount() int32 {
+	if x != nil {
+		return x.xxx_hidden_TotalCount
+	}
+	return 0
+}
+
+func (x *FacetValue) GetRecentCount() int32 {
+	if x != nil {
+		return x.xxx_hidden_RecentCount
+	}
+	return 0
+}
+
 func (x *FacetValue) SetValue(v string) {
 	x.xxx_hidden_Value = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 6)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 8)
 }
 
 func (x *FacetValue) SetCount(v int32) {
 	x.xxx_hidden_Count = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 6)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 8)
 }
 
 func (x *FacetValue) SetColor(v string) {
 	x.xxx_hidden_Color = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 6)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 8)
 }
 
 func (x *FacetValue) SetLatestActivityAt(v *timestamppb.Timestamp) {
@@ -1002,12 +1018,22 @@ func (x *FacetValue) SetLatestActivityAt(v *timestamppb.Timestamp) {
 
 func (x *FacetValue) SetNewCount(v int32) {
 	x.xxx_hidden_NewCount = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 4, 6)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 4, 8)
 }
 
 func (x *FacetValue) SetInboxCount(v int32) {
 	x.xxx_hidden_InboxCount = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 6)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 8)
+}
+
+func (x *FacetValue) SetTotalCount(v int32) {
+	x.xxx_hidden_TotalCount = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 8)
+}
+
+func (x *FacetValue) SetRecentCount(v int32) {
+	x.xxx_hidden_RecentCount = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 8)
 }
 
 func (x *FacetValue) HasValue() bool {
@@ -1052,6 +1078,20 @@ func (x *FacetValue) HasInboxCount() bool {
 	return protoimpl.X.Present(&(x.XXX_presence[0]), 5)
 }
 
+func (x *FacetValue) HasTotalCount() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 6)
+}
+
+func (x *FacetValue) HasRecentCount() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 7)
+}
+
 func (x *FacetValue) ClearValue() {
 	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
 	x.xxx_hidden_Value = nil
@@ -1081,6 +1121,16 @@ func (x *FacetValue) ClearInboxCount() {
 	x.xxx_hidden_InboxCount = 0
 }
 
+func (x *FacetValue) ClearTotalCount() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 6)
+	x.xxx_hidden_TotalCount = 0
+}
+
+func (x *FacetValue) ClearRecentCount() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 7)
+	x.xxx_hidden_RecentCount = 0
+}
+
 type FacetValue_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -1097,6 +1147,11 @@ type FacetValue_builder struct {
 	NewCount *int32
 	// Of those, items in the inbox (computed status is not ACKED).
 	InboxCount *int32
+	// FIELD_REPO only: total number of cached items for this repository across the universe.
+	TotalCount *int32
+	// FIELD_REPO only: number of cached items for this repository with non-noise activity in the
+	// last 30 days across the universe.
+	RecentCount *int32
 }
 
 func (b0 FacetValue_builder) Build() *FacetValue {
@@ -1104,25 +1159,33 @@ func (b0 FacetValue_builder) Build() *FacetValue {
 	b, x := &b0, m0
 	_, _ = b, x
 	if b.Value != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 6)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 8)
 		x.xxx_hidden_Value = b.Value
 	}
 	if b.Count != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 6)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 8)
 		x.xxx_hidden_Count = *b.Count
 	}
 	if b.Color != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 6)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 8)
 		x.xxx_hidden_Color = b.Color
 	}
 	x.xxx_hidden_LatestActivityAt = b.LatestActivityAt
 	if b.NewCount != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 4, 6)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 4, 8)
 		x.xxx_hidden_NewCount = *b.NewCount
 	}
 	if b.InboxCount != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 6)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 8)
 		x.xxx_hidden_InboxCount = *b.InboxCount
+	}
+	if b.TotalCount != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 8)
+		x.xxx_hidden_TotalCount = *b.TotalCount
+	}
+	if b.RecentCount != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 8)
+		x.xxx_hidden_RecentCount = *b.RecentCount
 	}
 	return m0
 }
@@ -1497,7 +1560,7 @@ const file_octodeck_v1_query_proto_rawDesc = "" +
 	"\x05order\x18\x02 \x01(\x0e2\x16.octodeck.v1.SortOrderR\x05order\"b\n" +
 	"\x05Facet\x12(\n" +
 	"\x05field\x18\x01 \x01(\x0e2\x12.octodeck.v1.FieldR\x05field\x12/\n" +
-	"\x06values\x18\x02 \x03(\v2\x17.octodeck.v1.FacetValueR\x06values\"\xd6\x01\n" +
+	"\x06values\x18\x02 \x03(\v2\x17.octodeck.v1.FacetValueR\x06values\"\x9a\x02\n" +
 	"\n" +
 	"FacetValue\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\tR\x05value\x12\x14\n" +
@@ -1506,7 +1569,10 @@ const file_octodeck_v1_query_proto_rawDesc = "" +
 	"\x12latest_activity_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x10latestActivityAt\x12\x1b\n" +
 	"\tnew_count\x18\x05 \x01(\x05R\bnewCount\x12\x1f\n" +
 	"\vinbox_count\x18\x06 \x01(\x05R\n" +
-	"inboxCount\"\x8f\x01\n" +
+	"inboxCount\x12\x1f\n" +
+	"\vtotal_count\x18\a \x01(\x05R\n" +
+	"totalCount\x12!\n" +
+	"\frecent_count\x18\b \x01(\x05R\vrecentCount\"\x8f\x01\n" +
 	"\vCountResult\x12\x14\n" +
 	"\x05count\x18\x01 \x01(\x05R\x05count\x12\x1b\n" +
 	"\tnew_count\x18\x02 \x01(\x05R\bnewCount\x12\x1f\n" +

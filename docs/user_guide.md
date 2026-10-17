@@ -31,10 +31,10 @@ OctoDeck is built specifically for open-source maintainers handling high volumes
 
 The OctoDeck dashboard (`http://127.0.0.1:38274/`) is designed for fast, high-volume triage.
 
-### 2.1 Workflow Buckets (Sidebar)
+### 2.1 Workflow Buckets (Sidebar & Header Menu)
 
-* **Inbox:** All unacknowledged items requiring your review or attention.
-* **New:** Items with unread human comments, reviews, or commits since you last viewed them.
+* **Inbox:** All unacknowledged items requiring your review or attention (shown at the top of the sidebar with an orange badge whenever any item has unread activity).
+* **New Activity:** Items with unread human comments, reviews, or commits since you last viewed them (available in the header's triage dropdown alongside **Inbox**, **Acked**, and **All Items**).
 * **Acked:** Items you have acknowledged and are waiting on contributors or CI.
 * **All Items:** The complete catalog across all watched repositories.
 
@@ -176,6 +176,8 @@ Dynamic timeline markers visually highlight the exact point in the discussion wh
 
 Click **Settings** (or the gear icon in the sidebar) to configure:
 
+* **Sidebar Repository Sort:**
+  Choose how repositories are ordered in the sidebar (**Alphabetical**, **Recent Activity** over the last 30 days, or **Total Items**). For **Recent Activity** and **Total Items**, repositories that exceed the available sidebar height automatically overflow into the collapsible **More** section so the sidebar never scrolls while **More** is collapsed.
 * **Repository Filters:**
   Enter one pattern per line. Use `*` as a wildcard and prefix with `!` to exclude:
   ```text

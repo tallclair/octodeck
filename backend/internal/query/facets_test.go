@@ -382,6 +382,7 @@ func assertTriageInboxNewCountEqualsOldQuery(t *testing.T, suiteName string, fix
 // facet's inbox value new_count equals the old GetFacets(new:any, [triage]) inbox count.
 func TestFacets_NewAndInboxCounts(t *testing.T) {
 	for _, suite := range conformanceSuites() {
+		assertTriageInboxNewCountEqualsOldQuery(t, suite.name, suite.fixtures)
 		for _, tc := range suite.cases {
 			user := tc.user()
 			views := facetViews(suite.fixtures, user)
@@ -394,7 +395,77 @@ func TestFacets_NewAndInboxCounts(t *testing.T) {
 				}
 			}
 		}
+	}
+}
 
-		assertTriageInboxNewCountEqualsOldQuery(t, suite.name, suite.fixtures)
+// TestFacets_RepoTotalAndRecentCounts verifies that FacetValue.total_count and
+// FacetValue.recent_count are populated over the entire universe for FIELD_REPO
+// (using FacetsAt with a 30-day cutoff), and are zero for other fields.
+func TestFacets_RepoTotalAndRecentCounts(t *testing.T) {
+	views := facetViews(facetFixtures(), testUser)
+	emptyQ, err := Compile(nil, Options{CurrentUser: testUser})
+	require.NoError(t, err)
+
+	// 1. When evaluated at tViewed: all items in facetFixtures are within 30 days.
+	facets, err := FacetsAt(emptyQ, views, []octodeckv1.Field{fRepo}, tViewed)
+	require.NoError(t, err)
+	require.Len(t, facets, 1)
+
+	repoMap := map[string]*octodeckv1.FacetValue{}
+	for _, v := range facets[0].GetValues() {
+		repoMap[v.GetValue()] = v
+	}
+
+	assert.Equal(t, int32(2), repoMap["acme/api"].GetTotalCount())
+	assert.Equal(t, int32(2), repoMap["acme/api"].GetRecentCount())
+
+	assert.Equal(t, int32(2), repoMap["acme/web"].GetTotalCount())
+	assert.Equal(t, int32(2), repoMap["acme/web"].GetRecentCount())
+
+	// zeta/old is acked, so its query match count is 0, but its universe total and recent counts are 1:
+	assert.Equal(t, int32(0), repoMap["zeta/old"].GetCount())
+	assert.Equal(t, int32(1), repoMap["zeta/old"].GetTotalCount())
+	assert.Equal(t, int32(1), repoMap["zeta/old"].GetRecentCount())
+
+	// 2. When evaluated 35 days later: all items in facetFixtures are older than 30 days.
+	facetsOld, err := FacetsAt(emptyQ, views, []octodeckv1.Field{fRepo}, tViewed.Add(35*24*time.Hour))
+	require.NoError(t, err)
+	require.Len(t, facetsOld, 1)
+
+	repoMapOld := map[string]*octodeckv1.FacetValue{}
+	for _, v := range facetsOld[0].GetValues() {
+		repoMapOld[v.GetValue()] = v
+	}
+
+	assert.Equal(t, int32(2), repoMapOld["acme/api"].GetTotalCount())
+	assert.Equal(t, int32(0), repoMapOld["acme/api"].GetRecentCount())
+
+	assert.Equal(t, int32(2), repoMapOld["acme/web"].GetTotalCount())
+	assert.Equal(t, int32(0), repoMapOld["acme/web"].GetRecentCount())
+
+	assert.Equal(t, int32(1), repoMapOld["zeta/old"].GetTotalCount())
+	assert.Equal(t, int32(0), repoMapOld["zeta/old"].GetRecentCount())
+
+	// 3. Narrowed query: selecting repo:acme/web still computes universe total and recent counts.
+	webQ, err := Compile(p(fRepo, "acme/web"), Options{CurrentUser: testUser})
+	require.NoError(t, err)
+	facetsWeb, err := FacetsAt(webQ, views, []octodeckv1.Field{fRepo}, tViewed)
+	require.NoError(t, err)
+	require.Len(t, facetsWeb, 1)
+
+	repoMapWeb := map[string]*octodeckv1.FacetValue{}
+	for _, v := range facetsWeb[0].GetValues() {
+		repoMapWeb[v.GetValue()] = v
+	}
+	assert.Equal(t, int32(1), repoMapWeb["zeta/old"].GetTotalCount())
+	assert.Equal(t, int32(1), repoMapWeb["zeta/old"].GetRecentCount())
+
+	// 4. Non-repo fields do not populate total_count or recent_count (must be 0).
+	facetsOrg, err := FacetsAt(emptyQ, views, []octodeckv1.Field{fOrg}, tViewed)
+	require.NoError(t, err)
+	require.Len(t, facetsOrg, 1)
+	for _, v := range facetsOrg[0].GetValues() {
+		assert.Equal(t, int32(0), v.GetTotalCount())
+		assert.Equal(t, int32(0), v.GetRecentCount())
 	}
 }

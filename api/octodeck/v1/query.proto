@@ -133,6 +133,11 @@ message FacetValue {
   int32 new_count = 5;
   // Of those, items in the inbox (computed status is not ACKED).
   int32 inbox_count = 6;
+  // FIELD_REPO only: total number of cached items for this repository across the universe.
+  int32 total_count = 7;
+  // FIELD_REPO only: number of cached items for this repository with non-noise activity in the
+  // last 30 days across the universe.
+  int32 recent_count = 8;
 }
 
 // Counts for one GetFacetsRequest.queries entry. Same numbers as FacetValue.

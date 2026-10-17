@@ -3,7 +3,7 @@ import { useQuery, useMutation } from '@connectrpc/connect-query';
 import { useQueryClient } from '@tanstack/react-query';
 import { getConfig, updateConfig } from './api/octodeck/v1/service-OctoDeckService_connectquery';
 import { Save, CheckCircle, AlertCircle, AlertTriangle, RefreshCw, X, Settings as SettingsIcon, Terminal, Sun, Moon, Monitor, ChevronDown, ChevronUp, Plus, Pencil, Trash2, Bell } from 'lucide-react';
-import type { Config, TrackedQueryWarning } from './api/octodeck/v1/service_pb';
+import { RepoSortMode, type Config, type TrackedQueryWarning } from './api/octodeck/v1/service_pb';
 import {
   DEFAULT_POLLING_INTERVAL_MIN,
   DEFAULT_AUTO_ACK_OWN_ACTIVITY,
@@ -37,6 +37,7 @@ const DASHBOARD_CONFIG_FIELDS = {
   trackedQueries: 'tracked_queries',
   autoSubscribeQueries: 'auto_subscribe_queries',
   discoveryIntervalMin: 'discovery_interval_min',
+  repoSortMode: 'repo_sort_mode',
 } as const satisfies Partial<Record<keyof Config, string>>;
 
 type DashboardConfigField = keyof typeof DASHBOARD_CONFIG_FIELDS;
@@ -87,6 +88,23 @@ function getInitialTrackedQueriesList(queries?: string[]): string[] {
     return queries.map((q) => q.trim()).filter(Boolean);
   }
   return [];
+}
+
+const REPO_SORT_OPTIONS = [
+  { mode: RepoSortMode.ALPHABETICAL, label: 'Alphabetical' },
+  { mode: RepoSortMode.RECENT_ACTIVITY, label: 'Recent Activity' },
+  { mode: RepoSortMode.TOTAL_ITEMS, label: 'Total Items' },
+] as const;
+
+function normalizeRepoSortMode(mode?: RepoSortMode): RepoSortMode {
+  if (
+    mode === RepoSortMode.RECENT_ACTIVITY ||
+    mode === RepoSortMode.TOTAL_ITEMS ||
+    mode === RepoSortMode.ALPHABETICAL
+  ) {
+    return mode;
+  }
+  return RepoSortMode.ALPHABETICAL;
 }
 
 export function Settings({
@@ -153,6 +171,9 @@ export function Settings({
   );
   const [repoPatterns, setRepoPatterns] = useState(initialRepoPatterns);
   const [repoValidationError, setRepoValidationError] = useState<string | null>(null);
+  const [repoSortMode, setRepoSortMode] = useState<RepoSortMode>(
+    normalizeRepoSortMode(data?.config?.repoSortMode)
+  );
 
   const [knownBots, setKnownBots] = useState(getInitialKnownBots(data?.config?.knownBots));
   const [autoAckOwnActivity, setAutoAckOwnActivity] = useState(
@@ -213,6 +234,7 @@ export function Settings({
 
     setRepoPatterns(serializeFilterPatterns(cfg.watchedRepos, cfg.excludedRepos));
     setRepoValidationError(null);
+    setRepoSortMode(normalizeRepoSortMode(cfg.repoSortMode));
 
     setKnownBots(getInitialKnownBots(cfg.knownBots));
     setAutoAckOwnActivity(cfg.autoAckOwnActivity ?? DEFAULT_AUTO_ACK_OWN_ACTIVITY);
@@ -246,6 +268,7 @@ export function Settings({
     );
     const savedDiscoveryInterval =
       data?.config?.discoveryIntervalMin || DEFAULT_DISCOVERY_INTERVAL_MIN;
+    const savedRepoSortMode = normalizeRepoSortMode(data?.config?.repoSortMode);
 
     const queriesChanged =
       trackedQueriesList.length !== savedTrackedQueries.length ||
@@ -261,6 +284,7 @@ export function Settings({
     return (
       Number(pollingInterval) !== savedPolling ||
       repoPatterns !== savedRepoPatterns ||
+      repoSortMode !== savedRepoSortMode ||
       knownBots !== savedBots ||
       autoAckOwnActivity !== savedAutoAck ||
       labelPatterns !== savedLabelPatterns ||
@@ -272,6 +296,7 @@ export function Settings({
     data?.config,
     pollingInterval,
     repoPatterns,
+    repoSortMode,
     knownBots,
     autoAckOwnActivity,
     labelPatterns,
@@ -297,6 +322,7 @@ export function Settings({
     setPollingInterval(DEFAULT_POLLING_INTERVAL_MIN);
     setRepoPatterns('');
     setRepoValidationError(null);
+    setRepoSortMode(RepoSortMode.ALPHABETICAL);
     setKnownBots((data?.config?.knownBots || []).join('\n'));
     setAutoAckOwnActivity(DEFAULT_AUTO_ACK_OWN_ACTIVITY);
     setLabelPatterns('');
@@ -437,6 +463,7 @@ export function Settings({
         trackedQueries: dedupedQueries,
         autoSubscribeQueries: dedupedAutoSubscribeQueries,
         discoveryIntervalMin: Math.max(MIN_DISCOVERY_INTERVAL_MIN, Math.round(parsedDiscoveryInterval)),
+        repoSortMode,
       } satisfies Record<DashboardConfigField, unknown>;
 
       const res = await updateConfigMutate({
@@ -663,6 +690,28 @@ export function Settings({
 
           {/* Repository Filters Section */}
           <div className="pt-6 border-t border-slate-200 dark:border-slate-800 space-y-4">
+            {/* Sidebar Repository Sort */}
+            <div>
+              <label
+                htmlFor="repoSortMode"
+                className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1"
+              >
+                Sidebar Repository Sort
+              </label>
+              <select
+                id="repoSortMode"
+                value={String(repoSortMode)}
+                onChange={(e) => setRepoSortMode(normalizeRepoSortMode(Number(e.target.value)))}
+                className="w-full p-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm"
+              >
+                {REPO_SORT_OPTIONS.map((opt) => (
+                  <option key={opt.mode} value={String(opt.mode)}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {/* Repository Filters Textarea */}
             <div>
               <label htmlFor="repoPatterns" className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">

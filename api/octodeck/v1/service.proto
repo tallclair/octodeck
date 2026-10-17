@@ -200,6 +200,20 @@ message Config {
   // Saved searches, in display order. Changed only through the saved search RPCs; UpdateConfig
   // rejects masks that include this field and preserves it on a full update.
   repeated SavedSearch saved_searches = 15;
+  // How repositories are ordered in the dashboard sidebar.
+  RepoSortMode repo_sort_mode = 16;
+}
+
+// How repositories are ordered in the dashboard sidebar.
+enum RepoSortMode {
+  // Treated as REPO_SORT_MODE_ALPHABETICAL.
+  REPO_SORT_MODE_UNSPECIFIED = 0;
+  // Sorted alphabetically by owner/repo.
+  REPO_SORT_MODE_ALPHABETICAL = 1;
+  // Sorted by number of items with non-noise activity in the last 30 days.
+  REPO_SORT_MODE_RECENT_ACTIVITY = 2;
+  // Sorted by total number of cached items for the repository.
+  REPO_SORT_MODE_TOTAL_ITEMS = 3;
 }
 
 // How the extension toolbar badge counts items.

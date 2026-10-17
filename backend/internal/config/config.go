@@ -224,6 +224,16 @@ type Config struct {
 	mu        sync.Mutex // For serializing writes to the file
 }
 
+// DefaultConfig returns a new Config protobuf message populated with default values.
+func DefaultConfig() *octodeckv1.Config {
+	data := octodeckv1.Config_builder{
+		KnownBots:    DefaultKnownBots(),
+		RepoSortMode: Ptr(octodeckv1.RepoSortMode_REPO_SORT_MODE_ALPHABETICAL),
+	}.Build()
+	applyScalarDefaults(data)
+	return data
+}
+
 // NewForTest creates an in-memory Config instance for testing purposes that does not persist to disk.
 func NewForTest(data *octodeckv1.Config) *Config {
 	cfg := &Config{}
@@ -488,6 +498,9 @@ func applyScalarDefaults(cfg *octodeckv1.Config) {
 	if !cfg.HasPort() {
 		cfg.SetPort(DefaultPort)
 	}
+	if cfg.GetRepoSortMode() == octodeckv1.RepoSortMode_REPO_SORT_MODE_UNSPECIFIED {
+		cfg.SetRepoSortMode(octodeckv1.RepoSortMode_REPO_SORT_MODE_ALPHABETICAL)
+	}
 }
 
 func applyFieldMask(dst, src protoreflect.ProtoMessage, mask *fieldmaskpb.FieldMask) {
@@ -556,8 +569,7 @@ func Load(customPath string, overrides Overrides) (*Config, error) {
 	cfg.path = path
 
 	// Default config
-	data := octodeckv1.Config_builder{KnownBots: DefaultKnownBots()}.Build()
-	applyScalarDefaults(data)
+	data := DefaultConfig()
 	cfg.data.Store(data)
 
 	fileData, err := os.ReadFile(path)

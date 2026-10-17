@@ -70,13 +70,18 @@ func (q *Query) WithoutTopLevel(field octodeckv1.Field) *Query {
 	return &out
 }
 
+// RecentActivityWindow is the rolling window used to count recent repository activity in facets.
+const RecentActivityWindow = 30 * 24 * time.Hour
+
 // facetValue accumulates one value of a field's universe.
 type facetValue struct {
 	Counts
 
-	display  string
-	color    string
-	latestMs int64
+	display     string
+	color       string
+	latestMs    int64
+	totalCount  int32
+	recentCount int32
 }
 
 // facetUniverse is every value of a field across all items, keyed by folded value.
@@ -91,11 +96,17 @@ type facetUniverse struct {
 // triage:inbox. Values with no matching view are listed with count 0.
 //
 // views is the whole universe: every stored item after the configured repository and label
-// filters. Value metadata (label color, repository latest activity) is computed over the whole
-// universe and doesn't depend on the query. Closed-field values are listed in vocabulary order.
-// Open-field values are grouped with the same case folding the evaluator uses, sorted by folded
-// value, and displayed with the casing of the most recently updated item that has them.
+// filters. Value metadata (label color, repository latest activity, total and recent counts) is
+// computed over the whole universe and doesn't depend on the query. Closed-field values are listed
+// in vocabulary order. Open-field values are grouped with the same case folding the evaluator
+// uses, sorted by folded value, and displayed with the casing of the most recently updated item
+// that has them.
 func Facets(q *Query, views []*View, fields []octodeckv1.Field) ([]*octodeckv1.Facet, error) {
+	return FacetsAt(q, views, fields, time.Now())
+}
+
+// FacetsAt is like Facets but evaluates the 30-day recent activity window relative to now.
+func FacetsAt(q *Query, views []*View, fields []octodeckv1.Field, now time.Time) ([]*octodeckv1.Facet, error) {
 	if err := ValidateFacetFields(fields); err != nil {
 		return nil, err
 	}
@@ -112,7 +123,7 @@ func Facets(q *Query, views []*View, fields []octodeckv1.Field) ([]*octodeckv1.F
 	var baseComputed bool
 	out := make([]*octodeckv1.Facet, 0, len(fields))
 	for _, field := range fields {
-		u := buildUniverse(field, ordered)
+		u := buildUniverse(field, ordered, now)
 		stripped := q.WithoutTopLevel(field)
 		var matched []*View
 		if stripped.root == q.root && stripped.implicitInbox == q.implicitInbox {
@@ -136,7 +147,7 @@ func Facets(q *Query, views []*View, fields []octodeckv1.Field) ([]*octodeckv1.F
 
 // buildUniverse collects the value universe of field. Closed fields list their vocabulary
 // (without the meta values triage:all and new:any); open fields list the distinct values present.
-func buildUniverse(field octodeckv1.Field, ordered []*View) *facetUniverse {
+func buildUniverse(field octodeckv1.Field, ordered []*View, now time.Time) *facetUniverse {
 	u := &facetUniverse{values: map[string]*facetValue{}}
 	if allowed, closed := ClosedValues(field); closed {
 		for _, val := range allowed {
@@ -148,6 +159,7 @@ func buildUniverse(field octodeckv1.Field, ordered []*View) *facetUniverse {
 		}
 		return u
 	}
+	cutoffMs := now.Add(-RecentActivityWindow).UnixMilli()
 	for _, v := range ordered {
 		for _, raw := range openValues(field, v.Item) {
 			key := foldOpen(field, raw.value)
@@ -158,7 +170,7 @@ func buildUniverse(field octodeckv1.Field, ordered []*View) *facetUniverse {
 				u.order = append(u.order, key)
 			}
 			if field == octodeckv1.Field_FIELD_REPO {
-				fv.latestMs = max(fv.latestMs, logic.LatestNonNoiseActivityMs(v.Item))
+				fv.addRepoActivity(v.Item, cutoffMs)
 			}
 		}
 	}
@@ -169,6 +181,15 @@ func buildUniverse(field octodeckv1.Field, ordered []*View) *facetUniverse {
 		return strings.Compare(u.values[a].display, u.values[b].display)
 	})
 	return u
+}
+
+func (fv *facetValue) addRepoActivity(it *octodeckv1.Item, cutoffMs int64) {
+	activityMs := logic.LatestNonNoiseActivityMs(it)
+	fv.latestMs = max(fv.latestMs, activityMs)
+	fv.totalCount++
+	if activityMs >= cutoffMs {
+		fv.recentCount++
+	}
 }
 
 func (u *facetUniverse) facet(field octodeckv1.Field) *octodeckv1.Facet {
@@ -186,6 +207,10 @@ func (u *facetUniverse) facet(field octodeckv1.Field) *octodeckv1.Facet {
 		}
 		if fv.latestMs > 0 {
 			b.LatestActivityAt = timestamppb.New(time.UnixMilli(fv.latestMs))
+		}
+		if field == octodeckv1.Field_FIELD_REPO {
+			b.TotalCount = &fv.totalCount
+			b.RecentCount = &fv.recentCount
 		}
 		values = append(values, b.Build())
 	}

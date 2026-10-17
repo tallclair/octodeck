@@ -1140,3 +1140,63 @@ func TestUpdateProto_UnmaskedLegacyPinnedReposAppends(t *testing.T) {
 	assert.Equal(t, "repo:new/repo", searches[1].GetQuery())
 	assert.Empty(t, cfg.GetProto().GetPinnedRepos())
 }
+
+func TestConfig_RepoSortMode(t *testing.T) {
+	t.Run("DefaultConfig defaults to ALPHABETICAL", func(t *testing.T) {
+		cfg := DefaultConfig()
+		assert.Equal(t, octodeckv1.RepoSortMode_REPO_SORT_MODE_ALPHABETICAL, cfg.GetRepoSortMode())
+	})
+
+	t.Run("Load empty config defaults to ALPHABETICAL", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configPath := filepath.Join(tempDir, "config.json")
+		require.NoError(t, os.WriteFile(configPath, []byte("{}"), 0600))
+
+		cfg, err := Load(configPath, Overrides{})
+		require.NoError(t, err)
+		assert.Equal(t, octodeckv1.RepoSortMode_REPO_SORT_MODE_ALPHABETICAL, cfg.GetProto().GetRepoSortMode())
+	})
+
+	t.Run("UpdateProto with repo_sort_mode mask and persistence round-trip", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configPath := filepath.Join(tempDir, "config.json")
+
+		cfg, err := Load(configPath, Overrides{})
+		require.NoError(t, err)
+		assert.Equal(t, octodeckv1.RepoSortMode_REPO_SORT_MODE_ALPHABETICAL, cfg.GetProto().GetRepoSortMode())
+
+		// Update to RECENT_ACTIVITY
+		newCfg := octodeckv1.Config_builder{
+			RepoSortMode: Ptr(octodeckv1.RepoSortMode_REPO_SORT_MODE_RECENT_ACTIVITY),
+		}.Build()
+		err = cfg.UpdateProto(newCfg, &fieldmaskpb.FieldMask{Paths: []string{"repo_sort_mode"}})
+		require.NoError(t, err)
+		assert.Equal(t, octodeckv1.RepoSortMode_REPO_SORT_MODE_RECENT_ACTIVITY, cfg.GetProto().GetRepoSortMode())
+
+		// Reload from disk to verify persistence
+		reloaded, err := Load(configPath, Overrides{})
+		require.NoError(t, err)
+		assert.Equal(t, octodeckv1.RepoSortMode_REPO_SORT_MODE_RECENT_ACTIVITY, reloaded.GetProto().GetRepoSortMode())
+
+		// Update to TOTAL_ITEMS
+		newCfg2 := octodeckv1.Config_builder{
+			RepoSortMode: Ptr(octodeckv1.RepoSortMode_REPO_SORT_MODE_TOTAL_ITEMS),
+		}.Build()
+		err = cfg.UpdateProto(newCfg2, &fieldmaskpb.FieldMask{Paths: []string{"repo_sort_mode"}})
+		require.NoError(t, err)
+		assert.Equal(t, octodeckv1.RepoSortMode_REPO_SORT_MODE_TOTAL_ITEMS, cfg.GetProto().GetRepoSortMode())
+
+		// Reload from disk again
+		reloaded2, err := Load(configPath, Overrides{})
+		require.NoError(t, err)
+		assert.Equal(t, octodeckv1.RepoSortMode_REPO_SORT_MODE_TOTAL_ITEMS, reloaded2.GetProto().GetRepoSortMode())
+
+		// Unspecified in UpdateProto defaults back to ALPHABETICAL
+		newCfg3 := octodeckv1.Config_builder{
+			RepoSortMode: Ptr(octodeckv1.RepoSortMode_REPO_SORT_MODE_UNSPECIFIED),
+		}.Build()
+		err = cfg.UpdateProto(newCfg3, &fieldmaskpb.FieldMask{Paths: []string{"repo_sort_mode"}})
+		require.NoError(t, err)
+		assert.Equal(t, octodeckv1.RepoSortMode_REPO_SORT_MODE_ALPHABETICAL, cfg.GetProto().GetRepoSortMode())
+	})
+}

@@ -300,7 +300,7 @@ describe('Dashboard (RPC-level)', () => {
       expect(window.location.search).toBe('');
     });
 
-    it('switches triage tabs: New is new:any, Acked is triage:acked, Inbox is the implicit scope', async () => {
+    it('switches triage tabs: New Activity is new:any, Acked is triage:acked, Inbox is the implicit scope', async () => {
       const newItem = item('PR_1', 'New PR', { local: { computedStatus: ItemStatus.NEW_ACTIVITY } });
       const idleItem = item('PR_2', 'Idle PR', { local: { computedStatus: ItemStatus.IDLE } });
       const ackedItem = item('PR_3', 'Acked PR', { local: { computedStatus: ItemStatus.ACKED } });
@@ -309,13 +309,18 @@ describe('Dashboard (RPC-level)', () => {
       });
       expect(await screen.findByText('Idle PR')).toBeDefined();
 
-      fireEvent.click(screen.getByRole('button', { name: /^New/i }));
+      const titleDropdown = screen.getByLabelText(/Select triage status/i);
+      fireEvent.click(titleDropdown);
+      fireEvent.click(
+        within(screen.getByRole('dialog', { name: 'Triage status' })).getByRole('button', {
+          name: /New Activity/i,
+        })
+      );
       await waitFor(() => expect(screen.queryByText('Idle PR')).toBeNull());
       expect(lastItemsQuery(daemon)).toBe('new:any');
       expect(window.location.search).toBe('?q=new:any');
       assertNoLegacyUrlKeys();
 
-      const titleDropdown = screen.getByLabelText(/Select triage status/i);
       fireEvent.click(titleDropdown);
       fireEvent.click(
         within(screen.getByRole('dialog', { name: 'Triage status' })).getByRole('button', {
@@ -563,7 +568,7 @@ describe('Dashboard (RPC-level)', () => {
       expect(await screen.findByText('Docs 3')).toBeDefined();
     });
 
-    it('filters by activity from the Activity menu, updates chips on Acked + Mentions, and resets to new:any on sidebar New', async () => {
+    it('filters by activity from the Activity menu, updates chips on Acked + Mentions, and resets to new:any on title menu New Activity', async () => {
       const mentioned = item('PR_1', 'Mentioned PR');
       const newAny = item('PR_2', 'New activity PR');
       const allInbox = item('PR_3', 'Idle PR');
@@ -609,28 +614,31 @@ describe('Dashboard (RPC-level)', () => {
       expect(queryPillTexts()).toContain('triage:acked');
       expect(queryPillTexts()).toContain('new:mention');
 
-      // Switch to the New tab via the sidebar: query becomes new:any, sidebar New stays highlighted, and Any is ticked in the menu
-      const sidebarNew = screen.getAllByRole('button', { name: /^New/i })[0];
-      fireEvent.click(sidebarNew);
+      // Switch to the New Activity tab via the title menu: query becomes new:any and New Activity is ticked in the menu
+      fireEvent.click(screen.getByLabelText(/Select triage status/i));
+      fireEvent.click(
+        within(screen.getByRole('dialog', { name: 'Triage status' })).getByRole('button', {
+          name: /New Activity/i,
+        })
+      );
       await waitFor(() => expect(lastItemsQuery(daemon)).toBe('new:any'));
       expect(window.location.search).toBe('?q=new:any');
       assertNoLegacyUrlKeys();
       expect(queryPillTexts()).toContain('new:any');
       expect(queryPillTexts()).not.toContain('new:mention');
-      expect(sidebarNew.className).toContain('bg-blue-600');
 
       fireEvent.click(activityTrigger);
       const anyOption = screen.getByRole('option', { name: /^New Activity$/i });
       expect(anyOption.getAttribute('aria-selected')).toBe('true');
     });
 
-    it('distinguishes sidebar New (full workflow reset) from title-menu New (in-place tab switch)', async () => {
+    it('distinguishes sidebar Acked (full workflow reset) from title-menu Acked (in-place tab switch)', async () => {
       window.history.pushState(null, '', '/?label=bug&sort=created&order=asc');
       const { daemon } = render({
         getItems: itemsByQuery({
           'label:bug': [item('PR_1', 'Bug in inbox')],
-          'new:any label:bug': [item('PR_2', 'New bug')],
-          'new:any': [item('PR_3', 'All new items')],
+          'triage:acked label:bug': [item('PR_2', 'Acked bug')],
+          'triage:acked': [item('PR_3', 'All acked items')],
         }),
       });
       expect(await screen.findByText('Bug in inbox')).toBeDefined();
@@ -639,26 +647,26 @@ describe('Dashboard (RPC-level)', () => {
         order: SortOrder.ASC,
       });
 
-      // Title menu New switches the tab in place: keeps label:bug and sort=created&order=asc
+      // Title menu Acked switches the tab in place: keeps label:bug and sort=created&order=asc
       const titleDropdown = screen.getByLabelText(/Select triage status/i);
       fireEvent.click(titleDropdown);
       const titleMenu = titleDropdown.parentElement!;
-      fireEvent.click(within(titleMenu).getByRole('button', { name: /^New$/i }));
-      expect(await screen.findByText('New bug')).toBeDefined();
-      expect(lastItemsQuery(daemon)).toBe('new:any label:bug');
-      expect(window.location.search).toBe('?q=new:any+label:bug&sort=created&order=asc');
+      fireEvent.click(within(titleMenu).getByRole('button', { name: /^Acked$/i }));
+      expect(await screen.findByText('Acked bug')).toBeDefined();
+      expect(lastItemsQuery(daemon)).toBe('triage:acked label:bug');
+      expect(window.location.search).toBe('?q=triage:acked+label:bug&sort=created&order=asc');
       assertNoLegacyUrlKeys();
       expect(daemon.lastRequest<GetItemsRequest>('GetItems')!.sort).toMatchObject({
         key: SortKey.CREATED,
         order: SortOrder.ASC,
       });
 
-      // Sidebar New resets the entire query to new:any and resets sort to default
-      const sidebarNew = screen.getAllByRole('button', { name: /^New/i })[0];
-      fireEvent.click(sidebarNew);
-      expect(await screen.findByText('All new items')).toBeDefined();
-      expect(lastItemsQuery(daemon)).toBe('new:any');
-      expect(window.location.search).toBe('?q=new:any');
+      // Sidebar Acked resets the entire query to triage:acked and resets sort to default
+      const sidebarAcked = screen.getAllByRole('button', { name: /^Acked/i })[0];
+      fireEvent.click(sidebarAcked);
+      expect(await screen.findByText('All acked items')).toBeDefined();
+      expect(lastItemsQuery(daemon)).toBe('triage:acked');
+      expect(window.location.search).toBe('?q=triage:acked');
       assertNoLegacyUrlKeys();
       expect(daemon.lastRequest<GetItemsRequest>('GetItems')!.sort).toMatchObject({
         key: SortKey.UPDATED,
@@ -1021,11 +1029,14 @@ describe('Dashboard (RPC-level)', () => {
       }),
     });
 
-    it('shows the Inbox, New and Acked totals from the triage facets', async () => {
+    it('shows the Inbox and Acked totals from the triage facets and highlights Inbox on new activity', async () => {
       const { daemon } = render(sidebarHandlers());
       await waitFor(() => expect(within(screen.getByRole('button', { name: /^Inbox/i })).getByText('7')).toBeDefined());
-      expect(within(screen.getByRole('button', { name: /^New/i })).getByText('2')).toBeDefined();
+      const inboxBtn = screen.getByRole('button', { name: /^Inbox/i });
+      const inboxBadge = within(inboxBtn).getByText('7');
+      expect(inboxBadge.className).toContain('text-orange-700');
       expect(within(screen.getAllByRole('button', { name: /^Acked/i })[0]).getByText('3')).toBeDefined();
+      expect(screen.queryByRole('button', { name: /^New/i })).toBeNull();
 
       const sidebarRequests = daemon.requestsFor<GetFacetsRequest>('GetFacets').filter((r) => !r.fields.includes(Field.AUTHOR));
       expect(sidebarRequests).toHaveLength(1);
@@ -1765,8 +1776,13 @@ describe('Dashboard (RPC-level)', () => {
       await waitFor(() => expect(window.location.search).toBe('?q=triage:acked'));
       expect(screen.getByTestId('saved-search-count-Inbox Repo').textContent).toBe('3');
 
-      // Switch to New tab
-      fireEvent.click(screen.getByRole('button', { name: /^New/i }));
+      // Switch to New Activity tab
+      fireEvent.click(screen.getByLabelText(/Select triage status/i));
+      fireEvent.click(
+        within(screen.getByRole('dialog', { name: 'Triage status' })).getByRole('button', {
+          name: /New Activity/i,
+        })
+      );
       await waitFor(() => expect(window.location.search).toBe('?q=new:any'));
       expect(screen.getByTestId('saved-search-count-Inbox Repo').textContent).toBe('3');
     });
@@ -1886,8 +1902,13 @@ describe('Dashboard (RPC-level)', () => {
       await waitFor(() => expect(window.location.search).toBe(''));
       expect(screen.getByTestId('saved-search-row-K8s').getAttribute('aria-current')).toBeNull();
 
-      // 2. Test on New tab
-      fireEvent.click(screen.getByRole('button', { name: /^New/i }));
+      // 2. Test on New Activity tab
+      fireEvent.click(screen.getByLabelText(/Select triage status/i));
+      fireEvent.click(
+        within(screen.getByRole('dialog', { name: 'Triage status' })).getByRole('button', {
+          name: /New Activity/i,
+        })
+      );
       await waitFor(() => expect(window.location.search).toBe('?q=new:any'));
 
       fireEvent.click(screen.getByTestId('saved-search-row-K8s'));

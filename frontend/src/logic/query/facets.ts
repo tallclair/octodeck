@@ -1,7 +1,7 @@
 // Shapes GetFacets responses into the dashboard's dropdown options and sidebar data.
 // Facet values are case-grouped by the daemon, so comparisons here are case-insensitive.
 import type { Field, FacetValue } from '../../api/octodeck/v1/query_pb';
-import type { GetFacetsResponse } from '../../api/octodeck/v1/service_pb';
+import { RepoSortMode, type GetFacetsResponse } from '../../api/octodeck/v1/service_pb';
 import type { ActivityValue } from '../../types/filters';
 import { getProtoTimestampMs } from '../timeline';
 
@@ -316,34 +316,96 @@ export function buildRepoMenuOptions(
   };
 }
 
+export type SidebarRepoSort = 'alphabetical' | 'recent_activity' | 'total_items';
+
+/** Converts the proto `RepoSortMode` enum into the frontend `SidebarRepoSort` string union. */
+export function toSidebarRepoSort(mode?: RepoSortMode): SidebarRepoSort {
+  switch (mode) {
+    case RepoSortMode.RECENT_ACTIVITY:
+      return 'recent_activity';
+    case RepoSortMode.TOTAL_ITEMS:
+      return 'total_items';
+    case RepoSortMode.ALPHABETICAL:
+    case RepoSortMode.UNSPECIFIED:
+    default:
+      return 'alphabetical';
+  }
+}
+
 export interface SidebarRepos {
   readonly repoList: string[];
-  /** Repos with non-noise activity in the last 30 days. */
+  /** Repos with non-noise activity in the last 30 days (or fitting above "More" for non-alphabetical sorts). */
   readonly activeList: string[];
   /** The rest, shown behind "More". */
   readonly hiddenList: string[];
 }
 
+/** Splits a sorted repository list into `activeList` and `hiddenList` at `maxVisibleRepos`. */
+export function splitAtVisible(
+  sorted: readonly string[],
+  maxVisibleRepos?: number
+): SidebarRepos {
+  const repoList = [...sorted];
+  if (maxVisibleRepos !== undefined && maxVisibleRepos < repoList.length) {
+    const splitAt = Math.max(0, maxVisibleRepos);
+    return {
+      repoList,
+      activeList: repoList.slice(0, splitAt),
+      hiddenList: repoList.slice(splitAt),
+    };
+  }
+  return {
+    repoList,
+    activeList: repoList,
+    hiddenList: [],
+  };
+}
+
 /** Sidebar repository lists from the repo facet of the unfiltered query. */
 export function buildSidebar(
   repoValues: readonly FacetValue[],
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  sortMode: SidebarRepoSort = 'alphabetical',
+  maxVisibleRepos?: number
 ): SidebarRepos {
   const latest = new Map<string, number>();
+  const recent = new Map<string, number>();
+  const total = new Map<string, number>();
   const repos = new FoldedSet();
   for (const v of repoValues) {
     if (!v.value.includes('/')) continue;
     repos.add(v.value);
-    latest.set(fold(v.value), Math.max(latest.get(fold(v.value)) ?? 0, getProtoTimestampMs(v.latestActivityAt)));
+    const key = fold(v.value);
+    latest.set(key, Math.max(latest.get(key) ?? 0, getProtoTimestampMs(v.latestActivityAt)));
+    recent.set(key, (recent.get(key) ?? 0) + (v.recentCount ?? 0));
+    total.set(key, (total.get(key) ?? 0) + (v.totalCount ?? 0));
   }
-  const repoList = repos.sorted();
-  const cutoffMs = nowMs - THIRTY_DAYS_MS;
-  const isActive = (repo: string) => (latest.get(fold(repo)) ?? 0) >= cutoffMs;
-  return {
-    repoList,
-    activeList: repoList.filter(isActive),
-    hiddenList: repoList.filter((r) => !isActive(r)),
-  };
+  const alphabeticalList = repos.sorted();
+  if (sortMode === 'alphabetical') {
+    const cutoffMs = nowMs - THIRTY_DAYS_MS;
+    const isActive = (repo: string) => (latest.get(fold(repo)) ?? 0) >= cutoffMs;
+    return {
+      repoList: alphabeticalList,
+      activeList: alphabeticalList.filter(isActive),
+      hiddenList: alphabeticalList.filter((r) => !isActive(r)),
+    };
+  }
+
+  const sorted = [...alphabeticalList].sort((a, b) => {
+    const keyA = fold(a);
+    const keyB = fold(b);
+    if (sortMode === 'total_items') {
+      const totalDiff = (total.get(keyB) ?? 0) - (total.get(keyA) ?? 0);
+      if (totalDiff !== 0) return totalDiff;
+    }
+    const recentDiff = (recent.get(keyB) ?? 0) - (recent.get(keyA) ?? 0);
+    if (recentDiff !== 0) return recentDiff;
+    const latestDiff = (latest.get(keyB) ?? 0) - (latest.get(keyA) ?? 0);
+    if (latestDiff !== 0) return latestDiff;
+    return byName(a, b);
+  });
+
+  return splitAtVisible(sorted, maxVisibleRepos);
 }
 
 /** Facet counts keyed by lower-cased value. */
