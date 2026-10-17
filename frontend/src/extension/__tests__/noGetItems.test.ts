@@ -72,7 +72,7 @@ describe('extension worker never calls GetItems', () => {
       const onMessage = listeners['runtime.onMessage'][0];
       const types = [
         'GET_ITEM', 'VIEW_ITEM', 'ACK_ITEM', 'STAR_ITEM', 'SET_NOTES', 'REFETCH_ITEM', 'SYNC_ITEM',
-        'GET_CONFIG', 'GET_KNOWN_BOTS', 'ADD_KNOWN_BOTS', 'GET_DAEMON_STATUS',
+        'GET_CONFIG', 'GET_KNOWN_BOTS', 'GET_DAEMON_STATUS',
         'GET_NOTIFICATION_SETTINGS', 'SAVE_NOTIFICATION_SETTINGS', 'GET_HIDE_EVENTS', 'SET_HIDE_EVENTS',
       ];
       for (const type of types) {

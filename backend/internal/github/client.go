@@ -743,9 +743,33 @@ func (c *Client) FetchNotifications(
 
 // --- GraphQL Structures ---
 
+// typeBot is the GraphQL typename for a Bot actor (a GitHub App account such as dependabot).
+const typeBot = "Bot"
+
 type gqlUser struct {
+	// Typename is the concrete GraphQL type of the actor ("User", "Bot", "Organization", ...).
+	// It is the authoritative signal that an account is a GitHub App bot.
+	Typename  string `graphql:"__typename" json:"__typename"`
 	Login     string `json:"login"`
 	AvatarURL string `json:"avatarUrl"`
+}
+
+// toProto converts the GraphQL actor into an API User, carrying over whether it is a bot.
+func (u gqlUser) toProto() *octodeckv1.User {
+	userType := octodeckv1.UserType_USER_TYPE_UNSPECIFIED
+	switch u.Typename {
+	case typeBot:
+		userType = octodeckv1.UserType_USER_TYPE_BOT
+	case "":
+		// Typename not requested or unavailable (e.g. cached data); leave unspecified.
+	default:
+		userType = octodeckv1.UserType_USER_TYPE_USER
+	}
+	return octodeckv1.User_builder{
+		Login:     config.Ptr(u.Login),
+		AvatarUrl: config.Ptr(u.AvatarURL),
+		Type:      config.Ptr(userType),
+	}.Build()
 }
 
 type gqlComment struct {
@@ -903,10 +927,7 @@ func (node gqlIssueTimelineItemNode) toProto(currentUser ...string) *octodeckv1.
 	builder := octodeckv1.StateEvent_builder{
 		Type:      config.Ptr(changeType),
 		CreatedAt: createdAtTime,
-		Actor: octodeckv1.User_builder{
-			Login:     config.Ptr(actor.Login),
-			AvatarUrl: config.Ptr(actor.AvatarURL),
-		}.Build(),
+		Actor:     actor.toProto(),
 	}
 	if eventURL != "" {
 		builder.Url = config.Ptr(eventURL)
@@ -966,10 +987,7 @@ func (node gqlTimelineItemNode) toProto(currentUser ...string) *octodeckv1.State
 	builder := octodeckv1.StateEvent_builder{
 		Type:      config.Ptr(changeType),
 		CreatedAt: createdAtTime,
-		Actor: octodeckv1.User_builder{
-			Login:     config.Ptr(actor.Login),
-			AvatarUrl: config.Ptr(actor.AvatarURL),
-		}.Build(),
+		Actor:     actor.toProto(),
 	}
 	if eventURL != "" {
 		builder.Url = config.Ptr(eventURL)
@@ -1017,10 +1035,7 @@ func convertComments(nodes []gqlComment) ([]*octodeckv1.Comment, error) {
 			CreatedAt: timestamppb.New(t),
 			BodyText:  config.Ptr(c.text()),
 			CommentId: config.Ptr(int64(c.DatabaseID)),
-			Author: octodeckv1.User_builder{
-				Login:     config.Ptr(c.Author.Login),
-				AvatarUrl: config.Ptr(c.Author.AvatarURL),
-			}.Build(),
+			Author:    c.Author.toProto(),
 		}.Build())
 	}
 	return comments, nil
@@ -1029,10 +1044,7 @@ func convertComments(nodes []gqlComment) ([]*octodeckv1.Comment, error) {
 func convertAssignees(nodes []gqlUser) []*octodeckv1.User {
 	var assignees []*octodeckv1.User
 	for _, u := range nodes {
-		assignees = append(assignees, octodeckv1.User_builder{
-			Login:     config.Ptr(u.Login),
-			AvatarUrl: config.Ptr(u.AvatarURL),
-		}.Build())
+		assignees = append(assignees, u.toProto())
 	}
 	return assignees
 }
@@ -1090,10 +1102,7 @@ func convertReviewCommentNode(c gqlReviewComment, fallbackAuthor gqlUser) *octod
 		Url:       config.Ptr(c.URL),
 		CreatedAt: catTime,
 		ReplyToId: config.Ptr(replyToID),
-		Author: octodeckv1.User_builder{
-			Login:     config.Ptr(commentAuthor.Login),
-			AvatarUrl: config.Ptr(commentAuthor.AvatarURL),
-		}.Build(),
+		Author:    commentAuthor.toProto(),
 	}.Build()
 }
 
@@ -1190,10 +1199,7 @@ func (r gqlReview) toProto() *octodeckv1.Review {
 		ReplyCount:         config.Ptr(replyCount),
 		Comments:           reviewComments,
 		CommentsPagedTotal: config.Ptr(pagedTotal),
-		Author: octodeckv1.User_builder{
-			Login:     config.Ptr(r.Author.Login),
-			AvatarUrl: config.Ptr(r.Author.AvatarURL),
-		}.Build(),
+		Author:             r.Author.toProto(),
 	}.Build()
 }
 
@@ -1249,15 +1255,12 @@ func (i gqlIssue) toProto(currentUser ...string) (*octodeckv1.Item, error) {
 		CreatedAt:          createdAtTime,
 		Url:                config.Ptr(i.URL),
 		ViewerSubscription: parseSubscriptionState(i.ViewerSubscription),
-		Author: octodeckv1.User_builder{
-			Login:     config.Ptr(i.Author.Login),
-			AvatarUrl: config.Ptr(i.Author.AvatarURL),
-		}.Build(),
-		Comments:    comments,
-		Assignees:   convertAssignees(i.Assignees.Nodes),
-		Milestone:   i.Milestone.toProto(),
-		Labels:      convertLabels(i.Labels.Nodes),
-		StateEvents: stateEvents,
+		Author:             i.Author.toProto(),
+		Comments:           comments,
+		Assignees:          convertAssignees(i.Assignees.Nodes),
+		Milestone:          i.Milestone.toProto(),
+		Labels:             convertLabels(i.Labels.Nodes),
+		StateEvents:        stateEvents,
 	}.Build(), nil
 }
 
@@ -1413,17 +1416,14 @@ func (p gqlPullRequest) toProto(currentUser ...string) (*octodeckv1.Item, error)
 		CreatedAt:          createdAtTime,
 		Url:                config.Ptr(p.URL),
 		ViewerSubscription: parseSubscriptionState(p.ViewerSubscription),
-		Author: octodeckv1.User_builder{
-			Login:     config.Ptr(p.Author.Login),
-			AvatarUrl: config.Ptr(p.Author.AvatarURL),
-		}.Build(),
-		Comments:    comments,
-		Reviews:     convertReviews(p.Reviews.Nodes),
-		Assignees:   convertAssignees(p.Assignees.Nodes),
-		Commits:     commits,
-		Milestone:   p.Milestone.toProto(),
-		Labels:      convertLabels(p.Labels.Nodes),
-		StateEvents: stateEvents,
+		Author:             p.Author.toProto(),
+		Comments:           comments,
+		Reviews:            convertReviews(p.Reviews.Nodes),
+		Assignees:          convertAssignees(p.Assignees.Nodes),
+		Commits:            commits,
+		Milestone:          p.Milestone.toProto(),
+		Labels:             convertLabels(p.Labels.Nodes),
+		StateEvents:        stateEvents,
 	}.Build(), nil
 }
 
@@ -1934,10 +1934,7 @@ func parseCommentNode(ctx context.Context, itemID string, n gqlComment) (*octode
 		CreatedAt: timestamppb.New(t),
 		BodyText:  config.Ptr(n.text()),
 		CommentId: config.Ptr(int64(n.DatabaseID)),
-		Author: octodeckv1.User_builder{
-			Login:     config.Ptr(n.Author.Login),
-			AvatarUrl: config.Ptr(n.Author.AvatarURL),
-		}.Build(),
+		Author:    n.Author.toProto(),
 	}.Build(), true
 }
 

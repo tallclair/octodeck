@@ -1,5 +1,18 @@
 const BOT_SUFFIX_REGEX = /(?:\[bot\]|\[robot\]|-bot|_bot|-robot|_robot|\bbot\b|\brobot\b)/i;
 const SLASH_CMD_REGEX = /^\/[a-z0-9_-]+(?:\s|:|$)/i;
+// Whole-word "bot" match, so label descriptions mentioning e.g. "both" or "robotics" don't count.
+const BOT_WORD_REGEX = /\bbot\b/i;
+
+// GitHub's "Add a comment" composer at the bottom of issue / PR pages.
+const NEW_COMMENT_FORM_SELECTOR = '#issuecomment-new, .timeline-new-comment, .js-new-comment-form';
+
+/**
+ * Returns the login of the signed-in GitHub user viewing the page (from GitHub's
+ * <meta name="user-login"> tag), lowercased, or '' when signed out / unavailable.
+ */
+export function getViewerLogin(doc: Document = document): string {
+  return doc.querySelector<HTMLMetaElement>('meta[name="user-login"]')?.content.trim().toLowerCase() || '';
+}
 
 export interface TimelineItemInfo {
   element: HTMLElement;
@@ -632,6 +645,11 @@ export function queryTimelineElements(container: HTMLElement): HTMLElement[] {
     ) {
       return false;
     }
+    // Never classify the "Add a comment" composer at the bottom of the page. Its wrapper uses
+    // id="issuecomment-new", which would otherwise match the [id^="issuecomment-"] comment selector.
+    if (el.closest(NEW_COMMENT_FORM_SELECTOR)) {
+      return false;
+    }
     // Filter out pagination, non-timeline items, and our own injected dense boxes/wrappers
     if (
       el.getAttribute('data-wrapper-timeline-id') === 'load-top' ||
@@ -653,57 +671,52 @@ export function queryTimelineElements(container: HTMLElement): HTMLElement[] {
   );
 }
 
-export function extractTimelineItemInfo(
-  commentEl: HTMLElement,
-  knownBots: string[] = [],
-  onBotDiscovered?: (login: string) => void
-): TimelineItemInfo {
+/**
+ * Returns true when the element is GitHub's "Bot" badge (e.g. <span class="Label">bot</span>).
+ */
+function isBotBadge(el: Element | null): boolean {
+  if (!el || !/\bLabel\b/.test(el.className)) return false;
+  return (
+    el.textContent?.trim().toLowerCase() === 'bot' ||
+    BOT_WORD_REGEX.test(el.getAttribute('aria-label') || '') ||
+    BOT_WORD_REGEX.test(el.getAttribute('title') || '')
+  );
+}
+
+/**
+ * Returns true when GitHub renders a "Bot" badge directly after the given author link.
+ *
+ * GitHub places the badge as the author link's next sibling (both in comment headers and in event
+ * rows). Requiring adjacency ensures the badge belongs to this author, rather than to another
+ * account mentioned in the same row (e.g. "alice requested a review from <bot> [Bot]").
+ */
+export function hasAdjacentBotBadge(authorEl: HTMLElement | null): boolean {
+  if (!authorEl) return false;
+  if (isBotBadge(authorEl.nextElementSibling)) return true;
+  // Handle the author link being wrapped on its own (e.g. <strong><a class="author"/></strong><span class="Label">).
+  const parent = authorEl.parentElement;
+  if (parent && parent.childElementCount === 1 && isBotBadge(parent.nextElementSibling)) return true;
+  return false;
+}
+
+export function extractTimelineItemInfo(commentEl: HTMLElement, knownBots: string[] = []): TimelineItemInfo {
   const authorLogin = extractAuthorLogin(commentEl);
   const isComment = isCommentElement(commentEl);
-
-  // Check specific bot badge element inside comment header or timeline item body (avoid matching comment body text)
-  const headerOrItemEl = commentEl.querySelector<HTMLElement>(
-    '.timeline-comment-header, .TimelineItem-body, [data-testid="comment-header"], .review-comment-header, .js-comment-header, h3'
-  );
-  const badgeEl = (headerOrItemEl || commentEl).querySelector<HTMLElement>(
-    '.Label--secondary, .Label, [class*="Label"]'
-  );
-  const hasBotBadge = Boolean(
-    badgeEl && (
-      badgeEl.textContent?.trim().toLowerCase() === 'bot' ||
-      badgeEl.getAttribute('aria-label')?.toLowerCase().includes('bot') ||
-      badgeEl.getAttribute('title')?.toLowerCase().includes('bot')
-    )
-  );
 
   const authorEl = commentEl.querySelector<HTMLElement>(
     'a.author, .author, a[data-test-selector="pr-timeline-events-actor-profile-link"], [data-testid="actor-link"]'
   );
+  const hasBotBadge = hasAdjacentBotBadge(authorEl);
   const isApp = Boolean(authorEl?.getAttribute('href')?.includes('/apps/'));
 
-  const isBot = isBotLogin(authorLogin, knownBots) || hasBotBadge || isApp;
+  // The signed-in viewer is a human by definition. Never classify them as a bot, even if a stray
+  // badge heuristic fires or their login was previously persisted to known bots.
+  const viewerLogin = getViewerLogin(commentEl.ownerDocument);
+  const isViewer = Boolean(viewerLogin) && authorLogin.trim().toLowerCase() === viewerLogin;
 
-  // If detected as bot, notify discovery callback if not already in knownBots
-  if (isBot && authorLogin && onBotDiscovered) {
-    const cleanLogin = authorLogin
-      .trim()
-      .toLowerCase()
-      .replace(/\[(?:bot|robot)\]$/i, '')
-      .trim();
-    if (cleanLogin) {
-      const isAlreadyKnown = knownBots.some((b) => {
-        const cleanB = b
-          .trim()
-          .toLowerCase()
-          .replace(/\[(?:bot|robot)\]$/i, '')
-          .trim();
-        return cleanB === cleanLogin;
-      });
-      if (!isAlreadyKnown) {
-        onBotDiscovered(cleanLogin);
-      }
-    }
-  }
+  // Bot classification here is page-local only. The persistent known bots list is maintained by the
+  // backend, which uses GitHub's authoritative actor type from the API.
+  const isBot = !isViewer && (isBotLogin(authorLogin, knownBots) || hasBotBadge || isApp);
 
   const bodyText = extractCommentBody(commentEl);
   const isSlashCmd = Boolean(bodyText && isSlashCommandBody(bodyText));
@@ -767,21 +780,15 @@ export interface NoiseGroup {
 export class NoiseCollapser {
   private container: HTMLElement;
   private knownBots: string[];
-  private onBotDiscovered?: (login: string) => void;
   private groups: NoiseGroup[] = [];
   private hideNonCommentEvents = false;
   private domObserver: MutationObserver | null = null;
   private debounceTimer: number | null = null;
   private expandedCommentKeys = new Set<string>();
 
-  constructor(
-    container: HTMLElement = document.body,
-    knownBots: string[] = [],
-    onBotDiscovered?: (login: string) => void
-  ) {
+  constructor(container: HTMLElement = document.body, knownBots: string[] = []) {
     this.container = container;
     this.knownBots = knownBots;
-    this.onBotDiscovered = onBotDiscovered;
   }
 
   public setKnownBots(knownBots: string[]): void {
@@ -819,7 +826,7 @@ export class NoiseCollapser {
 
     // Build items info
     const itemsInfo = timelineElements.map((el) =>
-      extractTimelineItemInfo(el, this.knownBots, this.onBotDiscovered)
+      extractTimelineItemInfo(el, this.knownBots)
     );
 
     if (this.hideNonCommentEvents) {

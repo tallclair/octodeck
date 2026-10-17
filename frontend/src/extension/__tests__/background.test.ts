@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { create, fromJson } from '@bufbuild/protobuf';
+import { create } from '@bufbuild/protobuf';
 import { timestampFromMs } from '@bufbuild/protobuf/wkt';
 import {
   acquireBearerToken,
@@ -24,7 +24,6 @@ import {
   BadgeUpdateSchema,
   NotificationSchema,
   NotificationSummarySchema,
-  UpdateConfigRequestSchema,
 } from '../../api/octodeck/v1/service_pb';
 import { DEFAULT_BASE_URL } from '../../utils/constants';
 
@@ -245,55 +244,6 @@ describe('Extension Background Service Worker', () => {
       expect(mockStorage.known_bots).toEqual(['k8s-ci-robot', 'kubernetes-prow']);
     });
 
-    it('syncs latest known bots from daemon before updating config in ADD_KNOWN_BOTS', async () => {
-      const { handleExtensionMessage } = await import('../background');
-      mockStorage.bearer_token = 'valid-token';
-
-      // 1. GetConfig (sync before write)
-      (globalThis.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            config: {
-              knownBots: ['k8s-ci-robot', 'renovate'],
-            },
-          }),
-      });
-
-      // 2. UpdateConfig
-      (globalThis.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            config: {
-              knownBots: ['k8s-ci-robot', 'new-bot', 'renovate'],
-            },
-          }),
-      });
-
-      const response = await new Promise<any>((resolve) => {
-        handleExtensionMessage(
-          { type: 'ADD_KNOWN_BOTS', logins: ['new-bot'] },
-          {} as any,
-          (res: any) => resolve(res)
-        );
-      });
-
-      expect(response.ok).toBe(true);
-      expect(response.data).toEqual(['k8s-ci-robot', 'new-bot', 'renovate']);
-      expect(mockStorage.known_bots).toEqual(['k8s-ci-robot', 'new-bot', 'renovate']);
-
-      // The update is masked to known_bots, with the FieldMask in its protojson string form
-      // (the daemon's JSON decoder rejects the object form).
-      const [url, init] = (globalThis.fetch as any).mock.calls[1];
-      expect(url).toContain('/octodeck.v1.OctoDeckService/UpdateConfig');
-      const body = JSON.parse(init.body);
-      expect(body.updateMask).toBe('knownBots');
-      const decoded = fromJson(UpdateConfigRequestSchema, body);
-      expect(decoded.updateMask?.paths).toEqual(['known_bots']);
-      expect(decoded.config?.knownBots).toEqual(['k8s-ci-robot', 'renovate', 'new-bot']);
-    });
-
     it('returns null and does not overwrite storage when syncKnownBots fails', async () => {
       const { syncKnownBots } = await import('../background');
       mockStorage.bearer_token = 'valid-token';
@@ -302,59 +252,6 @@ describe('Extension Background Service Worker', () => {
 
       const bots = await syncKnownBots();
       expect(bots).toBeNull();
-      expect(mockStorage.known_bots).toEqual(['existing-bot']);
-    });
-
-    it('aborts ADD_KNOWN_BOTS when backend sync fails and leaves storage untouched', async () => {
-      const { handleExtensionMessage } = await import('../background');
-      mockStorage.bearer_token = 'valid-token';
-      mockStorage.known_bots = ['existing-bot'];
-
-      // GetConfig fails
-      (globalThis.fetch as any).mockRejectedValueOnce(new Error('Daemon offline'));
-
-      const response = await new Promise<any>((resolve) => {
-        handleExtensionMessage(
-          { type: 'ADD_KNOWN_BOTS', logins: ['some-bot'] },
-          {} as any,
-          (res: any) => resolve(res)
-        );
-      });
-
-      expect(response.ok).toBe(false);
-      expect(response.error).toContain('Could not sync latest known bots from backend');
-      expect(mockStorage.known_bots).toEqual(['existing-bot']);
-    });
-
-    it('aborts ADD_KNOWN_BOTS when UpdateConfig fails and leaves storage untouched', async () => {
-      const { handleExtensionMessage } = await import('../background');
-      mockStorage.bearer_token = 'valid-token';
-      mockStorage.known_bots = ['existing-bot'];
-
-      // 1. GetConfig succeeds
-      (globalThis.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            config: {
-              knownBots: ['existing-bot'],
-            },
-          }),
-      });
-
-      // 2. UpdateConfig fails
-      (globalThis.fetch as any).mockRejectedValueOnce(new Error('Update failed'));
-
-      const response = await new Promise<any>((resolve) => {
-        handleExtensionMessage(
-          { type: 'ADD_KNOWN_BOTS', logins: ['some-bot'] },
-          {} as any,
-          (res: any) => resolve(res)
-        );
-      });
-
-      expect(response.ok).toBe(false);
-      expect(response.error).toContain('Failed to update known bots in backend');
       expect(mockStorage.known_bots).toEqual(['existing-bot']);
     });
   });

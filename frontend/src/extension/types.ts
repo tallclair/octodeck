@@ -17,7 +17,6 @@ export type ExtensionMessage =
   | { type: 'SYNC_ITEM'; itemId: string }
   | { type: 'GET_CONFIG' }
   | { type: 'GET_KNOWN_BOTS' }
-  | { type: 'ADD_KNOWN_BOTS'; logins: string[] }
   | { type: 'GET_DAEMON_STATUS' }
   | { type: 'OPEN_DASHBOARD'; itemId?: string }
   // Notification settings live in the daemon config; they cross the message channel in their

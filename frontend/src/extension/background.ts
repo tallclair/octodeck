@@ -486,33 +486,6 @@ export function handleExtensionMessage(
           }
           break;
         }
-        case 'ADD_KNOWN_BOTS': {
-          const currentBots = await syncKnownBots();
-          if (currentBots === null) {
-            console.debug('[OctoDeck BG] Aborting ADD_KNOWN_BOTS because backend sync failed');
-            safeSendResponse({ ok: false, error: 'Could not sync latest known bots from backend' });
-            break;
-          }
-          const newLogins = (message.logins || []).map((l) => l.trim()).filter(Boolean);
-          const merged = Array.from(new Set([...currentBots, ...newLogins]));
-          try {
-            // FieldMask's JSON form is a comma-separated string of camelCase paths.
-            const resp = await callDaemonRpc<
-              { config: { knownBots: string[] }; updateMask: string },
-              { config: { knownBots: string[] } }
-            >('UpdateConfig', {
-              config: { knownBots: merged },
-              updateMask: 'knownBots',
-            });
-            const updatedBots = resp.config?.knownBots || merged;
-            await setStoredData({ known_bots: updatedBots });
-            safeSendResponse({ ok: true, data: updatedBots });
-          } catch (err) {
-            console.debug('[OctoDeck BG] Failed to update known bots in backend:', err);
-            safeSendResponse({ ok: false, error: 'Failed to update known bots in backend' });
-          }
-          break;
-        }
         case 'OPEN_DASHBOARD': {
           const targetUrl = message.itemId
             ? `${DASHBOARD_URL}?item=${encodeURIComponent(message.itemId)}`

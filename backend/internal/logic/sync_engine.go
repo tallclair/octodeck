@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -1399,16 +1400,23 @@ func (s *SyncEngine) discoverBots(items []*octodeckv1.Item) {
 	if s.cfg == nil {
 		return
 	}
-	botsToAdd := extractBotsFromItems(items, s.cfg.GetKnownBots())
+	botsToAdd := extractBotsFromItems(items, s.cfg.GetKnownBots(), s.getCurrentUser())
 	if len(botsToAdd) > 0 {
 		_, _, _ = s.cfg.AddKnownBots(botsToAdd...)
 	}
 }
 
-func extractBotsFromItems(items []*octodeckv1.Item, known []string) []string {
+// extractBotsFromItems returns the logins of bot actors found in the items. An actor is a bot when
+// GitHub reports it as a Bot (GitHub App) or when its login matches the bot heuristics in IsBot.
+// The authenticated user is never returned: they are a human by definition, and persisting them
+// to the known bots list would hide all of their own activity.
+func extractBotsFromItems(items []*octodeckv1.Item, known []string, currentUser string) []string {
 	var bots []string
 	addIfBot := func(u *octodeckv1.User) {
-		if u != nil && (u.GetType() == octodeckv1.UserType_USER_TYPE_BOT || IsBot(u.GetLogin(), u.GetType(), known)) {
+		if u == nil || (currentUser != "" && strings.EqualFold(u.GetLogin(), currentUser)) {
+			return
+		}
+		if IsBot(u.GetLogin(), u.GetType(), known) {
 			bots = append(bots, u.GetLogin())
 		}
 	}

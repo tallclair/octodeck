@@ -223,6 +223,96 @@ describe('NoiseCollapser', () => {
     });
   });
 
+  describe('viewer and new comment form handling', () => {
+    const setViewer = (login: string) => {
+      document.head.innerHTML = `<meta name="user-login" content="${login}">`;
+    };
+
+    afterEach(() => {
+      document.head.innerHTML = '';
+      document.body.innerHTML = '';
+    });
+
+    it('never classifies the signed-in viewer as a bot, even if listed in known bots', () => {
+      setViewer('tallclair');
+      const el = document.createElement('div');
+      el.className = 'TimelineItem js-comment-container';
+      el.innerHTML = `
+        <div class="timeline-comment-header">
+          <a class="author" href="/tallclair">tallclair</a>
+        </div>
+        <div class="comment-body markdown-body">/assign</div>
+      `;
+      document.body.appendChild(el);
+      const info = extractTimelineItemInfo(el, ['tallclair']);
+      expect(info.isBot).toBe(false);
+    });
+
+    it('does not treat label descriptions containing "bot" as a substring as a bot badge', () => {
+      const el = document.createElement('div');
+      el.className = 'TimelineItem';
+      el.innerHTML = `
+        <div class="TimelineItem-body">
+          <a class="author" href="/someone">someone</a>
+          <a class="IssueLabel Label" title="Applies to both clients and servers" href="/labels/x">x</a>
+        </div>
+      `;
+      expect(extractTimelineItemInfo(el, []).isBot).toBe(false);
+    });
+
+    it('does not attribute another account\'s Bot badge to the event actor', () => {
+      const el = document.createElement('div');
+      el.className = 'TimelineItem';
+      el.innerHTML = `
+        <div class="TimelineItem-body">
+          <a class="author" href="/alice">alice</a> requested a review from
+          <a href="/some-reviewer-app">some-reviewer-app</a>
+          <span class="Label Label--secondary">Bot</span>
+        </div>
+      `;
+      const info = extractTimelineItemInfo(el, []);
+      expect(info.authorLogin).toBe('alice');
+      expect(info.isBot).toBe(false);
+    });
+
+    it('recognizes a Bot badge rendered directly after the author link', () => {
+      const el = document.createElement('div');
+      el.className = 'TimelineItem';
+      el.innerHTML = `
+        <div class="TimelineItem-body">
+          <a class="author" href="/some-ci">some-ci</a>
+          <span class="Label Label--secondary">Bot</span> added the lgtm label
+        </div>
+      `;
+      expect(extractTimelineItemInfo(el, []).isBot).toBe(true);
+    });
+
+    it('never collapses the new comment form at the bottom of the page', () => {
+      setViewer('tallclair');
+      document.body.innerHTML = `
+        <div class="js-timeline-item">
+          <div class="TimelineItem js-comment-container">
+            <div class="timeline-comment-header"><a class="author" href="/k8s-ci-robot">k8s-ci-robot</a></div>
+            <div class="comment-body markdown-body">Bot message</div>
+          </div>
+        </div>
+        <div>
+          <div id="issuecomment-new" class="timeline-comment-wrapper timeline-new-comment js-comment-container">
+            <img class="avatar" alt="@tallclair" src="a.png">
+            <div class="comment-body markdown-body js-preview-body">/lgtm</div>
+            <textarea name="comment[body]"></textarea>
+          </div>
+        </div>
+      `;
+      const collapser = new NoiseCollapser(document.body, ['tallclair']);
+      collapser.run(false);
+      const form = document.getElementById('issuecomment-new');
+      expect(form?.classList.contains('octodeck-gh-collapsed-comment')).toBe(false);
+      expect(document.querySelectorAll('.octodeck-gh-dense-row').length).toBe(1);
+      collapser.cleanup();
+    });
+  });
+
   describe('isCloseOrReopenEvent', () => {
     it('detects close event with icon or closed text', () => {
       const el = document.createElement('div');
@@ -1085,25 +1175,22 @@ describe('NoiseCollapser', () => {
       expect(rows[0].querySelector('.octodeck-gh-dense-text')?.textContent).toContain('[APPROVALNOTIFIER]');
     });
 
-    it('triggers onBotDiscovered when encountering an unknown bot on the page', () => {
+    it('collapses comments from an unknown bot identified by its adjacent Bot badge', () => {
       const prContainer = document.createElement('div');
       prContainer.innerHTML = `
         <div class="TimelineItem" id="issuecomment-1">
           <div class="timeline-comment-header">
-            <a class="author" href="https://github.com/apps/some-new-bot">some-new-bot</a>
+            <strong><a class="author" href="https://github.com/some-new-ci">some-new-ci</a></strong>
             <span class="Label Label--secondary">Bot</span>
           </div>
           <div class="comment-body"><p>Automated test report</p></div>
         </div>
       `;
 
-      const discovered: string[] = [];
-      const collapser = new NoiseCollapser(prContainer, ['existing-bot'], (login) => {
-        discovered.push(login);
-      });
+      const collapser = new NoiseCollapser(prContainer, ['existing-bot']);
       collapser.run();
 
-      expect(discovered).toEqual(['some-new-bot']);
+      expect(prContainer.querySelectorAll('.octodeck-gh-dense-row').length).toBe(1);
     });
 
     it('updates collapsing dynamically when setKnownBots is called', () => {

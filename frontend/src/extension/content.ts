@@ -86,15 +86,6 @@ async function fetchKnownBots(): Promise<string[]> {
   });
 }
 
-function handleBotDiscovered(login: string): void {
-  try {
-    const msg: ExtensionMessage = { type: 'ADD_KNOWN_BOTS', logins: [login] };
-    chrome.runtime.sendMessage(msg);
-  } catch (err) {
-    console.debug('[OctoDeck] Could not notify bot discovery:', err);
-  }
-}
-
 async function handlePageTransition(itemId: string | null) {
   if (activeSidebar) {
     activeSidebar.destroy();
@@ -120,7 +111,7 @@ async function handlePageTransition(itemId: string | null) {
     const hideEvents = await fetchGlobalHideEventsPreference();
     const knownBots = await fetchKnownBots();
 
-    activeCollapser = new NoiseCollapser(document.body, knownBots, handleBotDiscovered);
+    activeCollapser = new NoiseCollapser(document.body, knownBots);
     activeTimelineMarkers = new TimelineMarkers(document.body);
 
     activeSidebar = new SidebarSection(
