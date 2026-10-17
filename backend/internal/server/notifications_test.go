@@ -429,7 +429,7 @@ func TestUpdateConfig_MaskedDashboardSavePreservesNotificationSettings(t *testin
 			NotificationSettings: staleNotifications,
 		}.Build(),
 		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{
-			"polling_interval_min", "watched_repos", "excluded_repos", "pinned_repos", "known_bots",
+			"polling_interval_min", "watched_repos", "excluded_repos", "known_bots",
 			"auto_ack_own_activity", "included_labels", "excluded_labels", "tracked_queries",
 			"auto_subscribe_queries", "discovery_interval_min",
 		}},

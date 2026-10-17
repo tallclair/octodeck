@@ -3,7 +3,6 @@ import {
   Filter,
   Zap,
   CheckCircle,
-  Pin,
   ChevronDown,
   ChevronUp,
   Keyboard,
@@ -11,7 +10,10 @@ import {
 } from 'lucide-react';
 import type { FilterControls, TriageFilter } from '../../types/filters';
 import type { SidebarRepos } from '../../logic/query/facets';
+import type { ParsedQuery } from '../../logic/query/syntax';
+import type { SavedSearchView } from '../../logic/savedSearches';
 import { SidebarRow } from './SidebarRow';
+import { SavedSearchList } from '../savedSearches/SavedSearchList';
 
 export interface DashboardSidebarProps {
   filters: FilterControls;
@@ -20,6 +22,14 @@ export interface DashboardSidebarProps {
   repoInboxCounts: Record<string, number>;
   repoHasUnread: Set<string>;
   totals: { inbox: number; new: number; acked: number };
+  savedSearches?: readonly SavedSearchView[];
+  currentQueryText?: string;
+  currentParsed?: ParsedQuery;
+  onSelectSavedSearch?: (search: SavedSearchView) => void;
+  onEditSavedSearch?: (search: SavedSearchView) => void;
+  onRenameSavedSearch?: (id: string, name: string) => Promise<void> | void;
+  onDeleteSavedSearch?: (id: string) => Promise<void> | void;
+  onReorderSavedSearches?: (ids: string[]) => Promise<void> | void;
   applyWorkflowShortcut: (tab: TriageFilter) => void;
   toggleRepo: (repo: string) => void;
   showSettings: boolean;
@@ -37,6 +47,14 @@ export function DashboardSidebar({
   repoInboxCounts,
   repoHasUnread,
   totals: sidebarTotals,
+  savedSearches = [],
+  currentQueryText = '',
+  currentParsed,
+  onSelectSavedSearch = () => {},
+  onEditSavedSearch,
+  onRenameSavedSearch,
+  onDeleteSavedSearch,
+  onReorderSavedSearches,
   applyWorkflowShortcut,
   toggleRepo,
   showSettings,
@@ -44,7 +62,7 @@ export function DashboardSidebar({
   setShowShortcutsModal,
 }: DashboardSidebarProps) {
   const [showHiddenRepos, setShowHiddenRepos] = useState(false);
-  const { pinnedList, otherList, activeOtherList, hiddenOtherList } = sidebar;
+  const { repoList, activeList, hiddenList } = sidebar;
 
   const isInboxActive = filters.triage === 'inbox' && hasNoSecondaryFilters;
   const isActivityActive = filters.triage === 'activity' && hasNoSecondaryFilters;
@@ -136,39 +154,25 @@ export function DashboardSidebar({
         </span>
       </button>
 
-      {/* Pinned Repositories */}
-      {pinnedList.length > 0 && (
-        <div className="mt-6 mb-2">
-          <div className="text-xs font-bold text-slate-500 dark:text-slate-500 uppercase tracking-wider px-2 mb-2 flex items-center gap-1.5">
-            <Pin size={12} className="text-blue-600 dark:text-blue-400 rotate-45" />
-            <span>Pinned</span>
-          </div>
-          <div className="space-y-0.5">
-            {pinnedList.map((repo) => {
-              const { inboxCount, hasUnread } = repoBadge(repo);
-              return (
-                <SidebarRow
-                  key={repo}
-                  repo={repo}
-                  isSelected={isRepoSelected(repo)}
-                  inboxCount={inboxCount}
-                  hasUnread={hasUnread}
-                  isPinned
-                  onClick={() => toggleRepo(repo)}
-                />
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {/* Saved Searches */}
+      <SavedSearchList
+        searches={savedSearches}
+        currentQueryText={currentQueryText}
+        currentParsed={currentParsed}
+        onSelectSearch={onSelectSavedSearch}
+        onEditSearch={onEditSavedSearch}
+        onRename={onRenameSavedSearch}
+        onDelete={onDeleteSavedSearch}
+        onReorder={onReorderSavedSearches}
+      />
 
-      {/* Other / All Repositories */}
-      <div className={pinnedList.length > 0 ? 'mt-4 mb-2' : 'mt-6 mb-2'}>
+      {/* Repositories */}
+      <div className="mt-4 mb-2">
         <div className="text-xs font-bold text-slate-500 dark:text-slate-500 uppercase tracking-wider px-2 mb-2">
-          {pinnedList.length > 0 ? 'Other Repositories' : 'Repositories'}
+          Repositories
         </div>
         <div className="space-y-0.5">
-          {activeOtherList.map((repo) => {
+          {activeList.map((repo) => {
             const { inboxCount, hasUnread } = repoBadge(repo);
             return (
               <SidebarRow
@@ -182,7 +186,7 @@ export function DashboardSidebar({
             );
           })}
 
-          {hiddenOtherList.length > 0 && (
+          {hiddenList.length > 0 && (
             <div className="pt-1">
               <button
                 type="button"
@@ -195,7 +199,7 @@ export function DashboardSidebar({
               </button>
               {showHiddenRepos && (
                 <div className="space-y-0.5 mt-0.5" data-testid="hidden-repos-list">
-                  {hiddenOtherList.map((repo) => {
+                  {hiddenList.map((repo) => {
                     const { inboxCount, hasUnread } = repoBadge(repo);
                     return (
                       <SidebarRow
@@ -213,7 +217,7 @@ export function DashboardSidebar({
             </div>
           )}
 
-          {pinnedList.length === 0 && otherList.length === 0 && (
+          {repoList.length === 0 && (
             <div className="px-3 py-2 text-xs text-slate-400 dark:text-slate-600 italic">No repositories</div>
           )}
         </div>

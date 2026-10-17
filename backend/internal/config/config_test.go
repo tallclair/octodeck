@@ -554,7 +554,7 @@ func TestConfig_RepeatedFieldsFieldMaskClearing(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Empty(t, cfg.GetWatchedRepos())
-		assert.Empty(t, cfg.GetPinnedRepos())
+		assert.Empty(t, cfg.GetProto().GetPinnedRepos())
 		assert.Empty(t, cfg.GetExcludedRepos())
 		assert.Empty(t, cfg.GetKnownBots())
 		assert.Empty(t, cfg.GetProto().GetIncludedLabels())
@@ -693,7 +693,14 @@ func TestConfig_RepeatedFieldsFullUpdateClearing(t *testing.T) {
 	cfg, err := Load(configPath, Overrides{})
 	require.NoError(t, err)
 
-	// Seed all fields
+	// Seed saved search via dedicated API
+	_, _, err = cfg.CreateSavedSearch(octodeckv1.SavedSearch_builder{
+		Name:  Ptr("seed search"),
+		Query: Ptr("repo:owner/repo"),
+	}.Build())
+	require.NoError(t, err)
+
+	// Seed all other fields
 	seed := octodeckv1.Config_builder{
 		WatchedRepos:         []string{"owner/repo"},
 		PinnedRepos:          []string{"owner/repo"},
@@ -716,18 +723,20 @@ func TestConfig_RepeatedFieldsFullUpdateClearing(t *testing.T) {
 
 	assert.Empty(t, cfg.GetTrackedQueries())
 	assert.Empty(t, cfg.GetWatchedRepos())
-	assert.Empty(t, cfg.GetPinnedRepos())
+	assert.Empty(t, cfg.GetProto().GetPinnedRepos())
 	assert.Empty(t, cfg.GetExcludedRepos())
 	assert.Empty(t, cfg.GetProto().GetIncludedLabels())
 	assert.Empty(t, cfg.GetProto().GetExcludedLabels())
 	assert.Empty(t, cfg.GetKnownBots())
 	assert.Equal(t, int32(20), cfg.GetDiscoveryIntervalMin())
+	assert.Len(t, cfg.GetSavedSearches(), 1, "unmasked update must preserve saved searches")
 
 	// Verify disk persistence
 	reloaded, err := Load(configPath, Overrides{})
 	require.NoError(t, err)
 	assert.Empty(t, reloaded.GetTrackedQueries())
 	assert.Empty(t, reloaded.GetWatchedRepos())
+	assert.Len(t, reloaded.GetSavedSearches(), 1, "reloaded config must keep saved searches")
 }
 
 func TestConfig_ZeroPanicReflectionAcrossAllRepeatedFields(t *testing.T) {
@@ -807,9 +816,12 @@ func TestConfig_LegacyMigrationAndCompat(t *testing.T) {
 		cfg, err := Load(configPath, Overrides{})
 		require.NoError(t, err)
 
-		// Existing fields preserved
+		// Existing fields preserved; legacy pinnedRepos converted to savedSearches
 		assert.Equal(t, []string{"kubernetes/kubernetes", "google/go-github"}, cfg.GetWatchedRepos())
-		assert.Equal(t, []string{"kubernetes/kubernetes"}, cfg.GetPinnedRepos())
+		assert.Empty(t, cfg.GetProto().GetPinnedRepos())
+		require.Len(t, cfg.GetSavedSearches(), 1)
+		assert.Equal(t, "kubernetes/kubernetes", cfg.GetSavedSearches()[0].GetName())
+		assert.Equal(t, "repo:kubernetes/kubernetes", cfg.GetSavedSearches()[0].GetQuery())
 		assert.Equal(t, []string{"kubernetes/test-infra"}, cfg.GetExcludedRepos())
 		assert.Equal(t, int32(5), cfg.GetPollingIntervalMin())
 		assert.Equal(t, 5*time.Minute, cfg.GetSyncInterval())
@@ -986,4 +998,145 @@ func TestConfig_ConcurrentReadUpdate(t *testing.T) {
 	wg.Wait()
 	require.NotEmpty(t, cfg.GetTrackedQueries())
 	require.Positive(t, cfg.GetDiscoveryIntervalMin())
+}
+
+// TestLoad_PinnedReposMigrationAndBackup verifies that loading a config with pinnedRepos writes
+// savedSearches to disk, clears pinnedRepos, creates the backup, and a second load changes nothing.
+func TestLoad_PinnedReposMigrationAndBackup(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	backupPath := configPath + PinnedReposBackupSuffix
+
+	initialJSON := []byte(`{
+  "pinnedRepos": [
+    "kubernetes/kubernetes",
+    "google/go-github"
+  ]
+}`)
+	require.NoError(t, os.WriteFile(configPath, initialJSON, 0600))
+
+	// First load converts pinnedRepos, creates backup, and writes back.
+	cfg, err := Load(configPath, Overrides{})
+	require.NoError(t, err)
+
+	assert.Empty(t, cfg.GetProto().GetPinnedRepos())
+	searches := cfg.GetSavedSearches()
+	require.Len(t, searches, 2)
+	assert.Equal(t, "kubernetes/kubernetes", searches[0].GetName())
+	assert.Equal(t, "repo:kubernetes/kubernetes", searches[0].GetQuery())
+	assert.Equal(t, "google/go-github", searches[1].GetName())
+	assert.Equal(t, "repo:google/go-github", searches[1].GetQuery())
+
+	// Backup file was created with initialJSON.
+	backupBytes, err := os.ReadFile(backupPath)
+	require.NoError(t, err)
+	assert.JSONEq(t, string(initialJSON), string(backupBytes))
+
+	// File on disk now contains savedSearches and no pinnedRepos.
+	writtenBytes, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(writtenBytes), "savedSearches")
+	assert.NotContains(t, string(writtenBytes), "pinnedRepos")
+
+	// Second load changes nothing.
+	cfg2, err := Load(configPath, Overrides{})
+	require.NoError(t, err)
+	assert.Empty(t, cfg2.GetProto().GetPinnedRepos())
+	require.Len(t, cfg2.GetSavedSearches(), 2)
+
+	// Backup file content unchanged.
+	backupBytes2, err := os.ReadFile(backupPath)
+	require.NoError(t, err)
+	assert.JSONEq(t, string(initialJSON), string(backupBytes2))
+}
+
+// TestLoad_NormalizationWithoutBackup verifies that a config without pins but with a missing
+// saved search ID is normalized and written back without creating a backup file.
+func TestLoad_NormalizationWithoutBackup(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	backupPath := configPath + PinnedReposBackupSuffix
+
+	initialJSON := []byte(`{
+  "savedSearches": [
+    {
+      "name": "No ID",
+      "query": "repo:kubernetes/kubernetes"
+    }
+  ]
+}`)
+	require.NoError(t, os.WriteFile(configPath, initialJSON, 0600))
+
+	cfg, err := Load(configPath, Overrides{})
+	require.NoError(t, err)
+
+	require.Len(t, cfg.GetSavedSearches(), 1)
+	generatedID := cfg.GetSavedSearches()[0].GetId()
+	assert.NotEmpty(t, generatedID)
+
+	// File on disk has generated ID.
+	writtenBytes, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(writtenBytes), generatedID)
+
+	// No backup file created because there were no pinnedRepos.
+	_, err = os.Stat(backupPath)
+	assert.True(t, os.IsNotExist(err))
+}
+
+// TestLoad_ReadOnlyDirectoryContinues verifies that when writing back the converted config fails
+// (e.g. read-only directory), Load logs a warning and returns the converted in-memory config.
+func TestLoad_ReadOnlyDirectoryContinues(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+
+	initialJSON := []byte(`{
+  "pinnedRepos": ["owner/repo"]
+}`)
+	require.NoError(t, os.WriteFile(configPath, initialJSON, 0600))
+	require.NoError(t, os.Chmod(dir, 0555))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0755) })
+
+	cfg, err := Load(configPath, Overrides{})
+	require.NoError(t, err)
+	assert.Empty(t, cfg.GetProto().GetPinnedRepos())
+	require.Len(t, cfg.GetSavedSearches(), 1)
+	assert.Equal(t, "owner/repo", cfg.GetSavedSearches()[0].GetName())
+}
+
+// TestUpdateProto_UnmaskedLegacyPinnedReposAppends verifies that an unmasked UpdateProto carrying
+// legacy pinned_repos appends to the preserved saved searches list.
+func TestUpdateProto_UnmaskedLegacyPinnedReposAppends(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+
+	initialJSON := []byte(`{
+  "savedSearches": [
+    {
+      "id": "s1",
+      "name": "Existing",
+      "query": "repo:existing/repo"
+    }
+  ]
+}`)
+	require.NoError(t, os.WriteFile(configPath, initialJSON, 0600))
+
+	cfg, err := Load(configPath, Overrides{})
+	require.NoError(t, err)
+	require.Len(t, cfg.GetSavedSearches(), 1)
+
+	// Unmasked update carrying legacy pinned_repos
+	newCfg := octodeckv1.Config_builder{
+		PinnedRepos: []string{"new/repo"},
+	}.Build()
+	err = cfg.UpdateProto(newCfg, nil)
+	require.NoError(t, err)
+
+	searches := cfg.GetSavedSearches()
+	require.Len(t, searches, 2)
+	assert.Equal(t, "s1", searches[0].GetId())
+	assert.Equal(t, "Existing", searches[0].GetName())
+	assert.Equal(t, "new/repo", searches[1].GetName())
+	assert.Equal(t, "repo:new/repo", searches[1].GetQuery())
+	assert.Empty(t, cfg.GetProto().GetPinnedRepos())
 }

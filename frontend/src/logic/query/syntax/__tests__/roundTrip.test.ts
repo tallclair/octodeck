@@ -217,4 +217,18 @@ describe('Round-trip and span properties (§3.7)', () => {
       assertSpansInvariant(text);
     }
   });
+
+  it('user guide saved-search examples parse cleanly without issues (§12)', () => {
+    const examples = [
+      'repo:kubernetes/kubernetes',
+      'label:kind/bug is:open',
+      'triage:acked type:pr',
+      'repo:kubernetes/kubernetes label:kind/bug is:open',
+    ];
+    for (const q of examples) {
+      const parsed = parseQuery(q);
+      expect(parsed.issues).toEqual([]);
+      expect(canonicalQuery(q)).toBe(formatPredicates(parsed.predicates));
+    }
+  });
 });

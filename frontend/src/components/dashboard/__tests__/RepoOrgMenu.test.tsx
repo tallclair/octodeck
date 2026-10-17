@@ -25,14 +25,12 @@ function Harness({
   initialOpen = true,
   repoFacets = DEFAULT_REPOS,
   orgFacets = DEFAULT_ORGS,
-  pinnedRepos = [],
 }: {
   initialOrgs?: string[];
   initialRepos?: string[];
   initialOpen?: boolean;
   repoFacets?: readonly FacetValue[];
   orgFacets?: readonly FacetValue[];
-  pinnedRepos?: readonly string[];
 }) {
   const [orgs, setOrgs] = useState<string[]>(initialOrgs);
   const [repos, setRepos] = useState<string[]>(initialRepos);
@@ -44,7 +42,6 @@ function Harness({
       selectedRepos={repos}
       repoFacets={repoFacets}
       orgFacets={orgFacets}
-      pinnedRepos={pinnedRepos}
       open={open}
       onToggle={() => setOpen((o) => !o)}
       onClose={() => setOpen(false)}

@@ -900,6 +900,8 @@ type FacetValue struct {
 	xxx_hidden_Count            int32                  `protobuf:"varint,2,opt,name=count"`
 	xxx_hidden_Color            *string                `protobuf:"bytes,3,opt,name=color"`
 	xxx_hidden_LatestActivityAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=latest_activity_at,json=latestActivityAt"`
+	xxx_hidden_NewCount         int32                  `protobuf:"varint,5,opt,name=new_count,json=newCount"`
+	xxx_hidden_InboxCount       int32                  `protobuf:"varint,6,opt,name=inbox_count,json=inboxCount"`
 	XXX_raceDetectHookData      protoimpl.RaceDetectHookData
 	XXX_presence                [1]uint32
 	unknownFields               protoimpl.UnknownFields
@@ -965,23 +967,47 @@ func (x *FacetValue) GetLatestActivityAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *FacetValue) GetNewCount() int32 {
+	if x != nil {
+		return x.xxx_hidden_NewCount
+	}
+	return 0
+}
+
+func (x *FacetValue) GetInboxCount() int32 {
+	if x != nil {
+		return x.xxx_hidden_InboxCount
+	}
+	return 0
+}
+
 func (x *FacetValue) SetValue(v string) {
 	x.xxx_hidden_Value = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 4)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 6)
 }
 
 func (x *FacetValue) SetCount(v int32) {
 	x.xxx_hidden_Count = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 4)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 6)
 }
 
 func (x *FacetValue) SetColor(v string) {
 	x.xxx_hidden_Color = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 4)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 6)
 }
 
 func (x *FacetValue) SetLatestActivityAt(v *timestamppb.Timestamp) {
 	x.xxx_hidden_LatestActivityAt = v
+}
+
+func (x *FacetValue) SetNewCount(v int32) {
+	x.xxx_hidden_NewCount = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 4, 6)
+}
+
+func (x *FacetValue) SetInboxCount(v int32) {
+	x.xxx_hidden_InboxCount = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 6)
 }
 
 func (x *FacetValue) HasValue() bool {
@@ -1012,6 +1038,20 @@ func (x *FacetValue) HasLatestActivityAt() bool {
 	return x.xxx_hidden_LatestActivityAt != nil
 }
 
+func (x *FacetValue) HasNewCount() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 4)
+}
+
+func (x *FacetValue) HasInboxCount() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 5)
+}
+
 func (x *FacetValue) ClearValue() {
 	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
 	x.xxx_hidden_Value = nil
@@ -1031,6 +1071,16 @@ func (x *FacetValue) ClearLatestActivityAt() {
 	x.xxx_hidden_LatestActivityAt = nil
 }
 
+func (x *FacetValue) ClearNewCount() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 4)
+	x.xxx_hidden_NewCount = 0
+}
+
+func (x *FacetValue) ClearInboxCount() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 5)
+	x.xxx_hidden_InboxCount = 0
+}
+
 type FacetValue_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -1042,6 +1092,11 @@ type FacetValue_builder struct {
 	Color *string
 	// FIELD_REPO only: latest non-noise activity across the repo's items.
 	LatestActivityAt *timestamppb.Timestamp
+	// Of those, items matching new:any (always inbox items: acked items have no flags). Computed
+	// from each item's activity flags, independent of any new: predicate in the request.
+	NewCount *int32
+	// Of those, items in the inbox (computed status is not ACKED).
+	InboxCount *int32
 }
 
 func (b0 FacetValue_builder) Build() *FacetValue {
@@ -1049,18 +1104,192 @@ func (b0 FacetValue_builder) Build() *FacetValue {
 	b, x := &b0, m0
 	_, _ = b, x
 	if b.Value != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 4)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 6)
 		x.xxx_hidden_Value = b.Value
 	}
 	if b.Count != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 4)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 6)
 		x.xxx_hidden_Count = *b.Count
 	}
 	if b.Color != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 4)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 6)
 		x.xxx_hidden_Color = b.Color
 	}
 	x.xxx_hidden_LatestActivityAt = b.LatestActivityAt
+	if b.NewCount != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 4, 6)
+		x.xxx_hidden_NewCount = *b.NewCount
+	}
+	if b.InboxCount != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 6)
+		x.xxx_hidden_InboxCount = *b.InboxCount
+	}
+	return m0
+}
+
+// Counts for one GetFacetsRequest.queries entry. Same numbers as FacetValue.
+type CountResult struct {
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Count       int32                  `protobuf:"varint,1,opt,name=count"`
+	xxx_hidden_NewCount    int32                  `protobuf:"varint,2,opt,name=new_count,json=newCount"`
+	xxx_hidden_InboxCount  int32                  `protobuf:"varint,3,opt,name=inbox_count,json=inboxCount"`
+	xxx_hidden_Error       *ExprError             `protobuf:"bytes,4,opt,name=error"`
+	XXX_raceDetectHookData protoimpl.RaceDetectHookData
+	XXX_presence           [1]uint32
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *CountResult) Reset() {
+	*x = CountResult{}
+	mi := &file_octodeck_v1_query_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CountResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CountResult) ProtoMessage() {}
+
+func (x *CountResult) ProtoReflect() protoreflect.Message {
+	mi := &file_octodeck_v1_query_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *CountResult) GetCount() int32 {
+	if x != nil {
+		return x.xxx_hidden_Count
+	}
+	return 0
+}
+
+func (x *CountResult) GetNewCount() int32 {
+	if x != nil {
+		return x.xxx_hidden_NewCount
+	}
+	return 0
+}
+
+func (x *CountResult) GetInboxCount() int32 {
+	if x != nil {
+		return x.xxx_hidden_InboxCount
+	}
+	return 0
+}
+
+func (x *CountResult) GetError() *ExprError {
+	if x != nil {
+		return x.xxx_hidden_Error
+	}
+	return nil
+}
+
+func (x *CountResult) SetCount(v int32) {
+	x.xxx_hidden_Count = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 4)
+}
+
+func (x *CountResult) SetNewCount(v int32) {
+	x.xxx_hidden_NewCount = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 4)
+}
+
+func (x *CountResult) SetInboxCount(v int32) {
+	x.xxx_hidden_InboxCount = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 4)
+}
+
+func (x *CountResult) SetError(v *ExprError) {
+	x.xxx_hidden_Error = v
+}
+
+func (x *CountResult) HasCount() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+}
+
+func (x *CountResult) HasNewCount() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 1)
+}
+
+func (x *CountResult) HasInboxCount() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 2)
+}
+
+func (x *CountResult) HasError() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Error != nil
+}
+
+func (x *CountResult) ClearCount() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_Count = 0
+}
+
+func (x *CountResult) ClearNewCount() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 1)
+	x.xxx_hidden_NewCount = 0
+}
+
+func (x *CountResult) ClearInboxCount() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 2)
+	x.xxx_hidden_InboxCount = 0
+}
+
+func (x *CountResult) ClearError() {
+	x.xxx_hidden_Error = nil
+}
+
+type CountResult_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Items matching the query (with the implicit triage scope, exactly as GetItems).
+	Count *int32
+	// Of those, items matching new:any.
+	NewCount *int32
+	// Of those, items in the inbox.
+	InboxCount *int32
+	// Set when the query is invalid; the counts are then 0. error.path is relative to the
+	// queries[i] Expr (not prefixed with "queries[i].").
+	Error *ExprError
+}
+
+func (b0 CountResult_builder) Build() *CountResult {
+	m0 := &CountResult{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.Count != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 4)
+		x.xxx_hidden_Count = *b.Count
+	}
+	if b.NewCount != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 4)
+		x.xxx_hidden_NewCount = *b.NewCount
+	}
+	if b.InboxCount != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 4)
+		x.xxx_hidden_InboxCount = *b.InboxCount
+	}
+	x.xxx_hidden_Error = b.Error
 	return m0
 }
 
@@ -1079,7 +1308,7 @@ type ExprError struct {
 
 func (x *ExprError) Reset() {
 	*x = ExprError{}
-	mi := &file_octodeck_v1_query_proto_msgTypes[6]
+	mi := &file_octodeck_v1_query_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1091,7 +1320,7 @@ func (x *ExprError) String() string {
 func (*ExprError) ProtoMessage() {}
 
 func (x *ExprError) ProtoReflect() protoreflect.Message {
-	mi := &file_octodeck_v1_query_proto_msgTypes[6]
+	mi := &file_octodeck_v1_query_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1268,13 +1497,22 @@ const file_octodeck_v1_query_proto_rawDesc = "" +
 	"\x05order\x18\x02 \x01(\x0e2\x16.octodeck.v1.SortOrderR\x05order\"b\n" +
 	"\x05Facet\x12(\n" +
 	"\x05field\x18\x01 \x01(\x0e2\x12.octodeck.v1.FieldR\x05field\x12/\n" +
-	"\x06values\x18\x02 \x03(\v2\x17.octodeck.v1.FacetValueR\x06values\"\x98\x01\n" +
+	"\x06values\x18\x02 \x03(\v2\x17.octodeck.v1.FacetValueR\x06values\"\xd6\x01\n" +
 	"\n" +
 	"FacetValue\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\tR\x05value\x12\x14\n" +
 	"\x05count\x18\x02 \x01(\x05R\x05count\x12\x14\n" +
 	"\x05color\x18\x03 \x01(\tR\x05color\x12H\n" +
-	"\x12latest_activity_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x10latestActivityAt\"y\n" +
+	"\x12latest_activity_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x10latestActivityAt\x12\x1b\n" +
+	"\tnew_count\x18\x05 \x01(\x05R\bnewCount\x12\x1f\n" +
+	"\vinbox_count\x18\x06 \x01(\x05R\n" +
+	"inboxCount\"\x8f\x01\n" +
+	"\vCountResult\x12\x14\n" +
+	"\x05count\x18\x01 \x01(\x05R\x05count\x12\x1b\n" +
+	"\tnew_count\x18\x02 \x01(\x05R\bnewCount\x12\x1f\n" +
+	"\vinbox_count\x18\x03 \x01(\x05R\n" +
+	"inboxCount\x12,\n" +
+	"\x05error\x18\x04 \x01(\v2\x16.octodeck.v1.ExprErrorR\x05error\"y\n" +
 	"\tExprError\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12(\n" +
@@ -1315,7 +1553,7 @@ const file_octodeck_v1_query_proto_rawDesc = "" +
 	"QueryProtoP\x01ZIgithub.com/tallclair/octodeck/backend/internal/api/octodeck/v1;octodeckv1\xa2\x02\x03OXX\xaa\x02\vOctodeck.V1\xca\x02\vOctodeck\\V1\xe2\x02\x17Octodeck\\V1\\GPBMetadata\xea\x02\fOctodeck::V1b\beditionsp\xe8\a"
 
 var file_octodeck_v1_query_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_octodeck_v1_query_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_octodeck_v1_query_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_octodeck_v1_query_proto_goTypes = []any{
 	(Field)(0),                    // 0: octodeck.v1.Field
 	(SortKey)(0),                  // 1: octodeck.v1.SortKey
@@ -1326,8 +1564,9 @@ var file_octodeck_v1_query_proto_goTypes = []any{
 	(*Sort)(nil),                  // 6: octodeck.v1.Sort
 	(*Facet)(nil),                 // 7: octodeck.v1.Facet
 	(*FacetValue)(nil),            // 8: octodeck.v1.FacetValue
-	(*ExprError)(nil),             // 9: octodeck.v1.ExprError
-	(*timestamppb.Timestamp)(nil), // 10: google.protobuf.Timestamp
+	(*CountResult)(nil),           // 9: octodeck.v1.CountResult
+	(*ExprError)(nil),             // 10: octodeck.v1.ExprError
+	(*timestamppb.Timestamp)(nil), // 11: google.protobuf.Timestamp
 }
 var file_octodeck_v1_query_proto_depIdxs = []int32{
 	5,  // 0: octodeck.v1.Expr.predicate:type_name -> octodeck.v1.Predicate
@@ -1340,13 +1579,14 @@ var file_octodeck_v1_query_proto_depIdxs = []int32{
 	2,  // 7: octodeck.v1.Sort.order:type_name -> octodeck.v1.SortOrder
 	0,  // 8: octodeck.v1.Facet.field:type_name -> octodeck.v1.Field
 	8,  // 9: octodeck.v1.Facet.values:type_name -> octodeck.v1.FacetValue
-	10, // 10: octodeck.v1.FacetValue.latest_activity_at:type_name -> google.protobuf.Timestamp
-	0,  // 11: octodeck.v1.ExprError.field:type_name -> octodeck.v1.Field
-	12, // [12:12] is the sub-list for method output_type
-	12, // [12:12] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	11, // 10: octodeck.v1.FacetValue.latest_activity_at:type_name -> google.protobuf.Timestamp
+	10, // 11: octodeck.v1.CountResult.error:type_name -> octodeck.v1.ExprError
+	0,  // 12: octodeck.v1.ExprError.field:type_name -> octodeck.v1.Field
+	13, // [13:13] is the sub-list for method output_type
+	13, // [13:13] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_octodeck_v1_query_proto_init() }
@@ -1366,7 +1606,7 @@ func file_octodeck_v1_query_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_octodeck_v1_query_proto_rawDesc), len(file_octodeck_v1_query_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   7,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

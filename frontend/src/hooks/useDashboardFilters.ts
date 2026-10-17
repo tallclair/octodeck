@@ -22,6 +22,12 @@ import {
   toggleAssignedToMeInText,
   toggleRepoInText,
 } from '../logic/query/textEdit';
+import {
+  isActive,
+  openSavedSearchText,
+  tabClauses,
+  type SavedSearchView,
+} from '../logic/savedSearches';
 import { SEARCH_DEBOUNCE_MS } from './useDashboardData';
 
 export type QueryEditKind = 'typing' | 'edit';
@@ -70,6 +76,8 @@ export interface UseDashboardFilters {
   clearQuery: () => void;
   applyWorkflowShortcut: (triage: TriageFilter) => void;
   toggleRepo: (repo: string) => void;
+  openSavedSearch: (view: SavedSearchView) => void;
+  applySavedSearch: (view: SavedSearchView) => void;
   hasNoSecondaryFilters: boolean;
   isDefault: boolean;
   activeCount: number;
@@ -252,6 +260,45 @@ export function useDashboardFilters(): UseDashboardFilters {
     [applyUpdate]
   );
 
+  const openSavedSearch = useCallback(
+    (view: SavedSearchView) => {
+      applyUpdate((prev) => {
+        const currentParsed = parseQuery(prev.text);
+        if (isActive(currentParsed, view)) {
+          const tabs = tabClauses(currentParsed);
+          return {
+            ...prev,
+            text: tabs.map((c) => c.raw).join(' '),
+            sort: DEFAULT_QUERY_STATE.sort,
+            order: DEFAULT_QUERY_STATE.order,
+          };
+        }
+        return {
+          ...prev,
+          text: openSavedSearchText(currentParsed, view),
+          sort: view.sort,
+          order: view.order,
+        };
+      }, 'edit');
+    },
+    [applyUpdate]
+  );
+
+  const applySavedSearch = useCallback(
+    (view: SavedSearchView) => {
+      applyUpdate((prev) => {
+        const currentParsed = parseQuery(prev.text);
+        return {
+          ...prev,
+          text: openSavedSearchText(currentParsed, view),
+          sort: view.sort,
+          order: view.order,
+        };
+      }, 'edit');
+    },
+    [applyUpdate]
+  );
+
   const state = internal.state;
   const requestText = internal.requestText;
   const parsed = useMemo(() => parseQuery(state.text), [state.text]);
@@ -285,6 +332,8 @@ export function useDashboardFilters(): UseDashboardFilters {
     clearQuery,
     applyWorkflowShortcut,
     toggleRepo,
+    openSavedSearch,
+    applySavedSearch,
     hasNoSecondaryFilters,
     isDefault,
     activeCount,

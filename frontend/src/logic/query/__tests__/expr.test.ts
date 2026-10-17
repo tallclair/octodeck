@@ -3,7 +3,7 @@ import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
 import { ExprSchema, Field, SortKey, SortOrder } from '../../../api/octodeck/v1/query_pb';
 import { parseDashboardUrl } from '../urlCodec';
 import { parseQuery } from '../syntax/parse';
-import { ALL_ITEMS_QUERY, NEW_ANY_EXPR, toExpr, toSort } from '../expr';
+import { ALL_ITEMS_QUERY, toExpr, toSort } from '../expr';
 
 const pred = (field: Field, values: string[], negated = false) => ({
   kind: { case: 'predicate', value: { field, values, negated } },
@@ -90,9 +90,5 @@ describe('toSort', () => {
 describe('shared expressions', () => {
   it('ALL_ITEMS_QUERY is triage:all', () => {
     expect(ALL_ITEMS_QUERY).toEqual(pred(Field.TRIAGE, ['all']));
-  });
-
-  it('NEW_ANY_EXPR is new:any', () => {
-    expect(NEW_ANY_EXPR).toEqual(pred(Field.NEW, ['any']));
   });
 });

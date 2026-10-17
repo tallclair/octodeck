@@ -15,6 +15,7 @@ import { TransportProvider } from '@connectrpc/connect-query';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { OctoDeckService, type GetFacetsResponseSchema } from '../api/octodeck/v1/service_pb';
 import type { Expr, Field } from '../api/octodeck/v1/query_pb';
+import { ToastProvider } from '../context/ToastContext';
 
 export type OctoDeckHandlers = Partial<ServiceImpl<typeof OctoDeckService>>;
 
@@ -75,13 +76,21 @@ export function createTestQueryClient(): QueryClient {
 export function defaultHandlers(overrides: OctoDeckHandlers = {}): OctoDeckHandlers {
   return {
     getConfig: () => ({
-      config: { pollingIntervalMin: 15, watchedRepos: ['kubernetes/kubernetes'], pinnedRepos: [] },
+      config: {
+        pollingIntervalMin: 15,
+        watchedRepos: ['kubernetes/kubernetes'],
+        pinnedRepos: [],
+        savedSearches: [],
+      },
       currentUserLogin: 'testuser',
     }),
     getSyncStatus: () => ({ status: { isSyncing: false } }),
     getItems: () => ({ items: [] }),
     // One facet per requested field, in request order (the daemon's contract).
-    getFacets: (req) => ({ facets: req.fields.map((field) => ({ field, values: [] })) }),
+    getFacets: (req) => ({
+      facets: req.fields.map((field) => ({ field, values: [] })),
+      counts: [],
+    }),
     getItem: () => {
       throw new ConnectError('item not found', Code.NotFound);
     },
@@ -111,7 +120,11 @@ export function predicatesOf(expr: Expr | undefined): PlainPredicate[] {
   return [plain(expr)];
 }
 
-export type FacetSpec = [value: string, count: number, extra?: { color?: string; latestMs?: number }];
+export type FacetSpec = [
+  value: string,
+  count: number,
+  extra?: { color?: string; latestMs?: number; newCount?: number; inboxCount?: number },
+];
 
 /** Builds a GetFacets response for the requested fields from per-field value lists. */
 export function facetResponse(
@@ -129,6 +142,8 @@ export function facetResponse(
           extra?.latestMs === undefined
             ? undefined
             : { seconds: BigInt(Math.floor(extra.latestMs / 1000)), nanos: (extra.latestMs % 1000) * 1_000_000 },
+        newCount: extra?.newCount ?? 0,
+        inboxCount: extra?.inboxCount ?? 0,
       })),
     })),
   };
@@ -143,7 +158,9 @@ export function renderWithDaemon(
   const queryClient = options.queryClient ?? createTestQueryClient();
   const wrapper = ({ children }: { children: ReactNode }) => (
     <TransportProvider transport={daemon.transport}>
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>{children}</ToastProvider>
+      </QueryClientProvider>
     </TransportProvider>
   );
   const result = render(ui, { ...options, wrapper });

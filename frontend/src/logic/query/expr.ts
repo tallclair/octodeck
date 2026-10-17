@@ -49,5 +49,3 @@ export function toSort(sort: SortOption, order: SortOrder): SortInit {
 /** Every item, acked included (design §4.6): for views that list the whole cache. */
 export const ALL_ITEMS_QUERY: ExprInit = predicateExpr({ field: Field.TRIAGE, values: ['all'], negated: false });
 
-/** Inbox items with new activity: the sidebar "New" count and per-repo unread dots (design §5). */
-export const NEW_ANY_EXPR: ExprInit = predicateExpr({ field: Field.NEW, values: ['any'], negated: false });

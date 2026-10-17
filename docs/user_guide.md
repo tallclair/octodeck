@@ -125,6 +125,25 @@ org:kubernetes label:kind/bug,kind/regression new:mention,comment
 triage:all author:@me no:milestone "release notes" in:title #123
 ```
 
+### 3.3 Pinned Searches (Saved Searches)
+
+Pin any query to the sidebar's **Pinned** section for one-click access alongside live item counts:
+
+* **Pinning a Search:** Enter a valid query in the query bar and click the **Pin** button (`Pin search`) inset inside the right side of the search box (to the left of the `×` clear button). Give the search a unique name (up to 80 characters; single-repository queries default to the `owner/name` repository name), optionally adjust the **Query** (using the full tokenized query input with autocomplete) or **Sort** menu in the live preview (which shows the matching item count and top 3 matching items), and click **Save**.
+* **Scoped vs. Unscoped Searches:**
+  * **Unscoped searches** (queries without an explicit `triage:` clause or a standalone `new:any` / `is:new` tab clause, such as `repo:kubernetes/kubernetes` or `label:kind/bug is:open`) keep your active triage tab when clicked—letting you switch between **Inbox**, **New**, **Acked**, and **All Items** while keeping the saved filter active.
+  * **Scoped searches** (queries that include `triage:inbox`, `triage:acked`, `triage:all`, or `new:any`, such as `triage:acked type:pr`) always open that exact triage view and replace the whole query.
+  * Clicking an already-active pinned search clears it back to the current triage tab and restores the default sort order.
+* **Live Count Badges:** Each pinned search row displays a badge styled by its triage scope:
+  * **Inbox scope:** Shows the matching inbox count in a pill (highlighted in orange when any matching item has new activity).
+  * **New-activity scope:** Shows the matching count in an orange pill.
+  * **Acked scope:** Shows the matching acked count in muted text without a pill.
+  * **All-items scope (`triage:all`):** Shows the inbox badge when matching inbox items exist, or the muted acked count when only acked items match.
+* **Editing, Updating, Reordering, and Deleting:**
+  * When a pinned search is active and unmodified, the **Pin** button inside the search box turns solid blue (`Edit pinned search <name>`); click it to edit the search's name, query, or sort order (**Update**), save a copy under a new name (**Save as new**), or delete it (**Delete**).
+  * When you select a pinned search and then modify the query or sort in the dashboard, the **Pin** button shows a blue outline (`Update pinned search <name>`). Clicking it opens the edit dialog pre-populated with your modified query and sort, where you can click **Update** to overwrite the existing pinned search or change the name and click **Save as new** to create a second pinned search while keeping the original.
+  * In the sidebar, click the pencil icon next to **Pinned** (`Edit pinned searches`) to enter edit mode. Click the pencil icon on any row to open the edit dialog for that search, drag rows by the grip handle (or focus the handle and press `ArrowUp` / `ArrowDown`) to reorder them, or click the trash icon to delete a search. Click **Done** when finished.
+
 ---
 
 ## 4. Companion Chrome Extension
@@ -176,6 +195,32 @@ Click **Settings** (or the gear icon in the sidebar) to configure:
   Background sync interval (default: 1 minute).
 * **Appearance:**
   Choose between **System** (matches OS theme), **Light** (GitHub Light), or **Dark** (GitHub Dark).
+
+### 5.1 Hand-Editing `~/.octodeck/config.json`
+
+OctoDeck stores its configuration—including `savedSearches`—as Protocol Buffer JSON (protojson) in `~/.octodeck/config.json`:
+
+```json
+{
+  "savedSearches": [
+    {
+      "id": "9f2c4e1a7b3d4c55a1e0f6b2d8c9e7a4",
+      "name": "k8s bugs",
+      "query": "repo:kubernetes/kubernetes label:kind/bug is:open"
+    },
+    {
+      "id": "0b7d5a3e9c1f4e22b6a8d4c0e2f1a9b3",
+      "name": "Acked PRs",
+      "query": "triage:acked type:pr",
+      "sort": { "key": "SORT_KEY_ACKED", "order": "SORT_ORDER_DESC" }
+    }
+  ]
+}
+```
+
+* **Stop the daemon before editing:** The daemon reads `config.json` once at startup and serves updates from its in-memory copy, overwriting the file whenever settings or saved searches change in the UI. Always stop `octodeck serve` before editing `~/.octodeck/config.json` by hand so your changes are not overwritten.
+* **Keep the file well-formed protojson:** `~/.octodeck/config.json` must remain valid, well-formed protojson (valid JSON syntax, known field names, and valid enum strings such as `SORT_KEY_UPDATED`, `SORT_KEY_ACKED`, `SORT_KEY_CREATED`, `SORT_ORDER_DESC`, and `SORT_ORDER_ASC`). If `id` is omitted on a new entry, the daemon assigns one automatically on next startup.
+* **Fixing invalid saved queries:** If a hand-edited saved search `query` contains a syntax error or an unknown qualifier value, the sidebar marks that row with a warning icon; click the row to open it in the query bar, where the offending clauses are highlighted in red so you can inspect and fix them.
 
 ---
 

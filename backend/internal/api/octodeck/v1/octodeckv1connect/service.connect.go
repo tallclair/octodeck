@@ -79,6 +79,18 @@ const (
 	// OctoDeckServiceUpdateConfigProcedure is the fully-qualified name of the OctoDeckService's
 	// UpdateConfig RPC.
 	OctoDeckServiceUpdateConfigProcedure = "/octodeck.v1.OctoDeckService/UpdateConfig"
+	// OctoDeckServiceCreateSavedSearchProcedure is the fully-qualified name of the OctoDeckService's
+	// CreateSavedSearch RPC.
+	OctoDeckServiceCreateSavedSearchProcedure = "/octodeck.v1.OctoDeckService/CreateSavedSearch"
+	// OctoDeckServiceUpdateSavedSearchProcedure is the fully-qualified name of the OctoDeckService's
+	// UpdateSavedSearch RPC.
+	OctoDeckServiceUpdateSavedSearchProcedure = "/octodeck.v1.OctoDeckService/UpdateSavedSearch"
+	// OctoDeckServiceDeleteSavedSearchProcedure is the fully-qualified name of the OctoDeckService's
+	// DeleteSavedSearch RPC.
+	OctoDeckServiceDeleteSavedSearchProcedure = "/octodeck.v1.OctoDeckService/DeleteSavedSearch"
+	// OctoDeckServiceReorderSavedSearchesProcedure is the fully-qualified name of the OctoDeckService's
+	// ReorderSavedSearches RPC.
+	OctoDeckServiceReorderSavedSearchesProcedure = "/octodeck.v1.OctoDeckService/ReorderSavedSearches"
 	// OctoDeckServiceWatchNotificationsProcedure is the fully-qualified name of the OctoDeckService's
 	// WatchNotifications RPC.
 	OctoDeckServiceWatchNotificationsProcedure = "/octodeck.v1.OctoDeckService/WatchNotifications"
@@ -109,6 +121,11 @@ type OctoDeckServiceClient interface {
 	// Configuration
 	GetConfig(context.Context, *connect.Request[v1.GetConfigRequest]) (*connect.Response[v1.GetConfigResponse], error)
 	UpdateConfig(context.Context, *connect.Request[v1.UpdateConfigRequest]) (*connect.Response[v1.UpdateConfigResponse], error)
+	// Saved searches. Each call is a read-modify-write of the stored list under the config lock.
+	CreateSavedSearch(context.Context, *connect.Request[v1.CreateSavedSearchRequest]) (*connect.Response[v1.CreateSavedSearchResponse], error)
+	UpdateSavedSearch(context.Context, *connect.Request[v1.UpdateSavedSearchRequest]) (*connect.Response[v1.UpdateSavedSearchResponse], error)
+	DeleteSavedSearch(context.Context, *connect.Request[v1.DeleteSavedSearchRequest]) (*connect.Response[v1.DeleteSavedSearchResponse], error)
+	ReorderSavedSearches(context.Context, *connect.Request[v1.ReorderSavedSearchesRequest]) (*connect.Response[v1.ReorderSavedSearchesResponse], error)
 	// Desktop notifications and toolbar badge (server streaming). The daemon decides what to
 	// notify during sync; clients only display what they are sent.
 	WatchNotifications(context.Context, *connect.Request[v1.WatchNotificationsRequest]) (*connect.ServerStreamForClient[v1.WatchNotificationsResponse], error)
@@ -221,6 +238,30 @@ func NewOctoDeckServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(octoDeckServiceMethods.ByName("UpdateConfig")),
 			connect.WithClientOptions(opts...),
 		),
+		createSavedSearch: connect.NewClient[v1.CreateSavedSearchRequest, v1.CreateSavedSearchResponse](
+			httpClient,
+			baseURL+OctoDeckServiceCreateSavedSearchProcedure,
+			connect.WithSchema(octoDeckServiceMethods.ByName("CreateSavedSearch")),
+			connect.WithClientOptions(opts...),
+		),
+		updateSavedSearch: connect.NewClient[v1.UpdateSavedSearchRequest, v1.UpdateSavedSearchResponse](
+			httpClient,
+			baseURL+OctoDeckServiceUpdateSavedSearchProcedure,
+			connect.WithSchema(octoDeckServiceMethods.ByName("UpdateSavedSearch")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteSavedSearch: connect.NewClient[v1.DeleteSavedSearchRequest, v1.DeleteSavedSearchResponse](
+			httpClient,
+			baseURL+OctoDeckServiceDeleteSavedSearchProcedure,
+			connect.WithSchema(octoDeckServiceMethods.ByName("DeleteSavedSearch")),
+			connect.WithClientOptions(opts...),
+		),
+		reorderSavedSearches: connect.NewClient[v1.ReorderSavedSearchesRequest, v1.ReorderSavedSearchesResponse](
+			httpClient,
+			baseURL+OctoDeckServiceReorderSavedSearchesProcedure,
+			connect.WithSchema(octoDeckServiceMethods.ByName("ReorderSavedSearches")),
+			connect.WithClientOptions(opts...),
+		),
 		watchNotifications: connect.NewClient[v1.WatchNotificationsRequest, v1.WatchNotificationsResponse](
 			httpClient,
 			baseURL+OctoDeckServiceWatchNotificationsProcedure,
@@ -232,23 +273,27 @@ func NewOctoDeckServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 
 // octoDeckServiceClient implements OctoDeckServiceClient.
 type octoDeckServiceClient struct {
-	getItems           *connect.Client[v1.GetItemsRequest, v1.GetItemsResponse]
-	getItem            *connect.Client[v1.GetItemRequest, v1.GetItemResponse]
-	getFacets          *connect.Client[v1.GetFacetsRequest, v1.GetFacetsResponse]
-	sync               *connect.Client[v1.SyncRequest, v1.SyncResponse]
-	viewItem           *connect.Client[v1.ViewItemRequest, v1.ViewItemResponse]
-	ackItem            *connect.Client[v1.AckItemRequest, v1.AckItemResponse]
-	starItem           *connect.Client[v1.StarItemRequest, v1.StarItemResponse]
-	setNotes           *connect.Client[v1.SetNotesRequest, v1.SetNotesResponse]
-	refetchItem        *connect.Client[v1.RefetchItemRequest, v1.RefetchItemResponse]
-	deleteItem         *connect.Client[v1.DeleteItemRequest, v1.DeleteItemResponse]
-	updateSubscription *connect.Client[v1.UpdateSubscriptionRequest, v1.UpdateSubscriptionResponse]
-	getSyncStatus      *connect.Client[v1.GetSyncStatusRequest, v1.GetSyncStatusResponse]
-	getSyncTraces      *connect.Client[v1.GetSyncTracesRequest, v1.GetSyncTracesResponse]
-	getDatabaseStats   *connect.Client[v1.GetDatabaseStatsRequest, v1.GetDatabaseStatsResponse]
-	getConfig          *connect.Client[v1.GetConfigRequest, v1.GetConfigResponse]
-	updateConfig       *connect.Client[v1.UpdateConfigRequest, v1.UpdateConfigResponse]
-	watchNotifications *connect.Client[v1.WatchNotificationsRequest, v1.WatchNotificationsResponse]
+	getItems             *connect.Client[v1.GetItemsRequest, v1.GetItemsResponse]
+	getItem              *connect.Client[v1.GetItemRequest, v1.GetItemResponse]
+	getFacets            *connect.Client[v1.GetFacetsRequest, v1.GetFacetsResponse]
+	sync                 *connect.Client[v1.SyncRequest, v1.SyncResponse]
+	viewItem             *connect.Client[v1.ViewItemRequest, v1.ViewItemResponse]
+	ackItem              *connect.Client[v1.AckItemRequest, v1.AckItemResponse]
+	starItem             *connect.Client[v1.StarItemRequest, v1.StarItemResponse]
+	setNotes             *connect.Client[v1.SetNotesRequest, v1.SetNotesResponse]
+	refetchItem          *connect.Client[v1.RefetchItemRequest, v1.RefetchItemResponse]
+	deleteItem           *connect.Client[v1.DeleteItemRequest, v1.DeleteItemResponse]
+	updateSubscription   *connect.Client[v1.UpdateSubscriptionRequest, v1.UpdateSubscriptionResponse]
+	getSyncStatus        *connect.Client[v1.GetSyncStatusRequest, v1.GetSyncStatusResponse]
+	getSyncTraces        *connect.Client[v1.GetSyncTracesRequest, v1.GetSyncTracesResponse]
+	getDatabaseStats     *connect.Client[v1.GetDatabaseStatsRequest, v1.GetDatabaseStatsResponse]
+	getConfig            *connect.Client[v1.GetConfigRequest, v1.GetConfigResponse]
+	updateConfig         *connect.Client[v1.UpdateConfigRequest, v1.UpdateConfigResponse]
+	createSavedSearch    *connect.Client[v1.CreateSavedSearchRequest, v1.CreateSavedSearchResponse]
+	updateSavedSearch    *connect.Client[v1.UpdateSavedSearchRequest, v1.UpdateSavedSearchResponse]
+	deleteSavedSearch    *connect.Client[v1.DeleteSavedSearchRequest, v1.DeleteSavedSearchResponse]
+	reorderSavedSearches *connect.Client[v1.ReorderSavedSearchesRequest, v1.ReorderSavedSearchesResponse]
+	watchNotifications   *connect.Client[v1.WatchNotificationsRequest, v1.WatchNotificationsResponse]
 }
 
 // GetItems calls octodeck.v1.OctoDeckService.GetItems.
@@ -331,6 +376,26 @@ func (c *octoDeckServiceClient) UpdateConfig(ctx context.Context, req *connect.R
 	return c.updateConfig.CallUnary(ctx, req)
 }
 
+// CreateSavedSearch calls octodeck.v1.OctoDeckService.CreateSavedSearch.
+func (c *octoDeckServiceClient) CreateSavedSearch(ctx context.Context, req *connect.Request[v1.CreateSavedSearchRequest]) (*connect.Response[v1.CreateSavedSearchResponse], error) {
+	return c.createSavedSearch.CallUnary(ctx, req)
+}
+
+// UpdateSavedSearch calls octodeck.v1.OctoDeckService.UpdateSavedSearch.
+func (c *octoDeckServiceClient) UpdateSavedSearch(ctx context.Context, req *connect.Request[v1.UpdateSavedSearchRequest]) (*connect.Response[v1.UpdateSavedSearchResponse], error) {
+	return c.updateSavedSearch.CallUnary(ctx, req)
+}
+
+// DeleteSavedSearch calls octodeck.v1.OctoDeckService.DeleteSavedSearch.
+func (c *octoDeckServiceClient) DeleteSavedSearch(ctx context.Context, req *connect.Request[v1.DeleteSavedSearchRequest]) (*connect.Response[v1.DeleteSavedSearchResponse], error) {
+	return c.deleteSavedSearch.CallUnary(ctx, req)
+}
+
+// ReorderSavedSearches calls octodeck.v1.OctoDeckService.ReorderSavedSearches.
+func (c *octoDeckServiceClient) ReorderSavedSearches(ctx context.Context, req *connect.Request[v1.ReorderSavedSearchesRequest]) (*connect.Response[v1.ReorderSavedSearchesResponse], error) {
+	return c.reorderSavedSearches.CallUnary(ctx, req)
+}
+
 // WatchNotifications calls octodeck.v1.OctoDeckService.WatchNotifications.
 func (c *octoDeckServiceClient) WatchNotifications(ctx context.Context, req *connect.Request[v1.WatchNotificationsRequest]) (*connect.ServerStreamForClient[v1.WatchNotificationsResponse], error) {
 	return c.watchNotifications.CallServerStream(ctx, req)
@@ -361,6 +426,11 @@ type OctoDeckServiceHandler interface {
 	// Configuration
 	GetConfig(context.Context, *connect.Request[v1.GetConfigRequest]) (*connect.Response[v1.GetConfigResponse], error)
 	UpdateConfig(context.Context, *connect.Request[v1.UpdateConfigRequest]) (*connect.Response[v1.UpdateConfigResponse], error)
+	// Saved searches. Each call is a read-modify-write of the stored list under the config lock.
+	CreateSavedSearch(context.Context, *connect.Request[v1.CreateSavedSearchRequest]) (*connect.Response[v1.CreateSavedSearchResponse], error)
+	UpdateSavedSearch(context.Context, *connect.Request[v1.UpdateSavedSearchRequest]) (*connect.Response[v1.UpdateSavedSearchResponse], error)
+	DeleteSavedSearch(context.Context, *connect.Request[v1.DeleteSavedSearchRequest]) (*connect.Response[v1.DeleteSavedSearchResponse], error)
+	ReorderSavedSearches(context.Context, *connect.Request[v1.ReorderSavedSearchesRequest]) (*connect.Response[v1.ReorderSavedSearchesResponse], error)
 	// Desktop notifications and toolbar badge (server streaming). The daemon decides what to
 	// notify during sync; clients only display what they are sent.
 	WatchNotifications(context.Context, *connect.Request[v1.WatchNotificationsRequest], *connect.ServerStream[v1.WatchNotificationsResponse]) error
@@ -469,6 +539,30 @@ func NewOctoDeckServiceHandler(svc OctoDeckServiceHandler, opts ...connect.Handl
 		connect.WithSchema(octoDeckServiceMethods.ByName("UpdateConfig")),
 		connect.WithHandlerOptions(opts...),
 	)
+	octoDeckServiceCreateSavedSearchHandler := connect.NewUnaryHandler(
+		OctoDeckServiceCreateSavedSearchProcedure,
+		svc.CreateSavedSearch,
+		connect.WithSchema(octoDeckServiceMethods.ByName("CreateSavedSearch")),
+		connect.WithHandlerOptions(opts...),
+	)
+	octoDeckServiceUpdateSavedSearchHandler := connect.NewUnaryHandler(
+		OctoDeckServiceUpdateSavedSearchProcedure,
+		svc.UpdateSavedSearch,
+		connect.WithSchema(octoDeckServiceMethods.ByName("UpdateSavedSearch")),
+		connect.WithHandlerOptions(opts...),
+	)
+	octoDeckServiceDeleteSavedSearchHandler := connect.NewUnaryHandler(
+		OctoDeckServiceDeleteSavedSearchProcedure,
+		svc.DeleteSavedSearch,
+		connect.WithSchema(octoDeckServiceMethods.ByName("DeleteSavedSearch")),
+		connect.WithHandlerOptions(opts...),
+	)
+	octoDeckServiceReorderSavedSearchesHandler := connect.NewUnaryHandler(
+		OctoDeckServiceReorderSavedSearchesProcedure,
+		svc.ReorderSavedSearches,
+		connect.WithSchema(octoDeckServiceMethods.ByName("ReorderSavedSearches")),
+		connect.WithHandlerOptions(opts...),
+	)
 	octoDeckServiceWatchNotificationsHandler := connect.NewServerStreamHandler(
 		OctoDeckServiceWatchNotificationsProcedure,
 		svc.WatchNotifications,
@@ -509,6 +603,14 @@ func NewOctoDeckServiceHandler(svc OctoDeckServiceHandler, opts ...connect.Handl
 			octoDeckServiceGetConfigHandler.ServeHTTP(w, r)
 		case OctoDeckServiceUpdateConfigProcedure:
 			octoDeckServiceUpdateConfigHandler.ServeHTTP(w, r)
+		case OctoDeckServiceCreateSavedSearchProcedure:
+			octoDeckServiceCreateSavedSearchHandler.ServeHTTP(w, r)
+		case OctoDeckServiceUpdateSavedSearchProcedure:
+			octoDeckServiceUpdateSavedSearchHandler.ServeHTTP(w, r)
+		case OctoDeckServiceDeleteSavedSearchProcedure:
+			octoDeckServiceDeleteSavedSearchHandler.ServeHTTP(w, r)
+		case OctoDeckServiceReorderSavedSearchesProcedure:
+			octoDeckServiceReorderSavedSearchesHandler.ServeHTTP(w, r)
 		case OctoDeckServiceWatchNotificationsProcedure:
 			octoDeckServiceWatchNotificationsHandler.ServeHTTP(w, r)
 		default:
@@ -582,6 +684,22 @@ func (UnimplementedOctoDeckServiceHandler) GetConfig(context.Context, *connect.R
 
 func (UnimplementedOctoDeckServiceHandler) UpdateConfig(context.Context, *connect.Request[v1.UpdateConfigRequest]) (*connect.Response[v1.UpdateConfigResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("octodeck.v1.OctoDeckService.UpdateConfig is not implemented"))
+}
+
+func (UnimplementedOctoDeckServiceHandler) CreateSavedSearch(context.Context, *connect.Request[v1.CreateSavedSearchRequest]) (*connect.Response[v1.CreateSavedSearchResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("octodeck.v1.OctoDeckService.CreateSavedSearch is not implemented"))
+}
+
+func (UnimplementedOctoDeckServiceHandler) UpdateSavedSearch(context.Context, *connect.Request[v1.UpdateSavedSearchRequest]) (*connect.Response[v1.UpdateSavedSearchResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("octodeck.v1.OctoDeckService.UpdateSavedSearch is not implemented"))
+}
+
+func (UnimplementedOctoDeckServiceHandler) DeleteSavedSearch(context.Context, *connect.Request[v1.DeleteSavedSearchRequest]) (*connect.Response[v1.DeleteSavedSearchResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("octodeck.v1.OctoDeckService.DeleteSavedSearch is not implemented"))
+}
+
+func (UnimplementedOctoDeckServiceHandler) ReorderSavedSearches(context.Context, *connect.Request[v1.ReorderSavedSearchesRequest]) (*connect.Response[v1.ReorderSavedSearchesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("octodeck.v1.OctoDeckService.ReorderSavedSearches is not implemented"))
 }
 
 func (UnimplementedOctoDeckServiceHandler) WatchNotifications(context.Context, *connect.Request[v1.WatchNotificationsRequest], *connect.ServerStream[v1.WatchNotificationsResponse]) error {

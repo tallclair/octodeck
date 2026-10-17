@@ -5,10 +5,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData } from '@tanstack/react-query';
 import { useQuery } from '@connectrpc/connect-query';
 import { getFacets, getItem, getItems } from '../api/octodeck/v1/service-OctoDeckService_connectquery';
-import { Field, type FacetValue } from '../api/octodeck/v1/query_pb';
+import { Field, type CountResult, type FacetValue } from '../api/octodeck/v1/query_pb';
 import type { Item } from '../api/octodeck/v1/resources_pb';
 import type { DashboardQueryState } from '../types/filters';
-import { NEW_ANY_EXPR, toExpr, toSort } from '../logic/query/expr';
+import { toExpr, toSort, type ExprInit } from '../logic/query/expr';
 import { formatPredicates, parseQuery } from '../logic/query/syntax';
 import { serializeDashboardUrl } from '../logic/query/urlCodec';
 import {
@@ -16,6 +16,8 @@ import {
   countOf,
   countsByValue,
   facetValues,
+  newCountOf,
+  valuesWithNew,
 } from '../logic/query/facets';
 import { exprErrorOf, isConnectivityError } from '../api/errors';
 import { mapServerErrorToRequest } from '../logic/query/predicates';
@@ -35,12 +37,12 @@ const SELECTOR_FIELDS = [
   Field.LABEL,
   Field.NEW,
 ];
-/** Facets for the sidebar: the repo list with inbox counts, and inbox/acked totals. */
+/** Facets for the sidebar: the repo list with inbox/new counts, and inbox/acked/new totals. */
 const SIDEBAR_FIELDS = [Field.REPO, Field.TRIAGE];
-const SIDEBAR_REQUEST = { fields: SIDEBAR_FIELDS };
-const UNREAD_REQUEST = { query: NEW_ANY_EXPR, fields: SIDEBAR_FIELDS };
 
 const NO_ITEMS: Item[] = [];
+const NO_COUNTS: CountResult[] = [];
+const NO_SAVED_QUERIES: readonly ExprInit[] = [];
 
 export interface SelectorFacets {
   readonly repos: readonly FacetValue[];
@@ -55,14 +57,20 @@ export interface SelectorFacets {
 export interface DashboardDataOptions {
   query: DashboardQueryState;
   requestText: string;
-  pinnedRepos: readonly string[];
+  savedSearchQueries?: readonly ExprInit[];
+  savedSearchesReady?: boolean;
 }
 
 function matchesSelection(item: Item, selectedId: string): boolean {
   return item.id === selectedId || `${item.repo}#${item.number}` === selectedId;
 }
 
-export function useDashboardData({ query, requestText, pinnedRepos }: DashboardDataOptions) {
+export function useDashboardData({
+  query,
+  requestText,
+  savedSearchQueries = NO_SAVED_QUERIES,
+  savedSearchesReady = true,
+}: DashboardDataOptions) {
   const requestParsed = useMemo(() => parseQuery(requestText), [requestText]);
   const expr = useMemo(() => toExpr(requestParsed), [requestParsed]);
   const sort = useMemo(() => toSort(query.sort, query.order), [query.sort, query.order]);
@@ -86,9 +94,16 @@ export function useDashboardData({ query, requestText, pinnedRepos }: DashboardD
     { query: expr, fields: SELECTOR_FIELDS },
     { ...POLL, placeholderData: keepPreviousData }
   );
-  // Constant inputs: the unfiltered inbox and inbox items with new activity.
-  const sidebarQ = useQuery(getFacets, SIDEBAR_REQUEST, POLL);
-  const unreadQ = useQuery(getFacets, UNREAD_REQUEST, POLL);
+  const sidebarRequest = useMemo(
+    () => ({ fields: SIDEBAR_FIELDS, queries: [...savedSearchQueries] }),
+    [savedSearchQueries]
+  );
+  // Unfiltered sidebar counts (repo inbox/new counts, inbox/acked/new totals, and saved-search counts) in one call.
+  const sidebarQ = useQuery(getFacets, sidebarRequest, {
+    ...POLL,
+    placeholderData: keepPreviousData,
+    enabled: savedSearchesReady,
+  });
 
   const items = itemsQ.data?.items ?? NO_ITEMS;
 
@@ -129,7 +144,6 @@ export function useDashboardData({ query, requestText, pinnedRepos }: DashboardD
   const { refetch: refetchItems } = itemsQ;
   const { refetch: refetchSelector } = selectorQ;
   const { refetch: refetchSidebar } = sidebarQ;
-  const { refetch: refetchUnread } = unreadQ;
   const { refetch: refetchFallback } = fallbackQ;
   // refreshAll stays stable across renders (effects depend on it); it reads whether the
   // selected-item fallback is active when it runs.
@@ -143,27 +157,22 @@ export function useDashboardData({ query, requestText, pinnedRepos }: DashboardD
         refetchItems(),
         refetchSelector(),
         refetchSidebar(),
-        refetchUnread(),
         needFallbackRef.current ? refetchFallback() : undefined,
       ]),
-    [refetchItems, refetchSelector, refetchSidebar, refetchUnread, refetchFallback]
+    [refetchItems, refetchSelector, refetchSidebar, refetchFallback]
   );
 
   const sidebarRepos = facetValues(sidebarQ.data, Field.REPO);
   const sidebarTriage = facetValues(sidebarQ.data, Field.TRIAGE);
-  const unreadRepos = facetValues(unreadQ.data, Field.REPO);
-  const unreadTriage = facetValues(unreadQ.data, Field.TRIAGE);
-  const sidebar = useMemo(() => buildSidebar(sidebarRepos, pinnedRepos), [sidebarRepos, pinnedRepos]);
+  const sidebar = useMemo(() => buildSidebar(sidebarRepos), [sidebarRepos]);
   const repoInboxCounts = useMemo(() => countsByValue(sidebarRepos), [sidebarRepos]);
-  const repoHasUnread = useMemo(
-    () => new Set(unreadRepos.filter(v => v.count > 0).map(v => v.value.toLowerCase())),
-    [unreadRepos]
-  );
+  const repoHasUnread = useMemo(() => valuesWithNew(sidebarRepos), [sidebarRepos]);
+  const savedSearchCounts = sidebarQ.data?.counts ?? NO_COUNTS;
   const totals = {
     inbox: countOf(sidebarTriage, 'inbox'),
     acked: countOf(sidebarTriage, 'acked'),
     // Acked items carry no new: flags, so every new:any item is in the inbox.
-    new: countOf(unreadTriage, 'inbox'),
+    new: newCountOf(sidebarTriage, 'inbox'),
   };
 
   const selectorData = selectorQ.data;
@@ -186,7 +195,7 @@ export function useDashboardData({ query, requestText, pinnedRepos }: DashboardD
     [requestParsed, rawInvalidQuery]
   );
 
-  const queryErrors = [itemsQ.error, selectorQ.error, sidebarQ.error, unreadQ.error];
+  const queryErrors = [itemsQ.error, selectorQ.error, sidebarQ.error];
   return {
     items,
     selectedItem,
@@ -200,6 +209,8 @@ export function useDashboardData({ query, requestText, pinnedRepos }: DashboardD
     sidebar,
     repoInboxCounts,
     repoHasUnread,
+    savedSearchCounts,
+    isSidebarPlaceholderData: Boolean(sidebarQ.isPlaceholderData),
     totals,
     facets,
   };

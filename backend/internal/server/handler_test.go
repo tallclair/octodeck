@@ -1345,6 +1345,20 @@ func TestOctoDeckHandler_UpdateConfig_ValidationAndErrorPaths(t *testing.T) {
 		assert.Contains(t, err.Error(), "must include a positive scope qualifier")
 	})
 
+	t.Run("UpdateConfig with saved_searches in mask returns InvalidArgument", func(t *testing.T) {
+		for _, path := range []string{"saved_searches", "savedSearches"} {
+			req := connect.NewRequest(octodeckv1.UpdateConfigRequest_builder{
+				Config:     octodeckv1.Config_builder{}.Build(),
+				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{path}},
+			}.Build())
+			addHeaders(req)
+			_, err := client.UpdateConfig(t.Context(), req)
+			require.Error(t, err)
+			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+			assert.Contains(t, err.Error(), "saved_searches cannot be updated via UpdateConfig")
+		}
+	})
+
 	t.Run("Pre-flight check warns when query exceeds 50/day avg and saves on force_save", func(t *testing.T) {
 		var queriedStrings []string
 		mockGH := &mockGitHubClient{

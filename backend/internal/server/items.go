@@ -35,12 +35,21 @@ func (h *octoDeckHandler) GetItems(ctx context.Context,
 	}.Build()), nil
 }
 
+// maxFacetQueries is the maximum number of independent queries allowed in one GetFacets request.
+const maxFacetQueries = 100
+
 // GetFacets returns the values of each requested field with the number of items matching the
-// query once that field's own top-level predicates are removed. Every value present in the stored
-// items (after the configured repository and label filters) is listed, including those with no
-// matching item.
+// query once that field's own top-level predicates are removed, plus counts for any independent
+// queries in req.Msg.GetQueries(). Every value present in the stored items (after the configured
+// repository and label filters) is listed, including those with no matching item.
 func (h *octoDeckHandler) GetFacets(ctx context.Context,
 	req *connect.Request[octodeckv1.GetFacetsRequest]) (*connect.Response[octodeckv1.GetFacetsResponse], error) {
+	if len(req.Msg.GetQueries()) > maxFacetQueries {
+		return nil, connect.NewError(
+			connect.CodeInvalidArgument,
+			fmt.Errorf("too many queries (%d > %d)", len(req.Msg.GetQueries()), maxFacetQueries),
+		)
+	}
 	q, err := h.compileQuery(req.Msg.GetQuery())
 	if err != nil {
 		return nil, err
@@ -53,11 +62,57 @@ func (h *octoDeckHandler) GetFacets(ctx context.Context,
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to fetch items: %w", err))
 	}
-	facets, err := query.Facets(q, h.queryViews(items), req.Msg.GetFields())
+	views := h.queryViews(items)
+	facets, err := query.Facets(q, views, req.Msg.GetFields())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	return connect.NewResponse(octodeckv1.GetFacetsResponse_builder{Facets: facets}.Build()), nil
+	counts := h.countQueries(req.Msg.GetQueries(), views)
+	return connect.NewResponse(octodeckv1.GetFacetsResponse_builder{
+		Facets: facets,
+		Counts: counts,
+	}.Build()), nil
+}
+
+// countQueries evaluates each independent query in exprs against views, recording per-query
+// compilation errors in the corresponding CountResult rather than failing the whole RPC.
+func (h *octoDeckHandler) countQueries(
+	exprs []*octodeckv1.Expr,
+	views []*query.View,
+) []*octodeckv1.CountResult {
+	if len(exprs) == 0 {
+		return nil
+	}
+	opts := query.Options{CurrentUser: h.currentUser()}
+	out := make([]*octodeckv1.CountResult, 0, len(exprs))
+	for _, expr := range exprs {
+		q, err := query.Compile(expr, opts)
+		if err != nil {
+			var zero int32
+			var exprErr *octodeckv1.ExprError
+			var verr *query.ValidationError
+			if errors.As(err, &verr) {
+				exprErr = verr.Proto()
+			} else {
+				msg := err.Error()
+				exprErr = octodeckv1.ExprError_builder{Message: &msg}.Build()
+			}
+			out = append(out, octodeckv1.CountResult_builder{
+				Count:      &zero,
+				NewCount:   &zero,
+				InboxCount: &zero,
+				Error:      exprErr,
+			}.Build())
+			continue
+		}
+		c := query.Count(q, views)
+		out = append(out, octodeckv1.CountResult_builder{
+			Count:      &c.Count,
+			NewCount:   &c.NewCount,
+			InboxCount: &c.InboxCount,
+		}.Build())
+	}
+	return out
 }
 
 // compileQuery validates expr, resolving @me to the current user. Validation failures are

@@ -72,9 +72,6 @@ describe('Settings Component', () => {
     expect((screen.getByLabelText(/Label Filters/i) as HTMLTextAreaElement).value).toBe(
       'size/*\n!kind/flake'
     );
-    expect((screen.getByLabelText(/Pinned Repositories/i) as HTMLTextAreaElement).value).toBe(
-      'kubernetes/community'
-    );
     expect((screen.getByLabelText(/Known Bots/i) as HTMLTextAreaElement).value).toBe(
       'k8s-ci-robot\nfejta-bot'
     );
@@ -233,7 +230,6 @@ describe('Settings Component', () => {
       'excluded_repos',
       'included_labels',
       'known_bots',
-      'pinned_repos',
       'polling_interval_min',
       'tracked_queries',
       'watched_repos',

@@ -23,14 +23,18 @@ vi.mock('../../api/client', async () => {
   };
 });
 
-vi.mock('@tanstack/react-query', () => ({
-  keepPreviousData: (previous: unknown) => previous,
-  useQueryClient: () => ({
-    invalidateQueries: invalidateQueriesMock,
-    refetchQueries: vi.fn().mockResolvedValue(undefined),
-    setQueriesData: setQueriesDataMock,
-  }),
-}));
+vi.mock('@tanstack/react-query', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-query')>();
+  return {
+    ...actual,
+    keepPreviousData: (previous: unknown) => previous,
+    useQueryClient: () => ({
+      invalidateQueries: invalidateQueriesMock,
+      refetchQueries: vi.fn().mockResolvedValue(undefined),
+      setQueriesData: setQueriesDataMock,
+    }),
+  };
+});
 
 vi.mock('@connectrpc/connect-query', () => ({
   useQuery: vi.fn(),
@@ -44,7 +48,7 @@ vi.mock('@connectrpc/connect-query', () => ({
 function stubAuxiliaryQuery(schema: any): any {
   const name = schema?.name ?? schema?.method?.name;
   if (name === 'GetFacets') {
-    return { data: { facets: [] }, isLoading: false, isError: false, error: null, refetch: vi.fn() };
+    return { data: { facets: [], counts: [] }, isLoading: false, isError: false, error: null, refetch: vi.fn() };
   }
   if (name === 'GetItem') {
     return { data: undefined, isLoading: false, isError: false, error: null, refetch: vi.fn() };
@@ -79,6 +83,7 @@ const mockConfig = {
   pollingIntervalMin: 15,
   watchedRepos: ['kubernetes/kubernetes'],
   pinnedRepos: [],
+  savedSearches: [],
   excludedRepos: [],
   knownBots: [],
   autoAckOwnActivity: true,

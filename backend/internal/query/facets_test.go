@@ -295,3 +295,106 @@ func TestFacetValuesAgreeWithEval(t *testing.T) {
 		}
 	}
 }
+
+// assertFacetValueCounts checks count, new_count, and inbox_count for one facet value.
+func assertFacetValueCounts(
+	t *testing.T,
+	suiteName, caseName string,
+	field octodeckv1.Field,
+	fv *octodeckv1.FacetValue,
+	matched []*View,
+) {
+	t.Helper()
+	key := fv.GetValue()
+	if _, closed := ClosedValues(field); !closed {
+		key = foldOpen(field, key)
+	}
+	var wantNew, wantInbox, wantCount int32
+	for _, v := range matched {
+		if slices.Contains(facetKeys(field, v), key) {
+			wantCount++
+			if matchNew(valueAny, v) {
+				wantNew++
+			}
+			if matchTriage(valueInbox, v) {
+				wantInbox++
+			}
+		}
+	}
+	assert.Equal(t, wantCount, fv.GetCount(),
+		"%s %s field %s value %s count", suiteName, caseName, fieldName(field), fv.GetValue())
+	assert.Equal(t, wantNew, fv.GetNewCount(),
+		"%s %s field %s value %s new_count", suiteName, caseName, fieldName(field), fv.GetValue())
+	assert.Equal(t, wantInbox, fv.GetInboxCount(),
+		"%s %s field %s value %s inbox_count", suiteName, caseName, fieldName(field), fv.GetValue())
+}
+
+func assertFacetFieldCounts(
+	t *testing.T,
+	suiteName string,
+	tc evalCase,
+	views []*View,
+	q *Query,
+	field octodeckv1.Field,
+) {
+	t.Helper()
+	facets, err := Facets(q, views, []octodeckv1.Field{field})
+	require.NoError(t, err, "%s: %s field %s", suiteName, tc.name, fieldName(field))
+	require.Len(t, facets, 1)
+
+	matched := q.WithoutTopLevel(field).Filter(views)
+	for _, fv := range facets[0].GetValues() {
+		assertFacetValueCounts(t, suiteName, tc.name, field, fv, matched)
+	}
+}
+
+func assertTriageInboxNewCountEqualsOldQuery(t *testing.T, suiteName string, fixtures []fixture) {
+	t.Helper()
+	views := facetViews(fixtures, testUser)
+	emptyQ, err := Compile(nil, Options{CurrentUser: testUser})
+	require.NoError(t, err)
+	facetsEmpty, err := Facets(emptyQ, views, []octodeckv1.Field{fTriage})
+	require.NoError(t, err)
+	var inboxNewCount int32
+	for _, v := range facetsEmpty[0].GetValues() {
+		if v.GetValue() == valueInbox {
+			inboxNewCount = v.GetNewCount()
+		}
+	}
+
+	newAnyQ, err := Compile(p(fNew, "any"), Options{CurrentUser: testUser})
+	require.NoError(t, err)
+	facetsNewAny, err := Facets(newAnyQ, views, []octodeckv1.Field{fTriage})
+	require.NoError(t, err)
+	var oldInboxCount int32
+	for _, v := range facetsNewAny[0].GetValues() {
+		if v.GetValue() == valueInbox {
+			oldInboxCount = v.GetCount()
+		}
+	}
+	assert.Equal(t, oldInboxCount, inboxNewCount,
+		"%s: triage inbox new_count equals old GetFacets(new:any, [triage]) inbox count", suiteName)
+}
+
+// TestFacets_NewAndInboxCounts checks that for every conformance vector in fixtures_test.go
+// and every facetable field, each value's new_count equals the count of its matches that
+// match new:any, and inbox_count the count that match triage:inbox; and that the triage
+// facet's inbox value new_count equals the old GetFacets(new:any, [triage]) inbox count.
+func TestFacets_NewAndInboxCounts(t *testing.T) {
+	for _, suite := range conformanceSuites() {
+		for _, tc := range suite.cases {
+			user := tc.user()
+			views := facetViews(suite.fixtures, user)
+			q, err := Compile(tc.expr, Options{CurrentUser: user})
+			require.NoError(t, err, "%s: %s", suite.name, tc.name)
+
+			for f := octodeckv1.Field_FIELD_TRIAGE; f <= octodeckv1.Field_FIELD_TEXT; f++ {
+				if facetable(f) {
+					assertFacetFieldCounts(t, suite.name, tc, views, q, f)
+				}
+			}
+		}
+
+		assertTriageInboxNewCountEqualsOldQuery(t, suite.name, suite.fixtures)
+	}
+}

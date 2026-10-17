@@ -128,6 +128,24 @@ message FacetValue {
   string color = 3;
   // FIELD_REPO only: latest non-noise activity across the repo's items.
   google.protobuf.Timestamp latest_activity_at = 4;
+  // Of those, items matching new:any (always inbox items: acked items have no flags). Computed
+  // from each item's activity flags, independent of any new: predicate in the request.
+  int32 new_count = 5;
+  // Of those, items in the inbox (computed status is not ACKED).
+  int32 inbox_count = 6;
+}
+
+// Counts for one GetFacetsRequest.queries entry. Same numbers as FacetValue.
+message CountResult {
+  // Items matching the query (with the implicit triage scope, exactly as GetItems).
+  int32 count = 1;
+  // Of those, items matching new:any.
+  int32 new_count = 2;
+  // Of those, items in the inbox.
+  int32 inbox_count = 3;
+  // Set when the query is invalid; the counts are then 0. error.path is relative to the
+  // queries[i] Expr (not prefixed with "queries[i].").
+  ExprError error = 4;
 }
 
 // Attached as a detail to InvalidArgument errors returned for an invalid Expr.

@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -223,11 +224,9 @@ type Config struct {
 	mu        sync.Mutex // For serializing writes to the file
 }
 
-// NewForTest creates a new Config instance for testing purposes.
+// NewForTest creates an in-memory Config instance for testing purposes that does not persist to disk.
 func NewForTest(data *octodeckv1.Config) *Config {
-	cfg := &Config{
-		path: "/dev/null", // Default dummy path for tests
-	}
+	cfg := &Config{}
 	val, _ := proto.Clone(data).(*octodeckv1.Config)
 	if len(val.GetKnownBots()) > 0 {
 		val.SetKnownBots(NormalizeKnownBots(val.GetKnownBots()))
@@ -240,6 +239,10 @@ func NewForTest(data *octodeckv1.Config) *Config {
 			SanitizeAutoSubscribeQueries(val.GetAutoSubscribeQueries(), val.GetTrackedQueries()),
 		)
 	}
+	if len(val.GetSavedSearches()) > 0 {
+		val.SetSavedSearches(NormalizeSavedSearches(val.GetSavedSearches()))
+	}
+	MigratePinnedRepos(val)
 	cfg.data.Store(val)
 	return cfg
 }
@@ -299,15 +302,6 @@ func (c *Config) GetWatchedRepos() []string {
 		return nil
 	}
 	return slices.Clone(d.GetWatchedRepos())
-}
-
-// GetPinnedRepos returns the list of repositories pinned in the sidebar.
-func (c *Config) GetPinnedRepos() []string {
-	d := c.data.Load()
-	if d == nil {
-		return nil
-	}
-	return slices.Clone(d.GetPinnedRepos())
 }
 
 // GetExcludedRepos returns the list of repositories excluded from monitoring.
@@ -446,11 +440,17 @@ func (c *Config) UpdateProto(newCfg *octodeckv1.Config, mask *fieldmaskpb.FieldM
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	current := c.data.Load()
 	var target *octodeckv1.Config
 	if mask == nil || len(mask.GetPaths()) == 0 {
+		var prev []*octodeckv1.SavedSearch
+		if current != nil {
+			prev = cloneSavedSearches(current.GetSavedSearches())
+		}
 		target, _ = proto.Clone(newCfg).(*octodeckv1.Config)
+		target.SetSavedSearches(prev)
 	} else {
-		target, _ = proto.Clone(c.data.Load()).(*octodeckv1.Config)
+		target, _ = proto.Clone(current).(*octodeckv1.Config)
 		applyFieldMask(target, newCfg, mask)
 	}
 
@@ -463,6 +463,10 @@ func (c *Config) UpdateProto(newCfg *octodeckv1.Config, mask *fieldmaskpb.FieldM
 	target.SetAutoSubscribeQueries(
 		SanitizeAutoSubscribeQueries(target.GetAutoSubscribeQueries(), target.GetTrackedQueries()),
 	)
+	if len(target.GetSavedSearches()) > 0 {
+		target.SetSavedSearches(NormalizeSavedSearches(target.GetSavedSearches()))
+	}
+	MigratePinnedRepos(target)
 	applyScalarDefaults(target)
 	c.data.Store(target)
 	return c.saveLocked()
@@ -572,6 +576,9 @@ func Load(customPath string, overrides Overrides) (*Config, error) {
 	if err := unmarshaller.Unmarshal(fileData, newData); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
+	if err := BackupPinnedRepos(path, newData); err != nil {
+		slog.Warn("Failed to back up config before pinned_repos migration", "path", path, "error", err)
+	}
 	if len(newData.GetKnownBots()) > 0 {
 		newData.SetKnownBots(NormalizeKnownBots(newData.GetKnownBots()))
 	}
@@ -581,8 +588,27 @@ func Load(customPath string, overrides Overrides) (*Config, error) {
 	newData.SetAutoSubscribeQueries(
 		SanitizeAutoSubscribeQueries(newData.GetAutoSubscribeQueries(), newData.GetTrackedQueries()),
 	)
+	var normChanged bool
+	if len(newData.GetSavedSearches()) > 0 {
+		beforeSearches := cloneSavedSearches(newData.GetSavedSearches())
+		normalizedSearches := NormalizeSavedSearches(newData.GetSavedSearches())
+		normChanged = !slices.EqualFunc(
+			beforeSearches,
+			normalizedSearches,
+			func(a, b *octodeckv1.SavedSearch) bool {
+				return proto.Equal(a, b)
+			},
+		)
+		newData.SetSavedSearches(normalizedSearches)
+	}
+	migrated := MigratePinnedRepos(newData)
 	applyScalarDefaults(newData)
 	cfg.data.Store(newData)
+	if migrated || normChanged {
+		if err := cfg.saveLocked(); err != nil {
+			slog.Warn("Failed to write migrated config file", "path", path, "error", err)
+		}
+	}
 
 	return cfg, nil
 }
@@ -596,19 +622,54 @@ func (c *Config) Save() error {
 }
 
 func (c *Config) saveLocked() error {
+	return c.writeProtoLocked(c.data.Load())
+}
+
+func (c *Config) writeProtoLocked(cfg *octodeckv1.Config) error {
 	if c.path == "" {
-		return errors.New("config path not set")
+		return nil
 	}
 
-	if err := os.MkdirAll(filepath.Dir(c.path), 0750); err != nil {
+	targetPath := c.path
+	if resolved, err := filepath.EvalSymlinks(c.path); err == nil {
+		targetPath = resolved
+	}
+	dir := filepath.Dir(targetPath)
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return err
 	}
 
 	marshaller := protojson.MarshalOptions{Multiline: true, Indent: "  "}
-	data, err := marshaller.Marshal(c.data.Load())
+	data, err := marshaller.Marshal(cfg)
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(c.path, data, 0600)
+	tmp, err := os.CreateTemp(dir, filepath.Base(targetPath)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer func() {
+		if tmpName != "" {
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, targetPath); err != nil {
+		return err
+	}
+	tmpName = ""
+	return nil
 }

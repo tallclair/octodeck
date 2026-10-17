@@ -30,7 +30,6 @@ const DASHBOARD_CONFIG_FIELDS = {
   pollingIntervalMin: 'polling_interval_min',
   watchedRepos: 'watched_repos',
   excludedRepos: 'excluded_repos',
-  pinnedRepos: 'pinned_repos',
   knownBots: 'known_bots',
   autoAckOwnActivity: 'auto_ack_own_activity',
   includedLabels: 'included_labels',
@@ -155,7 +154,6 @@ export function Settings({
   const [repoPatterns, setRepoPatterns] = useState(initialRepoPatterns);
   const [repoValidationError, setRepoValidationError] = useState<string | null>(null);
 
-  const [pinnedRepos, setPinnedRepos] = useState((data?.config?.pinnedRepos || []).join('\n'));
   const [knownBots, setKnownBots] = useState(getInitialKnownBots(data?.config?.knownBots));
   const [autoAckOwnActivity, setAutoAckOwnActivity] = useState(
     data?.config?.autoAckOwnActivity ?? DEFAULT_AUTO_ACK_OWN_ACTIVITY
@@ -216,7 +214,6 @@ export function Settings({
     setRepoPatterns(serializeFilterPatterns(cfg.watchedRepos, cfg.excludedRepos));
     setRepoValidationError(null);
 
-    setPinnedRepos((cfg.pinnedRepos || []).join('\n'));
     setKnownBots(getInitialKnownBots(cfg.knownBots));
     setAutoAckOwnActivity(cfg.autoAckOwnActivity ?? DEFAULT_AUTO_ACK_OWN_ACTIVITY);
 
@@ -237,7 +234,6 @@ export function Settings({
       data?.config?.watchedRepos,
       data?.config?.excludedRepos
     );
-    const savedPinned = (data?.config?.pinnedRepos || []).join('\n');
     const savedBots = getInitialKnownBots(data?.config?.knownBots);
     const savedAutoAck = data?.config?.autoAckOwnActivity ?? DEFAULT_AUTO_ACK_OWN_ACTIVITY;
     const savedLabelPatterns = serializeFilterPatterns(
@@ -265,7 +261,6 @@ export function Settings({
     return (
       Number(pollingInterval) !== savedPolling ||
       repoPatterns !== savedRepoPatterns ||
-      pinnedRepos !== savedPinned ||
       knownBots !== savedBots ||
       autoAckOwnActivity !== savedAutoAck ||
       labelPatterns !== savedLabelPatterns ||
@@ -277,7 +272,6 @@ export function Settings({
     data?.config,
     pollingInterval,
     repoPatterns,
-    pinnedRepos,
     knownBots,
     autoAckOwnActivity,
     labelPatterns,
@@ -303,7 +297,6 @@ export function Settings({
     setPollingInterval(DEFAULT_POLLING_INTERVAL_MIN);
     setRepoPatterns('');
     setRepoValidationError(null);
-    setPinnedRepos('');
     setKnownBots((data?.config?.knownBots || []).join('\n'));
     setAutoAckOwnActivity(DEFAULT_AUTO_ACK_OWN_ACTIVITY);
     setLabelPatterns('');
@@ -437,7 +430,6 @@ export function Settings({
         pollingIntervalMin: Number(pollingInterval),
         watchedRepos: parsedRepos.includes,
         excludedRepos: parsedRepos.excludes,
-        pinnedRepos: pinnedRepos.split('\n').map(s => s.trim()).filter(Boolean),
         knownBots: knownBots.split('\n').map(s => s.trim()).filter(Boolean),
         autoAckOwnActivity,
         includedLabels: parsedLabels.includes,
@@ -699,23 +691,6 @@ export function Settings({
                   Enter one pattern per line. Prefix lines with <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">!</code> to exclude. Use <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">*</code> as a wildcard (e.g., <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">kubernetes/*</code>, <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px]">!kubernetes/steering</code>).
                 </p>
               )}
-            </div>
-
-            <div>
-              <label htmlFor="pinnedRepos" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Pinned Repositories
-              </label>
-              <textarea
-                id="pinnedRepos"
-                className="w-full p-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition placeholder-slate-400 dark:placeholder-slate-500 font-mono text-xs"
-                placeholder="kubernetes/community"
-                rows={3}
-                value={pinnedRepos}
-                onChange={(e) => setPinnedRepos(e.target.value)}
-              />
-              <p className="text-xs text-slate-500 dark:text-slate-500 mt-1">
-                Repositories always visible in the sidebar navigation.
-              </p>
             </div>
 
             <div>

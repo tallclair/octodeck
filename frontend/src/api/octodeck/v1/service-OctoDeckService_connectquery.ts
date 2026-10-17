@@ -90,3 +90,25 @@ export const getConfig = OctoDeckService.method.getConfig;
  * @generated from rpc octodeck.v1.OctoDeckService.UpdateConfig
  */
 export const updateConfig = OctoDeckService.method.updateConfig;
+
+/**
+ * Saved searches. Each call is a read-modify-write of the stored list under the config lock.
+ *
+ * @generated from rpc octodeck.v1.OctoDeckService.CreateSavedSearch
+ */
+export const createSavedSearch = OctoDeckService.method.createSavedSearch;
+
+/**
+ * @generated from rpc octodeck.v1.OctoDeckService.UpdateSavedSearch
+ */
+export const updateSavedSearch = OctoDeckService.method.updateSavedSearch;
+
+/**
+ * @generated from rpc octodeck.v1.OctoDeckService.DeleteSavedSearch
+ */
+export const deleteSavedSearch = OctoDeckService.method.deleteSavedSearch;
+
+/**
+ * @generated from rpc octodeck.v1.OctoDeckService.ReorderSavedSearches
+ */
+export const reorderSavedSearches = OctoDeckService.method.reorderSavedSearches;

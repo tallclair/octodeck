@@ -21,6 +21,16 @@ import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
 import { Settings } from '../Settings';
 import { useDashboardFilters } from '../hooks/useDashboardFilters';
 import { useDashboardData } from '../hooks/useDashboardData';
+import { useSavedSearches } from '../hooks/useSavedSearches';
+import { toSort } from '../logic/query/expr';
+import {
+  attachCounts,
+  findActiveSearch,
+  isActive,
+  openSavedSearchText,
+  toView,
+  type SavedSearchView,
+} from '../logic/savedSearches';
 import { useScrollAnchoring } from '../hooks/useScrollAnchoring';
 import { useKeyboardNavigation } from '../hooks/useKeyboardNavigation';
 import { useMenuGroup } from '../hooks/useMenuGroup';
@@ -29,6 +39,7 @@ import { FilterToolbar } from './dashboard/FilterToolbar';
 import { SortMenu } from './dashboard/SortMenu';
 import { DashboardSidebar } from './dashboard/DashboardSidebar';
 import { QueryInput } from './query/QueryInput';
+import { SaveSearchModal, type SaveSearchModalMode } from './savedSearches/SaveSearchModal';
 
 interface DashboardProps {
   onOpenDebug?: (targetItemId?: string) => void;
@@ -78,6 +89,12 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
   }, []);
 
   const [showSettings, setShowSettings] = useState(false);
+  const [originSearchId, setOriginSearchId] = useState<string | null>(null);
+  const [saveModalSession, setSaveModalSession] = useState<{
+    mode: SaveSearchModalMode;
+    savedSearch: SavedSearchView | null;
+  } | null>(null);
+  const showSaveSearchModal = saveModalSession !== null;
   const menus = useMenuGroup();
   const queryInputRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -95,6 +112,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
 
   const {
     state,
+    parsed,
     controls,
     requestText,
     setText,
@@ -107,6 +125,8 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
     clearQuery,
     applyWorkflowShortcut,
     toggleRepo,
+    openSavedSearch,
+    applySavedSearch,
     hasNoSecondaryFilters,
   } = useDashboardFilters();
 
@@ -125,16 +145,118 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
     }
   };
 
-  const configPinnedRepos = configData?.config?.pinnedRepos;
-  const pinnedRepos = useMemo(() => configPinnedRepos || [], [configPinnedRepos]);
   const currentUser = configData?.currentUserLogin || null;
+  const savedSearches = useSavedSearches();
+  if (originSearchId !== null && state.text.trim() === '') {
+    setOriginSearchId(null);
+  }
+  const activeSavedSearch = useMemo(
+    () => findActiveSearch(parsed, savedSearches.searches),
+    [parsed, savedSearches.searches]
+  );
+  const originSearch = useMemo(
+    () =>
+      originSearchId && state.text.trim() !== ''
+        ? (savedSearches.searches.find((s) => s.id === originSearchId) ?? null)
+        : null,
+    [originSearchId, state.text, savedSearches.searches]
+  );
+  const hasDifferentActiveMatch =
+    activeSavedSearch !== undefined && activeSavedSearch.id !== originSearch?.id;
+  const isOriginModified =
+    originSearch !== null &&
+    !hasDifferentActiveMatch &&
+    (!isActive(parsed, originSearch) ||
+      state.sort !== originSearch.sort ||
+      state.order !== originSearch.order);
+  const effectiveActiveSearch = isOriginModified
+    ? null
+    : hasDifferentActiveMatch
+      ? activeSavedSearch
+      : (originSearch ?? activeSavedSearch ?? null);
 
   // Items, dropdown options and sidebar counts, all filtered and counted by the daemon.
   const data = useDashboardData({
     query: state,
     requestText,
-    pinnedRepos,
+    savedSearchQueries: savedSearches.countRequest.queries,
+    savedSearchesReady: !savedSearches.isLoading,
   });
+
+  const currentCountIds = useMemo(
+    () =>
+      savedSearches.countRequest.rowIndex.map(
+        (r) =>
+          savedSearches.searches[r]?.id ||
+          savedSearches.searches[r]?.canonical ||
+          String(r)
+      ),
+    [savedSearches.searches, savedSearches.countRequest.rowIndex]
+  );
+  const currentCountIdsKey = currentCountIds.join('\u0000');
+  const currentCountsKey = useMemo(
+    () =>
+      data.savedSearchCounts
+        .map(
+          (c) =>
+            `${c.count ?? ''}:${c.newCount ?? ''}:${c.inboxCount ?? ''}:${c.error?.message ?? ''}`
+        )
+        .join('|'),
+    [data.savedSearchCounts]
+  );
+  const [settledSidebarCounts, setSettledSidebarCounts] = useState<{
+    idsKey: string;
+    countsKey: string;
+    ids: readonly string[];
+    counts: typeof data.savedSearchCounts;
+  }>({
+    idsKey: currentCountIdsKey,
+    countsKey: currentCountsKey,
+    ids: currentCountIds,
+    counts: data.savedSearchCounts,
+  });
+
+  if (
+    !data.isSidebarPlaceholderData &&
+    (settledSidebarCounts.idsKey !== currentCountIdsKey ||
+      settledSidebarCounts.countsKey !== currentCountsKey)
+  ) {
+    setSettledSidebarCounts({
+      idsKey: currentCountIdsKey,
+      countsKey: currentCountsKey,
+      ids: currentCountIds,
+      counts: data.savedSearchCounts,
+    });
+  }
+
+  const savedSearchViews = useMemo(() => {
+    if (!data.isSidebarPlaceholderData) {
+      return attachCounts(
+        savedSearches.searches,
+        savedSearches.countRequest.rowIndex,
+        data.savedSearchCounts
+      );
+    }
+    const byId = new Map<string, (typeof settledSidebarCounts.counts)[number]>();
+    settledSidebarCounts.ids.forEach((id, idx) => {
+      if (idx < settledSidebarCounts.counts.length) {
+        byId.set(id, settledSidebarCounts.counts[idx]);
+      }
+    });
+    const alignedCounts = currentCountIds.map((id) => byId.get(id));
+    return attachCounts(
+      savedSearches.searches,
+      savedSearches.countRequest.rowIndex,
+      alignedCounts
+    );
+  }, [
+    data.isSidebarPlaceholderData,
+    data.savedSearchCounts,
+    savedSearches.searches,
+    savedSearches.countRequest.rowIndex,
+    settledSidebarCounts,
+    currentCountIds,
+  ]);
   const { items, refreshAll } = data;
   // An invalid query is reported inline; only connectivity failures mean "disconnected".
   const isDisconnected = data.hasConnectivityError || isConfigError || isSyncStatusError;
@@ -319,7 +441,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
     onStarItem: handleStar,
     onFocusSearch: () => queryInputRef.current?.focus(),
     isDetailsOpen: Boolean(selectedItemId),
-    disabled: showSettings || menus.anyOpen,
+    disabled: showSettings || showSaveSearchModal || menus.anyOpen,
   });
 
   if (data.isInitialLoading && !isDisconnected) {
@@ -433,6 +555,74 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
         />
       )}
 
+      {/* Save Search Modal */}
+      {saveModalSession && (
+        <SaveSearchModal
+          isOpen={true}
+          mode={saveModalSession.mode}
+          savedSearch={saveModalSession.savedSearch}
+          queryText={state.text}
+          parsed={parsed}
+          sort={state.sort}
+          order={state.order}
+          facets={data.facets}
+          existingSearches={savedSearches.searches}
+          onClose={() => setSaveModalSession(null)}
+          onSave={async (input) => {
+            const created = await savedSearches.create(input);
+            setOriginSearchId(created.id);
+            const nextDashboardText = openSavedSearchText(parsed, created);
+            if (
+              nextDashboardText !== state.text ||
+              created.sort !== state.sort ||
+              created.order !== state.order
+            ) {
+              applySavedSearch(created);
+            }
+          }}
+          onUpdate={async (id, patch) => {
+            await savedSearches.update(id, patch);
+            const wasActiveOrOrigin = originSearchId === id || activeSavedSearch?.id === id;
+            if (
+              wasActiveOrOrigin &&
+              (patch.text !== undefined || patch.sort !== undefined || patch.order !== undefined)
+            ) {
+              const base =
+                savedSearches.searches.find((s) => s.id === id) ?? saveModalSession.savedSearch;
+              const nextText = patch.text ?? base?.text ?? state.text;
+              const nextSort = patch.sort ?? base?.sort ?? state.sort;
+              const nextOrder = patch.order ?? base?.order ?? state.order;
+              const updatedView = toView({
+                id,
+                name: patch.name ?? base?.name ?? '',
+                query: nextText,
+                sort: toSort(nextSort, nextOrder),
+              });
+              setOriginSearchId(id);
+              const nextDashboardText = openSavedSearchText(parsed, updatedView);
+              if (
+                nextDashboardText !== state.text ||
+                updatedView.sort !== state.sort ||
+                updatedView.order !== state.order
+              ) {
+                applySavedSearch(updatedView);
+              }
+            } else if (wasActiveOrOrigin) {
+              setOriginSearchId(id);
+            }
+          }}
+          onRename={async (id, name) => {
+            await savedSearches.update(id, { name });
+          }}
+          onDelete={async (id) => {
+            await savedSearches.remove(id);
+            if (originSearchId === id) {
+              setOriginSearchId(null);
+            }
+          }}
+        />
+      )}
+
       {/* Main Content Area */}
       <div className="flex flex-1 overflow-hidden relative">
         <DashboardSidebar
@@ -442,8 +632,57 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
           repoInboxCounts={data.repoInboxCounts}
           repoHasUnread={data.repoHasUnread}
           totals={data.totals}
-          applyWorkflowShortcut={applyWorkflowShortcut}
-          toggleRepo={toggleRepo}
+          savedSearches={savedSearchViews}
+          currentQueryText={state.text}
+          currentParsed={parsed}
+          onSelectSavedSearch={(search) => {
+            if (isActive(parsed, search)) {
+              setOriginSearchId(null);
+            } else {
+              setOriginSearchId(search.id);
+            }
+            openSavedSearch(search);
+          }}
+          onEditSavedSearch={(search) => {
+            setSaveModalSession({
+              mode: 'edit',
+              savedSearch: search,
+            });
+          }}
+          onRenameSavedSearch={async (id, name) => {
+            try {
+              await savedSearches.update(id, { name });
+            } catch (err) {
+              showError(err, 'Failed to rename saved search');
+              throw err;
+            }
+          }}
+          onDeleteSavedSearch={async (id) => {
+            try {
+              await savedSearches.remove(id);
+              if (originSearchId === id) {
+                setOriginSearchId(null);
+              }
+            } catch (err) {
+              showError(err, 'Failed to delete saved search');
+            }
+          }}
+          onReorderSavedSearches={async (ids) => {
+            try {
+              await savedSearches.reorder(ids);
+            } catch (err) {
+              showError(err, 'Failed to reorder saved searches');
+              throw err;
+            }
+          }}
+          applyWorkflowShortcut={(tab) => {
+            setOriginSearchId(null);
+            applyWorkflowShortcut(tab);
+          }}
+          toggleRepo={(repo) => {
+            setOriginSearchId(null);
+            toggleRepo(repo);
+          }}
           showSettings={showSettings}
           setShowSettings={setShowSettings}
           setShowShortcutsModal={setShowShortcutsModal}
@@ -465,14 +704,47 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                 />
 
                 <div className="w-full max-w-4xl min-w-0 space-y-3">
-                  <QueryInput
-                    value={state.text}
-                    onChange={setText}
-                    onClear={clearQuery}
-                    invalidQuery={data.invalidQuery}
-                    facets={data.facets}
-                    inputRef={queryInputRef}
-                  />
+                  <div className="flex items-start gap-2">
+                    <div className="flex-1 min-w-0">
+                      <QueryInput
+                        value={state.text}
+                        onChange={(nextText, kind) => {
+                          if (nextText.trim() === '') {
+                            setOriginSearchId(null);
+                          }
+                          setText(nextText, kind);
+                        }}
+                        onClear={() => {
+                          setOriginSearchId(null);
+                          clearQuery();
+                        }}
+                        invalidQuery={data.invalidQuery}
+                        facets={data.facets}
+                        inputRef={queryInputRef}
+                        activeSearch={effectiveActiveSearch}
+                        originSearch={originSearch}
+                        isOriginModified={isOriginModified}
+                        onPinClick={() => {
+                          if (originSearch && isOriginModified) {
+                            setSaveModalSession({
+                              mode: 'modified',
+                              savedSearch: originSearch,
+                            });
+                          } else if (effectiveActiveSearch) {
+                            setSaveModalSession({
+                              mode: 'edit',
+                              savedSearch: effectiveActiveSearch,
+                            });
+                          } else {
+                            setSaveModalSession({
+                              mode: 'create',
+                              savedSearch: null,
+                            });
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
 
                   <FilterToolbar
                     filters={controls}
@@ -480,7 +752,6 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                     toggleAssignedToMe={toggleAssignedToMe}
                     currentUser={currentUser}
                     facets={data.facets}
-                    pinnedRepos={pinnedRepos}
                     menus={menus}
                   />
                 </div>

@@ -34,7 +34,6 @@ export interface FilterToolbarProps {
   toggleAssignedToMe: () => void;
   currentUser: string | null;
   facets: SelectorFacets;
-  pinnedRepos: readonly string[];
   menus: MenuGroup<DashboardMenuId>;
 }
 
@@ -62,7 +61,6 @@ export function FilterToolbar({
   toggleAssignedToMe,
   currentUser,
   facets,
-  pinnedRepos,
   menus,
 }: FilterToolbarProps) {
   const buildAuthorOptionsForMenu = useCallback(
@@ -114,7 +112,6 @@ export function FilterToolbar({
     selectedRepos: filters.repo,
     repoFacets: facets.repos,
     orgFacets: facets.orgs,
-    pinnedRepos,
     setOrgOrRepo: setControl,
     setFilters: handleSetRepoFilters,
   };

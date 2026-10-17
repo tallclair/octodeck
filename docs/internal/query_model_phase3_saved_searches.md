@@ -23,45 +23,48 @@ This document is self-contained for the agent implementing Phase 3. Read the [ov
 
 ## 2. Goals, non-goals and UI
 
-Goals: replace the "Pinned" sidebar section with saved searches (#14): a pin button next to the query input, a naming modal, a sidebar section with badges, and an edit mode with reorder handles, rename and delete. Convert existing `pinned_repos`.
+Goals: replace pinned repositories in the "Pinned" sidebar section with saved searches (#14): an inset pin button inside the query input, a pin/edit modal, a sidebar section with badges, and an edit mode with reorder handles, edit button and delete. Convert existing `pinned_repos`.
 
 Non-goals:
-- Editing a saved search's query in place (deferred, U10).
 - Evaluating saved searches in the daemon on its own (per-search notifications, a CLI). The daemon stores text and never parses it (U13); a Go parser is added if a Go-side text consumer ever appears (parent §3.3).
 - Reducing polling (change-driven refresh, caching item views per sync generation). Deferred by the user; see the [overview](query_model_plan_overview.md#3-scope-and-ordering). The sidebar keeps the fixed 3 s poll, now as one `GetFacets` call (§6.2).
 - Import/export beyond what `config.json` already gives (it is the export).
 
 ### 2.1 Pin button
 
-- Lucide `Pin` icon button at the right end of the query input row; `aria-label="Save search"`.
-- **Filled/blue** exactly when some sidebar row is **active** by the §7 rule (`aria-label="Edit saved search <name>"`); otherwise **outline**. Using the same rule as the row highlight means that opening an unscoped search on the Acked tab (text `triage:acked repo:k/k`) shows a filled pin for that row instead of inviting a second, scoped save. Saved searches whose text has parse issues never match.
+- Lucide `Pin` icon button inset inside the right side of the `QueryInput` frame (to the left of the `×` clear button); `data-testid="pin-search-button"`.
+- Three visual states:
+  1. **Active match** (`data-active="true"`, `aria-label="Edit pinned search <name>"`, filled blue `Pin`): when some sidebar row is **active** by the §7 rule and unmodified. Using the same rule as the row highlight means that opening an unscoped search on the Acked tab (text `triage:acked repo:k/k`) shows a filled pin for that row instead of inviting a second, scoped save. Saved searches whose text has parse issues never match.
+  2. **Modified origin search** (`data-active="modified"`, `aria-label="Update pinned search <name>"`, blue outline `Pin`): when the user selected a pinned search and then modified the query or sort (and the new query does not match a different pinned search).
+  3. **Default** (`data-active="false"`, `aria-label="Pin search"`, slate outline `Pin`): when no pinned search is active or modified.
 - Disabled, with a tooltip, when the text is empty ("The Inbox is always in the sidebar") or the query has issues ("Fix the highlighted parts of the query first").
-- Outline click → naming modal in create mode. Filled click → naming modal in edit mode for the matched search.
+- Default click → modal in create mode. Active click → modal in edit mode for the matched search. Modified click → modal in modified mode for the origin search.
 
-### 2.2 Naming modal (`SaveSearchModal`)
+### 2.2 Pin / Edit modal (`SaveSearchModal`)
 
-- Title "Save search" (create) or "Saved search" (edit). Styling and focus handling follow [`KeyboardShortcutsModal.tsx`](../../frontend/src/components/KeyboardShortcutsModal.tsx) (focus trap, Escape closes, backdrop click closes).
-- **Name** input, autofocused and fully selected. Suggested name in create mode: the repo name if the query, **after removing tab clauses** (§7), is exactly one non-negated single-value `repo:` clause, otherwise the query text truncated to 40 characters with an ellipsis.
-- Read-only preview of the query text (monospace) and of the sort. Create mode previews the dashboard's current sort ("Latest activity, newest first"), which is what gets saved. Edit mode previews the **stored** sort of the search being edited.
-- Create mode buttons: Cancel, **Save** (Enter). Saves the name, the query text of record (exactly as in the input), sort and order.
-- Edit mode buttons: Delete (left, with inline confirm), Cancel, **Save**, which renames only (mask `name`). Renaming never changes the stored sort, and never overwrites it with the dashboard's current sort (user decision). The query itself is not changed either (U10).
-- Errors inline under the name field: empty or too long name, name taken (`AlreadyExists`), limit reached (`ResourceExhausted`).
+- Title "Pin search" (create) or "Edit pinned search" (edit / modified), with a `Pin` icon. Styling and focus handling follow [`KeyboardShortcutsModal.tsx`](../../frontend/src/components/KeyboardShortcutsModal.tsx) (focus trap including `textarea`, Escape closes when no suggestion popup or sort menu is open, backdrop click closes).
+- **Name** input, autofocused and fully selected. Suggested name in create mode: the repo name if the query, **after removing tab clauses** (§7), is exactly one non-negated single-value `repo:` clause, otherwise the query text truncated to 40 characters with an ellipsis. In edit/modified mode, starts with the active/origin search's current name.
+- Editable **Query** using the highlighted `QueryInput` component (tokenized chips and autocomplete, `textareaTestId="saved-search-query-input"`, no pin button).
+- **Live preview & `SortMenu`** (`data-testid="saved-search-preview"`): bordered section at the bottom of the modal content showing the matching item count (`data-testid="saved-search-preview-count"`), `SortMenu` dropdown on the right, and a 1-line summary (`owner/repo#number` and title, `data-testid="saved-search-preview-item"`) for the top 3 matching items from a debounced `GetItems` query. Create mode defaults to the dashboard's current query and sort; edit mode defaults to the stored query and sort of the search being edited; modified mode defaults to the modified query (stripping tab clauses when updating an unscoped origin search) and current sort.
+- Create mode buttons: Cancel, **Save** (Enter). Saves the name, query text, sort and order, and applies the saved search to the dashboard if the query or sort was changed in the modal.
+- Edit / modified mode buttons: Delete (left, with inline confirm), Cancel, **Save as new** (`data-testid="save-as-new-button"`), and **Update** (`data-testid="update-saved-search-button"`, Enter). **Update** calls `UpdateSavedSearch` with `name` plus `query` and/or `sort` in the mask when changed (if only the name was changed, the mask contains only `name`). **Save as new** requires a distinct name (focusing and selecting the Name field with `"Give the new pinned search a different name"` if unchanged) and creates a new saved search via `CreateSavedSearch`.
+- Errors inline under the name field (empty or too long name, name taken `AlreadyExists`, limit reached `ResourceExhausted`, or unchanged name on `Save as new`) and under the query field (`data-testid="saved-search-query-error"` or `QueryInput`'s `invalid-query` summary).
 
 ### 2.3 Sidebar
 
-Order: Workflows (Inbox, New, Acked) → **Saved searches** → Repositories.
-- Header "SAVED SEARCHES" with a pin icon and a pencil button (`aria-label="Edit saved searches"`) that toggles edit mode ("Done" while editing).
+Order: Workflows (Inbox, New, Acked) → **Pinned** → Repositories.
+- Header "Pinned" with a pencil button (`aria-label="Edit pinned searches"`) that toggles edit mode ("Done" while editing).
 - Rows use `SidebarRow`: name, a badge styled by the saved query's triage scope (§6.3), and the active highlight.
 - **Invalid text** (parse issues, e.g. after a hand edit of `config.json`, or a server `CountResult.error` from `GetFacets`): the row shows an error badge instead of a count: lucide `AlertTriangle` (12 px, `text-red-600`) with the first issue message as `title`, and the row gets `aria-description="Error: <message>"`. The row still opens the search on click, so the user sees the error chips in the input. It never throws or hides the row.
-- Empty state: one muted line, "Pin a search with the pin button next to the query".
+- Empty state: one muted line, "Pin a search with the pin button in the search box".
 - The "Repositories" section lists every repo (there is no pinned subset any more), keeping the 30-day "More" split from `buildSidebar`.
 
 Click behaviour: §7.
 
 ### 2.4 Edit mode
 
-- Each row shows: a drag handle button (lucide `GripVertical`, `aria-label="Reorder <name>"`), the name as a text input, a muted one-line preview of the stored sort when it is not the default (e.g. "Last acked, newest first"), and a delete button (lucide `Trash2`).
-- **Rename:** Enter or blur saves when changed and valid (`UpdateSavedSearch` with mask `name`; the stored sort is kept); Escape reverts; invalid (empty, too long, duplicate) shows a red border with the message as `title` and is not saved.
+- Each row shows: a drag handle button (lucide `GripVertical`, `aria-label="Reorder <name>"`), the search name text, a muted one-line preview of the stored sort when it is not the default (e.g. "Last acked, newest first"), an edit button (lucide `Pencil`, `aria-label="Edit <name>"`, `data-testid="edit-saved-search-<name>"`), and a delete button (lucide `Trash2`).
+- **Edit:** clicking the row's edit button opens `SaveSearchModal` in `edit` mode for that search, allowing the user to edit its name, query text, and sort order.
 - **Reorder:** drag by the handle (native HTML5 DnD; the row is `draggable` only while the pointer is down on the handle); a drop indicator line shows the target slot. With the handle focused, ArrowUp/ArrowDown move the row by one. Each move is applied optimistically and persisted with `ReorderSavedSearches`; on failure the order is rolled back and an error toast shown. A live region announces "Moved <name> to position 2 of 5".
 - **Delete:** the row turns into "Delete “name”? [Delete] [Cancel]"; Delete calls `DeleteSavedSearch`.
 - Rows do not navigate while editing.
@@ -147,10 +150,9 @@ message CreateSavedSearchResponse {
 message UpdateSavedSearchRequest {
   // id selects the entry; other fields per update_mask.
   SavedSearch saved_search = 1;
-  // Paths: "name", "sort" (sort carries both key and order). Empty means both. A path in the
-  // mask whose field is unset in saved_search clears it (an unset sort resets to the default),
-  // mirroring applyFieldMask. "id", "query" ("query" is not updatable yet, U10) and unknown paths
-  // are InvalidArgument.
+  // Paths: "name", "query", "sort" (sort carries both key and order). Empty means all three. A path
+  // in the mask whose field is unset in saved_search clears it (an unset sort resets to the default),
+  // mirroring applyFieldMask. "id" and unknown paths are InvalidArgument.
   google.protobuf.FieldMask update_mask = 2;
 }
 message UpdateSavedSearchResponse { repeated SavedSearch saved_searches = 1; }
@@ -283,7 +285,7 @@ Validation is **per operation**, never over the whole list, so a hand-edited fil
 | Name already used (case-insensitive) | `AlreadyExists` |
 | Creating the 51st search | `ResourceExhausted` |
 | Unknown id (update, delete) | `NotFound` |
-| Unknown update-mask path (including `query`) | `InvalidArgument` |
+| Unknown update-mask path (including `id`) | `InvalidArgument` |
 | Reorder ids not a permutation of the current ids | `FailedPrecondition` |
 | `UpdateConfig` mask containing `saved_searches` or `savedSearches` | `InvalidArgument` |
 | Writing `config.json` fails | `Internal` (in-memory list unchanged) |
@@ -450,7 +452,7 @@ export function useSavedSearches(): {
   countRequest: { queries: ExprInit[]; rowIndex: number[] }; // buildCountRequest(searches)
   isLoading: boolean;
   create(input: { name: string; text: string; sort: SortOption; order: SortOrder }): Promise<SavedSearchView>;
-  update(id: string, patch: { name?: string; sort?: SortOption; order?: SortOrder }): Promise<void>; // sort and order both go under mask path "sort"; the UI only renames
+  update(id: string, patch: { name?: string; text?: string; sort?: SortOption; order?: SortOrder }): Promise<void>; // sort and order both go under mask path "sort"; text goes under "query"
   remove(id: string): Promise<void>;
   reorder(ids: string[]): Promise<void>; // optimistic, rolls back on error
 };

@@ -12,7 +12,6 @@ export interface RepoOrgMenuData {
   readonly selectedRepos: readonly string[];
   readonly repoFacets: readonly FacetValue[];
   readonly orgFacets: readonly FacetValue[];
-  readonly pinnedRepos: readonly string[];
   readonly setOrgOrRepo: (kind: 'org' | 'repo', values: readonly string[]) => void;
   readonly setFilters: (partial: Partial<FilterControls>) => void;
 }
@@ -37,7 +36,6 @@ export function RepoOrgMenu({
   selectedRepos,
   repoFacets,
   orgFacets,
-  pinnedRepos,
   open,
   onToggle,
   onClose,
@@ -52,10 +50,9 @@ export function RepoOrgMenu({
         repoFacets,
         orgFacets,
         { repos: selectedRepos, orgs: selectedOrgs },
-        pinnedRepos,
         showAll
       ),
-    [repoFacets, orgFacets, selectedRepos, selectedOrgs, pinnedRepos]
+    [repoFacets, orgFacets, selectedRepos, selectedOrgs]
   );
 
   const isOptionSelected = useCallback(

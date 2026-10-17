@@ -39,6 +39,12 @@ service OctoDeckService {
   rpc GetConfig(GetConfigRequest) returns (GetConfigResponse);
   rpc UpdateConfig(UpdateConfigRequest) returns (UpdateConfigResponse);
 
+  // Saved searches. Each call is a read-modify-write of the stored list under the config lock.
+  rpc CreateSavedSearch(CreateSavedSearchRequest) returns (CreateSavedSearchResponse);
+  rpc UpdateSavedSearch(UpdateSavedSearchRequest) returns (UpdateSavedSearchResponse);
+  rpc DeleteSavedSearch(DeleteSavedSearchRequest) returns (DeleteSavedSearchResponse);
+  rpc ReorderSavedSearches(ReorderSavedSearchesRequest) returns (ReorderSavedSearchesResponse);
+
   // Desktop notifications and toolbar badge (server streaming). The daemon decides what to
   // notify during sync; clients only display what they are sent.
   rpc WatchNotifications(WatchNotificationsRequest) returns (stream WatchNotificationsResponse);
@@ -71,8 +77,13 @@ message GetItemResponse {
 message GetFacetsRequest {
   // Validated and scoped exactly as GetItemsRequest.query.
   Expr query = 1;
-  // Fields to facet. FIELD_UNSPECIFIED, FIELD_IN and FIELD_TEXT are InvalidArgument.
+  // Fields to facet. FIELD_UNSPECIFIED, FIELD_IN and FIELD_TEXT are InvalidArgument; may be empty
+  // when only queries are wanted.
   repeated Field fields = 2;
+  // Additional independent queries to count (saved-search badges), each validated and scoped
+  // exactly like GetItemsRequest.query (an unset entry is the empty query: an inbox count).
+  // At most 100. Not affected by `query`.
+  repeated Expr queries = 3;
 }
 
 message GetFacetsResponse {
@@ -80,6 +91,8 @@ message GetFacetsResponse {
   // listed with the count of items matching the query with that field's own top-level
   // predicates removed (for FIELD_TRIAGE: with triage:all instead of the implicit inbox).
   repeated Facet facets = 1;
+  // One result per entry of GetFacetsRequest.queries, in request order.
+  repeated CountResult counts = 2;
 }
 
 message SyncRequest {}
@@ -154,8 +167,23 @@ message UpdateSubscriptionResponse {
   Item item = 1;
 }
 
+// A named dashboard query shown in the sidebar. Stored in config.json; list order is display order.
+message SavedSearch {
+  // Server-assigned, stable and opaque (16 random bytes, hex). Assigned on load if missing.
+  string id = 1;
+  // Display name: trimmed, 1-80 characters, no control characters, unique (case-insensitive).
+  string name = 2;
+  // The query exactly as the user wrote it, in the dashboard's text syntax: non-empty after
+  // trimming, at most 1000 characters, no line breaks. The daemon stores it and never parses it.
+  string query = 3;
+  // Sort applied when the search is opened. Unset means the default sort.
+  Sort sort = 4;
+}
+
 message Config {
   repeated string watched_repos = 1;
+  // Legacy: converted into saved_searches when the config is loaded or updated, and always empty
+  // afterwards. Kept so old config files can still be read.
   repeated string pinned_repos = 2;
   repeated string excluded_repos = 3;
   int32 polling_interval_min = 4;
@@ -169,6 +197,9 @@ message Config {
   int32 discovery_interval_min = 12;
   repeated string auto_subscribe_queries = 13;
   NotificationSettings notification_settings = 14;
+  // Saved searches, in display order. Changed only through the saved search RPCs; UpdateConfig
+  // rejects masks that include this field and preserves it on a full update.
+  repeated SavedSearch saved_searches = 15;
 }
 
 // How the extension toolbar badge counts items.
@@ -241,6 +272,48 @@ message UpdateConfigResponse {
   repeated TrackedQueryWarning query_warnings = 2;
   bool saved = 3;
   repeated TrackedQueryStats query_stats = 4;
+}
+
+// Appended at the end of the list. id is ignored.
+message CreateSavedSearchRequest {
+  SavedSearch saved_search = 1;
+}
+
+message CreateSavedSearchResponse {
+  // As stored, with its id.
+  SavedSearch saved_search = 1;
+  // The full list after the change (includes saved_search).
+  repeated SavedSearch saved_searches = 2;
+}
+
+message UpdateSavedSearchRequest {
+  // id selects the entry; other fields per update_mask.
+  SavedSearch saved_search = 1;
+  // Paths: "name", "query", "sort" (sort carries both key and order). Empty means all three. A
+  // path in the mask whose field is unset in saved_search clears it (an unset sort resets to the
+  // default), mirroring applyFieldMask. "id" and unknown paths are InvalidArgument.
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message UpdateSavedSearchResponse {
+  repeated SavedSearch saved_searches = 1;
+}
+
+message DeleteSavedSearchRequest {
+  string id = 1;
+}
+
+message DeleteSavedSearchResponse {
+  repeated SavedSearch saved_searches = 1;
+}
+
+message ReorderSavedSearchesRequest {
+  // Every saved search id, exactly once, in the new order.
+  repeated string ids = 1;
+}
+
+message ReorderSavedSearchesResponse {
+  repeated SavedSearch saved_searches = 1;
 }
 
 message GetSyncStatusRequest {}

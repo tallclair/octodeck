@@ -72,10 +72,11 @@ func (q *Query) WithoutTopLevel(field octodeckv1.Field) *Query {
 
 // facetValue accumulates one value of a field's universe.
 type facetValue struct {
+	Counts
+
 	display  string
 	color    string
 	latestMs int64
-	count    int32
 }
 
 // facetUniverse is every value of a field across all items, keyed by folded value.
@@ -86,8 +87,8 @@ type facetUniverse struct {
 
 // Facets counts, for each requested field (in request order, duplicates echoed), every value of
 // the field across views, with the number of views that match the query once the field's own
-// top-level predicates are removed (see WithoutTopLevel). Values with no matching view are listed
-// with count 0.
+// top-level predicates are removed (see WithoutTopLevel), plus how many of those match new:any and
+// triage:inbox. Values with no matching view are listed with count 0.
 //
 // views is the whole universe: every stored item after the configured repository and label
 // filters. Value metadata (label color, repository latest activity) is computed over the whole
@@ -125,7 +126,7 @@ func Facets(q *Query, views []*View, fields []octodeckv1.Field) ([]*octodeckv1.F
 		}
 		for _, v := range matched {
 			for _, key := range facetKeys(field, v) {
-				u.values[key].count++
+				u.values[key].add(v)
 			}
 		}
 		out = append(out, u.facet(field))
@@ -174,7 +175,12 @@ func (u *facetUniverse) facet(field octodeckv1.Field) *octodeckv1.Facet {
 	values := make([]*octodeckv1.FacetValue, 0, len(u.order))
 	for _, key := range u.order {
 		fv := u.values[key]
-		b := octodeckv1.FacetValue_builder{Value: &fv.display, Count: &fv.count}
+		b := octodeckv1.FacetValue_builder{
+			Value:      &fv.display,
+			Count:      &fv.Count,
+			NewCount:   &fv.NewCount,
+			InboxCount: &fv.InboxCount,
+		}
 		if fv.color != "" {
 			b.Color = &fv.color
 		}

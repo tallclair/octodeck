@@ -6,7 +6,7 @@ import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobu
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { FieldMask, Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_field_mask, file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
-import type { Expr, Facet, Field, Sort } from "./query_pb";
+import type { CountResult, Expr, Facet, Field, Sort } from "./query_pb";
 import { file_octodeck_v1_query } from "./query_pb";
 import type { Item, SubscriptionState, SyncTrace } from "./resources_pb";
 import { file_octodeck_v1_resources } from "./resources_pb";
@@ -16,7 +16,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file octodeck/v1/service.proto.
  */
 export const file_octodeck_v1_service: GenFile = /*@__PURE__*/
-  fileDesc("ChlvY3RvZGVjay92MS9zZXJ2aWNlLnByb3RvEgtvY3RvZGVjay52MSJiCg9HZXRJdGVtc1JlcXVlc3QSIAoFcXVlcnkYAiABKAsyES5vY3RvZGVjay52MS5FeHByEh8KBHNvcnQYAyABKAsyES5vY3RvZGVjay52MS5Tb3J0SgQIARACUgZmaWx0ZXIiNAoQR2V0SXRlbXNSZXNwb25zZRIgCgVpdGVtcxgBIAMoCzIRLm9jdG9kZWNrLnYxLkl0ZW0iIQoOR2V0SXRlbVJlcXVlc3QSDwoHaXRlbV9pZBgBIAEoCSIyCg9HZXRJdGVtUmVzcG9uc2USHwoEaXRlbRgBIAEoCzIRLm9jdG9kZWNrLnYxLkl0ZW0iWAoQR2V0RmFjZXRzUmVxdWVzdBIgCgVxdWVyeRgBIAEoCzIRLm9jdG9kZWNrLnYxLkV4cHISIgoGZmllbGRzGAIgAygOMhIub2N0b2RlY2sudjEuRmllbGQiNwoRR2V0RmFjZXRzUmVzcG9uc2USIgoGZmFjZXRzGAEgAygLMhIub2N0b2RlY2sudjEuRmFjZXQiDQoLU3luY1JlcXVlc3QixgEKDFN5bmNSZXNwb25zZRIuCgVzdGFnZRgBIAEoDjIfLm9jdG9kZWNrLnYxLlN5bmNSZXNwb25zZS5TdGFnZRIPCgdtZXNzYWdlGAIgASgJEhcKD2l0ZW1zX3Byb2Nlc3NlZBgDIAEoBSJcCgVTdGFnZRIVChFTVEFHRV9VTlNQRUNJRklFRBAAEhIKDlNUQUdFX0ZFVENISU5HEAESFAoQU1RBR0VfUFJPQ0VTU0lORxACEhIKDlNUQUdFX0NPTVBMRVRFEAMiIgoPVmlld0l0ZW1SZXF1ZXN0Eg8KB2l0ZW1faWQYASABKAkiMwoQVmlld0l0ZW1SZXNwb25zZRIfCgRpdGVtGAEgASgLMhEub2N0b2RlY2sudjEuSXRlbSIwCg5BY2tJdGVtUmVxdWVzdBIPCgdpdGVtX2lkGAEgASgJEg0KBWFja2VkGAIgASgIIjIKD0Fja0l0ZW1SZXNwb25zZRIfCgRpdGVtGAEgASgLMhEub2N0b2RlY2sudjEuSXRlbSIzCg9TdGFySXRlbVJlcXVlc3QSDwoHaXRlbV9pZBgBIAEoCRIPCgdzdGFycmVkGAIgASgIIjMKEFN0YXJJdGVtUmVzcG9uc2USHwoEaXRlbRgBIAEoCzIRLm9jdG9kZWNrLnYxLkl0ZW0iMQoPU2V0Tm90ZXNSZXF1ZXN0Eg8KB2l0ZW1faWQYASABKAkSDQoFbm90ZXMYAiABKAkiMwoQU2V0Tm90ZXNSZXNwb25zZRIfCgRpdGVtGAEgASgLMhEub2N0b2RlY2sudjEuSXRlbSIlChJSZWZldGNoSXRlbVJlcXVlc3QSDwoHaXRlbV9pZBgBIAEoCSI2ChNSZWZldGNoSXRlbVJlc3BvbnNlEh8KBGl0ZW0YASABKAsyES5vY3RvZGVjay52MS5JdGVtIiQKEURlbGV0ZUl0ZW1SZXF1ZXN0Eg8KB2l0ZW1faWQYASABKAkiFAoSRGVsZXRlSXRlbVJlc3BvbnNlIlsKGVVwZGF0ZVN1YnNjcmlwdGlvblJlcXVlc3QSDwoHaXRlbV9pZBgBIAEoCRItCgVzdGF0ZRgCIAEoDjIeLm9jdG9kZWNrLnYxLlN1YnNjcmlwdGlvblN0YXRlIj0KGlVwZGF0ZVN1YnNjcmlwdGlvblJlc3BvbnNlEh8KBGl0ZW0YASABKAsyES5vY3RvZGVjay52MS5JdGVtIooDCgZDb25maWcSFQoNd2F0Y2hlZF9yZXBvcxgBIAMoCRIUCgxwaW5uZWRfcmVwb3MYAiADKAkSFgoOZXhjbHVkZWRfcmVwb3MYAyADKAkSHAoUcG9sbGluZ19pbnRlcnZhbF9taW4YBCABKAUSEgoKa25vd25fYm90cxgFIAMoCRIdChVhdXRvX2Fja19vd25fYWN0aXZpdHkYBiABKAgSDAoEcG9ydBgHIAEoBRIPCgdkYl9wYXRoGAggASgJEhcKD2luY2x1ZGVkX2xhYmVscxgJIAMoCRIXCg9leGNsdWRlZF9sYWJlbHMYCiADKAkSFwoPdHJhY2tlZF9xdWVyaWVzGAsgAygJEh4KFmRpc2NvdmVyeV9pbnRlcnZhbF9taW4YDCABKAUSHgoWYXV0b19zdWJzY3JpYmVfcXVlcmllcxgNIAMoCRJAChVub3RpZmljYXRpb25fc2V0dGluZ3MYDiABKAsyIS5vY3RvZGVjay52MS5Ob3RpZmljYXRpb25TZXR0aW5ncyKEAwoUTm90aWZpY2F0aW9uU2V0dGluZ3MSDwoHZW5hYmxlZBgBIAEoCBIVCg1yZXBvX2luY2x1ZGVzGAIgAygJEhUKDXJlcG9fZXhjbHVkZXMYAyADKAkSFgoObGFiZWxfaW5jbHVkZXMYBCADKAkSFgoObGFiZWxfZXhjbHVkZXMYBSADKAkSFwoPYXV0aG9yX2luY2x1ZGVzGAYgAygJEhcKD2F1dGhvcl9leGNsdWRlcxgHIAMoCRIhChlvbmx5X2Fzc2lnbmVkX29yX2F1dGhvcmVkGAggASgIEhsKE25vdGlmeV9vbl9uZXdfaXRlbXMYCSABKAgSHgoWbm90aWZ5X29uX25ld19hY3Rpdml0eRgKIAEoCBITCgtpZ25vcmVfYm90cxgLIAEoCBIfChdhbHdheXNfaW5jbHVkZV9tZW50aW9ucxgMIAEoCBI1ChBiYWRnZV9jb3VudF9tb2RlGA0gASgOMhsub2N0b2RlY2sudjEuQmFkZ2VDb3VudE1vZGUiVwoRVHJhY2tlZFF1ZXJ5U3RhdHMSDQoFcXVlcnkYASABKAkSGAoQZGFpbHlfYXZlcmFnZV83ZBgCIAEoARIZChFkYWlseV9hdmVyYWdlXzMwZBgDIAEoASISChBHZXRDb25maWdSZXF1ZXN0IokBChFHZXRDb25maWdSZXNwb25zZRIjCgZjb25maWcYASABKAsyEy5vY3RvZGVjay52MS5Db25maWcSGgoSY3VycmVudF91c2VyX2xvZ2luGAIgASgJEjMKC3F1ZXJ5X3N0YXRzGAMgAygLMh4ub2N0b2RlY2sudjEuVHJhY2tlZFF1ZXJ5U3RhdHMifwoTVXBkYXRlQ29uZmlnUmVxdWVzdBIjCgZjb25maWcYASABKAsyEy5vY3RvZGVjay52MS5Db25maWcSLwoLdXBkYXRlX21hc2sYAiABKAsyGi5nb29nbGUucHJvdG9idWYuRmllbGRNYXNrEhIKCmZvcmNlX3NhdmUYAyABKAgiZQoTVHJhY2tlZFF1ZXJ5V2FybmluZxINCgVxdWVyeRgBIAEoCRIXCg9tYXRjaF9jb3VudF80OGgYAiABKAUSFQoNZGFpbHlfYXZlcmFnZRgDIAEoARIPCgdtZXNzYWdlGAQgASgJIrkBChRVcGRhdGVDb25maWdSZXNwb25zZRIjCgZjb25maWcYASABKAsyEy5vY3RvZGVjay52MS5Db25maWcSOAoOcXVlcnlfd2FybmluZ3MYAiADKAsyIC5vY3RvZGVjay52MS5UcmFja2VkUXVlcnlXYXJuaW5nEg0KBXNhdmVkGAMgASgIEjMKC3F1ZXJ5X3N0YXRzGAQgAygLMh4ub2N0b2RlY2sudjEuVHJhY2tlZFF1ZXJ5U3RhdHMiFgoUR2V0U3luY1N0YXR1c1JlcXVlc3QixQMKClN5bmNTdGF0dXMSOwoXbGFzdF9zdWNjZXNzZnVsX3N5bmNfYXQYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjgKFGxhc3Rfc3luY19hdHRlbXB0X2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBI7ChdsYXN0X3VwZGF0ZV9yZWNlaXZlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASGAoQbGFzdF9zeW5jX2ZhaWxlZBgEIAEoCBIaChJsYXN0X2Vycm9yX21lc3NhZ2UYBSABKAkSHQoVZmFpbGVkX2F0dGVtcHRzX2NvdW50GAYgASgFEhIKCmlzX3N5bmNpbmcYByABKAgSHQoVbm90aWZpY2F0aW9uX3JhdGVfMjRoGAggASgBEhwKFG5vdGlmaWNhdGlvbl9yYXRlXzdkGAkgASgBEh0KFW5vdGlmaWNhdGlvbl9yYXRlXzMwZBgKIAEoARIdChVsYXN0X3N5bmNfZHVyYXRpb25fbXMYCyABKAMSHwoXaGFzX25vdGlmaWNhdGlvbnNfc2NvcGUYDCABKAgiQAoVR2V0U3luY1N0YXR1c1Jlc3BvbnNlEicKBnN0YXR1cxgBIAEoCzIXLm9jdG9kZWNrLnYxLlN5bmNTdGF0dXMiUgoUR2V0U3luY1RyYWNlc1JlcXVlc3QSDQoFbGltaXQYASABKAUSEgoKdHJhY2VfdHlwZRgCIAEoCRIXCg9pbmNsdWRlX3BheWxvYWQYAyABKAgiPwoVR2V0U3luY1RyYWNlc1Jlc3BvbnNlEiYKBnRyYWNlcxgBIAMoCzIWLm9jdG9kZWNrLnYxLlN5bmNUcmFjZSL0AQoNRGF0YWJhc2VTdGF0cxITCgt0b3RhbF9pdGVtcxgBIAEoAxISCgpvcGVuX2l0ZW1zGAIgASgDEhQKDGNsb3NlZF9pdGVtcxgDIAEoAxIQCghwcl9pdGVtcxgEIAEoAxITCgtpc3N1ZV9pdGVtcxgFIAEoAxIVCg11bmFja2VkX2l0ZW1zGAYgASgDEhMKC2Fja2VkX2l0ZW1zGAcgASgDEhMKC3RvdGFsX3JlcG9zGAggASgDEhQKDHRvdGFsX3RyYWNlcxgJIAEoAxIVCg1kYl9zaXplX2J5dGVzGAogASgDEg8KB2RiX3BhdGgYCyABKAkiGQoXR2V0RGF0YWJhc2VTdGF0c1JlcXVlc3QiRQoYR2V0RGF0YWJhc2VTdGF0c1Jlc3BvbnNlEikKBXN0YXRzGAEgASgLMhoub2N0b2RlY2sudjEuRGF0YWJhc2VTdGF0cyK9AQoMTm90aWZpY2F0aW9uEgoKAmlkGAEgASgJEg8KB2l0ZW1faWQYAiABKAkSDQoFdGl0bGUYAyABKAkSDwoHbWVzc2FnZRgEIAEoCRILCgN1cmwYBSABKAkSMwoIY2F0ZWdvcnkYBiABKA4yIS5vY3RvZGVjay52MS5Ob3RpZmljYXRpb25DYXRlZ29yeRIuCgpjcmVhdGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJRChNOb3RpZmljYXRpb25TdW1tYXJ5Eg0KBWNvdW50GAEgASgFEg0KBXRpdGxlGAIgASgJEg8KB21lc3NhZ2UYAyABKAkSCwoDdXJsGAQgASgJImYKC0JhZGdlVXBkYXRlEg0KBWNvdW50GAEgASgFEikKBG1vZGUYAiABKA4yGy5vY3RvZGVjay52MS5CYWRnZUNvdW50TW9kZRIMCgR0ZXh0GAMgASgJEg8KB3Rvb2x0aXAYBCABKAkiCwoJSGVhcnRiZWF0IlEKGVdhdGNoTm90aWZpY2F0aW9uc1JlcXVlc3QSNAoQbGFzdF9yZWNlaXZlZF9hdBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAikgIKGldhdGNoTm90aWZpY2F0aW9uc1Jlc3BvbnNlEisKB3NlbnRfYXQYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjEKDG5vdGlmaWNhdGlvbhgCIAEoCzIZLm9jdG9kZWNrLnYxLk5vdGlmaWNhdGlvbkgAEjMKB3N1bW1hcnkYAyABKAsyIC5vY3RvZGVjay52MS5Ob3RpZmljYXRpb25TdW1tYXJ5SAASKQoFYmFkZ2UYBCABKAsyGC5vY3RvZGVjay52MS5CYWRnZVVwZGF0ZUgAEisKCWhlYXJ0YmVhdBgFIAEoCzIWLm9jdG9kZWNrLnYxLkhlYXJ0YmVhdEgAQgcKBWV2ZW50KooBCg5CYWRnZUNvdW50TW9kZRIgChxCQURHRV9DT1VOVF9NT0RFX1VOU1BFQ0lGSUVEEAASGgoWQkFER0VfQ09VTlRfTU9ERV9JTkJPWBABEhsKF0JBREdFX0NPVU5UX01PREVfVU5SRUFEEAISHQoZQkFER0VfQ09VTlRfTU9ERV9ESVNBQkxFRBADKukBChROb3RpZmljYXRpb25DYXRlZ29yeRIlCiFOT1RJRklDQVRJT05fQ0FURUdPUllfVU5TUEVDSUZJRUQQABIhCh1OT1RJRklDQVRJT05fQ0FURUdPUllfTUVOVElPThABEiIKHk5PVElGSUNBVElPTl9DQVRFR09SWV9ORVdfSVRFTRACEiIKHk5PVElGSUNBVElPTl9DQVRFR09SWV9BQ1RJVklUWRADEh4KGk5PVElGSUNBVElPTl9DQVRFR09SWV9DT0RFEAQSHwobTk9USUZJQ0FUSU9OX0NBVEVHT1JZX05PSVNFEAUy7woKD09jdG9EZWNrU2VydmljZRJHCghHZXRJdGVtcxIcLm9jdG9kZWNrLnYxLkdldEl0ZW1zUmVxdWVzdBodLm9jdG9kZWNrLnYxLkdldEl0ZW1zUmVzcG9uc2USRAoHR2V0SXRlbRIbLm9jdG9kZWNrLnYxLkdldEl0ZW1SZXF1ZXN0Ghwub2N0b2RlY2sudjEuR2V0SXRlbVJlc3BvbnNlEkoKCUdldEZhY2V0cxIdLm9jdG9kZWNrLnYxLkdldEZhY2V0c1JlcXVlc3QaHi5vY3RvZGVjay52MS5HZXRGYWNldHNSZXNwb25zZRI9CgRTeW5jEhgub2N0b2RlY2sudjEuU3luY1JlcXVlc3QaGS5vY3RvZGVjay52MS5TeW5jUmVzcG9uc2UwARJHCghWaWV3SXRlbRIcLm9jdG9kZWNrLnYxLlZpZXdJdGVtUmVxdWVzdBodLm9jdG9kZWNrLnYxLlZpZXdJdGVtUmVzcG9uc2USRAoHQWNrSXRlbRIbLm9jdG9kZWNrLnYxLkFja0l0ZW1SZXF1ZXN0Ghwub2N0b2RlY2sudjEuQWNrSXRlbVJlc3BvbnNlEkcKCFN0YXJJdGVtEhwub2N0b2RlY2sudjEuU3Rhckl0ZW1SZXF1ZXN0Gh0ub2N0b2RlY2sudjEuU3Rhckl0ZW1SZXNwb25zZRJHCghTZXROb3RlcxIcLm9jdG9kZWNrLnYxLlNldE5vdGVzUmVxdWVzdBodLm9jdG9kZWNrLnYxLlNldE5vdGVzUmVzcG9uc2USUAoLUmVmZXRjaEl0ZW0SHy5vY3RvZGVjay52MS5SZWZldGNoSXRlbVJlcXVlc3QaIC5vY3RvZGVjay52MS5SZWZldGNoSXRlbVJlc3BvbnNlEk0KCkRlbGV0ZUl0ZW0SHi5vY3RvZGVjay52MS5EZWxldGVJdGVtUmVxdWVzdBofLm9jdG9kZWNrLnYxLkRlbGV0ZUl0ZW1SZXNwb25zZRJlChJVcGRhdGVTdWJzY3JpcHRpb24SJi5vY3RvZGVjay52MS5VcGRhdGVTdWJzY3JpcHRpb25SZXF1ZXN0Gicub2N0b2RlY2sudjEuVXBkYXRlU3Vic2NyaXB0aW9uUmVzcG9uc2USVgoNR2V0U3luY1N0YXR1cxIhLm9jdG9kZWNrLnYxLkdldFN5bmNTdGF0dXNSZXF1ZXN0GiIub2N0b2RlY2sudjEuR2V0U3luY1N0YXR1c1Jlc3BvbnNlElYKDUdldFN5bmNUcmFjZXMSIS5vY3RvZGVjay52MS5HZXRTeW5jVHJhY2VzUmVxdWVzdBoiLm9jdG9kZWNrLnYxLkdldFN5bmNUcmFjZXNSZXNwb25zZRJfChBHZXREYXRhYmFzZVN0YXRzEiQub2N0b2RlY2sudjEuR2V0RGF0YWJhc2VTdGF0c1JlcXVlc3QaJS5vY3RvZGVjay52MS5HZXREYXRhYmFzZVN0YXRzUmVzcG9uc2USSgoJR2V0Q29uZmlnEh0ub2N0b2RlY2sudjEuR2V0Q29uZmlnUmVxdWVzdBoeLm9jdG9kZWNrLnYxLkdldENvbmZpZ1Jlc3BvbnNlElMKDFVwZGF0ZUNvbmZpZxIgLm9jdG9kZWNrLnYxLlVwZGF0ZUNvbmZpZ1JlcXVlc3QaIS5vY3RvZGVjay52MS5VcGRhdGVDb25maWdSZXNwb25zZRJnChJXYXRjaE5vdGlmaWNhdGlvbnMSJi5vY3RvZGVjay52MS5XYXRjaE5vdGlmaWNhdGlvbnNSZXF1ZXN0Gicub2N0b2RlY2sudjEuV2F0Y2hOb3RpZmljYXRpb25zUmVzcG9uc2UwAUK3AQoPY29tLm9jdG9kZWNrLnYxQgxTZXJ2aWNlUHJvdG9QAVpJZ2l0aHViLmNvbS90YWxsY2xhaXIvb2N0b2RlY2svYmFja2VuZC9pbnRlcm5hbC9hcGkvb2N0b2RlY2svdjE7b2N0b2RlY2t2MaICA09YWKoCC09jdG9kZWNrLlYxygILT2N0b2RlY2tcVjHiAhdPY3RvZGVja1xWMVxHUEJNZXRhZGF0YeoCDE9jdG9kZWNrOjpWMWIIZWRpdGlvbnNw6Ac", [file_google_protobuf_field_mask, file_google_protobuf_timestamp, file_octodeck_v1_query, file_octodeck_v1_resources]);
+  fileDesc("ChlvY3RvZGVjay92MS9zZXJ2aWNlLnByb3RvEgtvY3RvZGVjay52MSJiCg9HZXRJdGVtc1JlcXVlc3QSIAoFcXVlcnkYAiABKAsyES5vY3RvZGVjay52MS5FeHByEh8KBHNvcnQYAyABKAsyES5vY3RvZGVjay52MS5Tb3J0SgQIARACUgZmaWx0ZXIiNAoQR2V0SXRlbXNSZXNwb25zZRIgCgVpdGVtcxgBIAMoCzIRLm9jdG9kZWNrLnYxLkl0ZW0iIQoOR2V0SXRlbVJlcXVlc3QSDwoHaXRlbV9pZBgBIAEoCSIyCg9HZXRJdGVtUmVzcG9uc2USHwoEaXRlbRgBIAEoCzIRLm9jdG9kZWNrLnYxLkl0ZW0ifAoQR2V0RmFjZXRzUmVxdWVzdBIgCgVxdWVyeRgBIAEoCzIRLm9jdG9kZWNrLnYxLkV4cHISIgoGZmllbGRzGAIgAygOMhIub2N0b2RlY2sudjEuRmllbGQSIgoHcXVlcmllcxgDIAMoCzIRLm9jdG9kZWNrLnYxLkV4cHIiYQoRR2V0RmFjZXRzUmVzcG9uc2USIgoGZmFjZXRzGAEgAygLMhIub2N0b2RlY2sudjEuRmFjZXQSKAoGY291bnRzGAIgAygLMhgub2N0b2RlY2sudjEuQ291bnRSZXN1bHQiDQoLU3luY1JlcXVlc3QixgEKDFN5bmNSZXNwb25zZRIuCgVzdGFnZRgBIAEoDjIfLm9jdG9kZWNrLnYxLlN5bmNSZXNwb25zZS5TdGFnZRIPCgdtZXNzYWdlGAIgASgJEhcKD2l0ZW1zX3Byb2Nlc3NlZBgDIAEoBSJcCgVTdGFnZRIVChFTVEFHRV9VTlNQRUNJRklFRBAAEhIKDlNUQUdFX0ZFVENISU5HEAESFAoQU1RBR0VfUFJPQ0VTU0lORxACEhIKDlNUQUdFX0NPTVBMRVRFEAMiIgoPVmlld0l0ZW1SZXF1ZXN0Eg8KB2l0ZW1faWQYASABKAkiMwoQVmlld0l0ZW1SZXNwb25zZRIfCgRpdGVtGAEgASgLMhEub2N0b2RlY2sudjEuSXRlbSIwCg5BY2tJdGVtUmVxdWVzdBIPCgdpdGVtX2lkGAEgASgJEg0KBWFja2VkGAIgASgIIjIKD0Fja0l0ZW1SZXNwb25zZRIfCgRpdGVtGAEgASgLMhEub2N0b2RlY2sudjEuSXRlbSIzCg9TdGFySXRlbVJlcXVlc3QSDwoHaXRlbV9pZBgBIAEoCRIPCgdzdGFycmVkGAIgASgIIjMKEFN0YXJJdGVtUmVzcG9uc2USHwoEaXRlbRgBIAEoCzIRLm9jdG9kZWNrLnYxLkl0ZW0iMQoPU2V0Tm90ZXNSZXF1ZXN0Eg8KB2l0ZW1faWQYASABKAkSDQoFbm90ZXMYAiABKAkiMwoQU2V0Tm90ZXNSZXNwb25zZRIfCgRpdGVtGAEgASgLMhEub2N0b2RlY2sudjEuSXRlbSIlChJSZWZldGNoSXRlbVJlcXVlc3QSDwoHaXRlbV9pZBgBIAEoCSI2ChNSZWZldGNoSXRlbVJlc3BvbnNlEh8KBGl0ZW0YASABKAsyES5vY3RvZGVjay52MS5JdGVtIiQKEURlbGV0ZUl0ZW1SZXF1ZXN0Eg8KB2l0ZW1faWQYASABKAkiFAoSRGVsZXRlSXRlbVJlc3BvbnNlIlsKGVVwZGF0ZVN1YnNjcmlwdGlvblJlcXVlc3QSDwoHaXRlbV9pZBgBIAEoCRItCgVzdGF0ZRgCIAEoDjIeLm9jdG9kZWNrLnYxLlN1YnNjcmlwdGlvblN0YXRlIj0KGlVwZGF0ZVN1YnNjcmlwdGlvblJlc3BvbnNlEh8KBGl0ZW0YASABKAsyES5vY3RvZGVjay52MS5JdGVtIlcKC1NhdmVkU2VhcmNoEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDQoFcXVlcnkYAyABKAkSHwoEc29ydBgEIAEoCzIRLm9jdG9kZWNrLnYxLlNvcnQivAMKBkNvbmZpZxIVCg13YXRjaGVkX3JlcG9zGAEgAygJEhQKDHBpbm5lZF9yZXBvcxgCIAMoCRIWCg5leGNsdWRlZF9yZXBvcxgDIAMoCRIcChRwb2xsaW5nX2ludGVydmFsX21pbhgEIAEoBRISCgprbm93bl9ib3RzGAUgAygJEh0KFWF1dG9fYWNrX293bl9hY3Rpdml0eRgGIAEoCBIMCgRwb3J0GAcgASgFEg8KB2RiX3BhdGgYCCABKAkSFwoPaW5jbHVkZWRfbGFiZWxzGAkgAygJEhcKD2V4Y2x1ZGVkX2xhYmVscxgKIAMoCRIXCg90cmFja2VkX3F1ZXJpZXMYCyADKAkSHgoWZGlzY292ZXJ5X2ludGVydmFsX21pbhgMIAEoBRIeChZhdXRvX3N1YnNjcmliZV9xdWVyaWVzGA0gAygJEkAKFW5vdGlmaWNhdGlvbl9zZXR0aW5ncxgOIAEoCzIhLm9jdG9kZWNrLnYxLk5vdGlmaWNhdGlvblNldHRpbmdzEjAKDnNhdmVkX3NlYXJjaGVzGA8gAygLMhgub2N0b2RlY2sudjEuU2F2ZWRTZWFyY2gihAMKFE5vdGlmaWNhdGlvblNldHRpbmdzEg8KB2VuYWJsZWQYASABKAgSFQoNcmVwb19pbmNsdWRlcxgCIAMoCRIVCg1yZXBvX2V4Y2x1ZGVzGAMgAygJEhYKDmxhYmVsX2luY2x1ZGVzGAQgAygJEhYKDmxhYmVsX2V4Y2x1ZGVzGAUgAygJEhcKD2F1dGhvcl9pbmNsdWRlcxgGIAMoCRIXCg9hdXRob3JfZXhjbHVkZXMYByADKAkSIQoZb25seV9hc3NpZ25lZF9vcl9hdXRob3JlZBgIIAEoCBIbChNub3RpZnlfb25fbmV3X2l0ZW1zGAkgASgIEh4KFm5vdGlmeV9vbl9uZXdfYWN0aXZpdHkYCiABKAgSEwoLaWdub3JlX2JvdHMYCyABKAgSHwoXYWx3YXlzX2luY2x1ZGVfbWVudGlvbnMYDCABKAgSNQoQYmFkZ2VfY291bnRfbW9kZRgNIAEoDjIbLm9jdG9kZWNrLnYxLkJhZGdlQ291bnRNb2RlIlcKEVRyYWNrZWRRdWVyeVN0YXRzEg0KBXF1ZXJ5GAEgASgJEhgKEGRhaWx5X2F2ZXJhZ2VfN2QYAiABKAESGQoRZGFpbHlfYXZlcmFnZV8zMGQYAyABKAEiEgoQR2V0Q29uZmlnUmVxdWVzdCKJAQoRR2V0Q29uZmlnUmVzcG9uc2USIwoGY29uZmlnGAEgASgLMhMub2N0b2RlY2sudjEuQ29uZmlnEhoKEmN1cnJlbnRfdXNlcl9sb2dpbhgCIAEoCRIzCgtxdWVyeV9zdGF0cxgDIAMoCzIeLm9jdG9kZWNrLnYxLlRyYWNrZWRRdWVyeVN0YXRzIn8KE1VwZGF0ZUNvbmZpZ1JlcXVlc3QSIwoGY29uZmlnGAEgASgLMhMub2N0b2RlY2sudjEuQ29uZmlnEi8KC3VwZGF0ZV9tYXNrGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLkZpZWxkTWFzaxISCgpmb3JjZV9zYXZlGAMgASgIImUKE1RyYWNrZWRRdWVyeVdhcm5pbmcSDQoFcXVlcnkYASABKAkSFwoPbWF0Y2hfY291bnRfNDhoGAIgASgFEhUKDWRhaWx5X2F2ZXJhZ2UYAyABKAESDwoHbWVzc2FnZRgEIAEoCSK5AQoUVXBkYXRlQ29uZmlnUmVzcG9uc2USIwoGY29uZmlnGAEgASgLMhMub2N0b2RlY2sudjEuQ29uZmlnEjgKDnF1ZXJ5X3dhcm5pbmdzGAIgAygLMiAub2N0b2RlY2sudjEuVHJhY2tlZFF1ZXJ5V2FybmluZxINCgVzYXZlZBgDIAEoCBIzCgtxdWVyeV9zdGF0cxgEIAMoCzIeLm9jdG9kZWNrLnYxLlRyYWNrZWRRdWVyeVN0YXRzIkoKGENyZWF0ZVNhdmVkU2VhcmNoUmVxdWVzdBIuCgxzYXZlZF9zZWFyY2gYASABKAsyGC5vY3RvZGVjay52MS5TYXZlZFNlYXJjaCJ9ChlDcmVhdGVTYXZlZFNlYXJjaFJlc3BvbnNlEi4KDHNhdmVkX3NlYXJjaBgBIAEoCzIYLm9jdG9kZWNrLnYxLlNhdmVkU2VhcmNoEjAKDnNhdmVkX3NlYXJjaGVzGAIgAygLMhgub2N0b2RlY2sudjEuU2F2ZWRTZWFyY2giewoYVXBkYXRlU2F2ZWRTZWFyY2hSZXF1ZXN0Ei4KDHNhdmVkX3NlYXJjaBgBIAEoCzIYLm9jdG9kZWNrLnYxLlNhdmVkU2VhcmNoEi8KC3VwZGF0ZV9tYXNrGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLkZpZWxkTWFzayJNChlVcGRhdGVTYXZlZFNlYXJjaFJlc3BvbnNlEjAKDnNhdmVkX3NlYXJjaGVzGAEgAygLMhgub2N0b2RlY2sudjEuU2F2ZWRTZWFyY2giJgoYRGVsZXRlU2F2ZWRTZWFyY2hSZXF1ZXN0EgoKAmlkGAEgASgJIk0KGURlbGV0ZVNhdmVkU2VhcmNoUmVzcG9uc2USMAoOc2F2ZWRfc2VhcmNoZXMYASADKAsyGC5vY3RvZGVjay52MS5TYXZlZFNlYXJjaCIqChtSZW9yZGVyU2F2ZWRTZWFyY2hlc1JlcXVlc3QSCwoDaWRzGAEgAygJIlAKHFJlb3JkZXJTYXZlZFNlYXJjaGVzUmVzcG9uc2USMAoOc2F2ZWRfc2VhcmNoZXMYASADKAsyGC5vY3RvZGVjay52MS5TYXZlZFNlYXJjaCIWChRHZXRTeW5jU3RhdHVzUmVxdWVzdCLFAwoKU3luY1N0YXR1cxI7ChdsYXN0X3N1Y2Nlc3NmdWxfc3luY19hdBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASOAoUbGFzdF9zeW5jX2F0dGVtcHRfYXQYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjsKF2xhc3RfdXBkYXRlX3JlY2VpdmVkX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIYChBsYXN0X3N5bmNfZmFpbGVkGAQgASgIEhoKEmxhc3RfZXJyb3JfbWVzc2FnZRgFIAEoCRIdChVmYWlsZWRfYXR0ZW1wdHNfY291bnQYBiABKAUSEgoKaXNfc3luY2luZxgHIAEoCBIdChVub3RpZmljYXRpb25fcmF0ZV8yNGgYCCABKAESHAoUbm90aWZpY2F0aW9uX3JhdGVfN2QYCSABKAESHQoVbm90aWZpY2F0aW9uX3JhdGVfMzBkGAogASgBEh0KFWxhc3Rfc3luY19kdXJhdGlvbl9tcxgLIAEoAxIfChdoYXNfbm90aWZpY2F0aW9uc19zY29wZRgMIAEoCCJAChVHZXRTeW5jU3RhdHVzUmVzcG9uc2USJwoGc3RhdHVzGAEgASgLMhcub2N0b2RlY2sudjEuU3luY1N0YXR1cyJSChRHZXRTeW5jVHJhY2VzUmVxdWVzdBINCgVsaW1pdBgBIAEoBRISCgp0cmFjZV90eXBlGAIgASgJEhcKD2luY2x1ZGVfcGF5bG9hZBgDIAEoCCI/ChVHZXRTeW5jVHJhY2VzUmVzcG9uc2USJgoGdHJhY2VzGAEgAygLMhYub2N0b2RlY2sudjEuU3luY1RyYWNlIvQBCg1EYXRhYmFzZVN0YXRzEhMKC3RvdGFsX2l0ZW1zGAEgASgDEhIKCm9wZW5faXRlbXMYAiABKAMSFAoMY2xvc2VkX2l0ZW1zGAMgASgDEhAKCHByX2l0ZW1zGAQgASgDEhMKC2lzc3VlX2l0ZW1zGAUgASgDEhUKDXVuYWNrZWRfaXRlbXMYBiABKAMSEwoLYWNrZWRfaXRlbXMYByABKAMSEwoLdG90YWxfcmVwb3MYCCABKAMSFAoMdG90YWxfdHJhY2VzGAkgASgDEhUKDWRiX3NpemVfYnl0ZXMYCiABKAMSDwoHZGJfcGF0aBgLIAEoCSIZChdHZXREYXRhYmFzZVN0YXRzUmVxdWVzdCJFChhHZXREYXRhYmFzZVN0YXRzUmVzcG9uc2USKQoFc3RhdHMYASABKAsyGi5vY3RvZGVjay52MS5EYXRhYmFzZVN0YXRzIr0BCgxOb3RpZmljYXRpb24SCgoCaWQYASABKAkSDwoHaXRlbV9pZBgCIAEoCRINCgV0aXRsZRgDIAEoCRIPCgdtZXNzYWdlGAQgASgJEgsKA3VybBgFIAEoCRIzCghjYXRlZ29yeRgGIAEoDjIhLm9jdG9kZWNrLnYxLk5vdGlmaWNhdGlvbkNhdGVnb3J5Ei4KCmNyZWF0ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIlEKE05vdGlmaWNhdGlvblN1bW1hcnkSDQoFY291bnQYASABKAUSDQoFdGl0bGUYAiABKAkSDwoHbWVzc2FnZRgDIAEoCRILCgN1cmwYBCABKAkiZgoLQmFkZ2VVcGRhdGUSDQoFY291bnQYASABKAUSKQoEbW9kZRgCIAEoDjIbLm9jdG9kZWNrLnYxLkJhZGdlQ291bnRNb2RlEgwKBHRleHQYAyABKAkSDwoHdG9vbHRpcBgEIAEoCSILCglIZWFydGJlYXQiUQoZV2F0Y2hOb3RpZmljYXRpb25zUmVxdWVzdBI0ChBsYXN0X3JlY2VpdmVkX2F0GAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKSAgoaV2F0Y2hOb3RpZmljYXRpb25zUmVzcG9uc2USKwoHc2VudF9hdBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMQoMbm90aWZpY2F0aW9uGAIgASgLMhkub2N0b2RlY2sudjEuTm90aWZpY2F0aW9uSAASMwoHc3VtbWFyeRgDIAEoCzIgLm9jdG9kZWNrLnYxLk5vdGlmaWNhdGlvblN1bW1hcnlIABIpCgViYWRnZRgEIAEoCzIYLm9jdG9kZWNrLnYxLkJhZGdlVXBkYXRlSAASKwoJaGVhcnRiZWF0GAUgASgLMhYub2N0b2RlY2sudjEuSGVhcnRiZWF0SABCBwoFZXZlbnQqigEKDkJhZGdlQ291bnRNb2RlEiAKHEJBREdFX0NPVU5UX01PREVfVU5TUEVDSUZJRUQQABIaChZCQURHRV9DT1VOVF9NT0RFX0lOQk9YEAESGwoXQkFER0VfQ09VTlRfTU9ERV9VTlJFQUQQAhIdChlCQURHRV9DT1VOVF9NT0RFX0RJU0FCTEVEEAMq6QEKFE5vdGlmaWNhdGlvbkNhdGVnb3J5EiUKIU5PVElGSUNBVElPTl9DQVRFR09SWV9VTlNQRUNJRklFRBAAEiEKHU5PVElGSUNBVElPTl9DQVRFR09SWV9NRU5USU9OEAESIgoeTk9USUZJQ0FUSU9OX0NBVEVHT1JZX05FV19JVEVNEAISIgoeTk9USUZJQ0FUSU9OX0NBVEVHT1JZX0FDVElWSVRZEAMSHgoaTk9USUZJQ0FUSU9OX0NBVEVHT1JZX0NPREUQBBIfChtOT1RJRklDQVRJT05fQ0FURUdPUllfTk9JU0UQBTKIDgoPT2N0b0RlY2tTZXJ2aWNlEkcKCEdldEl0ZW1zEhwub2N0b2RlY2sudjEuR2V0SXRlbXNSZXF1ZXN0Gh0ub2N0b2RlY2sudjEuR2V0SXRlbXNSZXNwb25zZRJECgdHZXRJdGVtEhsub2N0b2RlY2sudjEuR2V0SXRlbVJlcXVlc3QaHC5vY3RvZGVjay52MS5HZXRJdGVtUmVzcG9uc2USSgoJR2V0RmFjZXRzEh0ub2N0b2RlY2sudjEuR2V0RmFjZXRzUmVxdWVzdBoeLm9jdG9kZWNrLnYxLkdldEZhY2V0c1Jlc3BvbnNlEj0KBFN5bmMSGC5vY3RvZGVjay52MS5TeW5jUmVxdWVzdBoZLm9jdG9kZWNrLnYxLlN5bmNSZXNwb25zZTABEkcKCFZpZXdJdGVtEhwub2N0b2RlY2sudjEuVmlld0l0ZW1SZXF1ZXN0Gh0ub2N0b2RlY2sudjEuVmlld0l0ZW1SZXNwb25zZRJECgdBY2tJdGVtEhsub2N0b2RlY2sudjEuQWNrSXRlbVJlcXVlc3QaHC5vY3RvZGVjay52MS5BY2tJdGVtUmVzcG9uc2USRwoIU3Rhckl0ZW0SHC5vY3RvZGVjay52MS5TdGFySXRlbVJlcXVlc3QaHS5vY3RvZGVjay52MS5TdGFySXRlbVJlc3BvbnNlEkcKCFNldE5vdGVzEhwub2N0b2RlY2sudjEuU2V0Tm90ZXNSZXF1ZXN0Gh0ub2N0b2RlY2sudjEuU2V0Tm90ZXNSZXNwb25zZRJQCgtSZWZldGNoSXRlbRIfLm9jdG9kZWNrLnYxLlJlZmV0Y2hJdGVtUmVxdWVzdBogLm9jdG9kZWNrLnYxLlJlZmV0Y2hJdGVtUmVzcG9uc2USTQoKRGVsZXRlSXRlbRIeLm9jdG9kZWNrLnYxLkRlbGV0ZUl0ZW1SZXF1ZXN0Gh8ub2N0b2RlY2sudjEuRGVsZXRlSXRlbVJlc3BvbnNlEmUKElVwZGF0ZVN1YnNjcmlwdGlvbhImLm9jdG9kZWNrLnYxLlVwZGF0ZVN1YnNjcmlwdGlvblJlcXVlc3QaJy5vY3RvZGVjay52MS5VcGRhdGVTdWJzY3JpcHRpb25SZXNwb25zZRJWCg1HZXRTeW5jU3RhdHVzEiEub2N0b2RlY2sudjEuR2V0U3luY1N0YXR1c1JlcXVlc3QaIi5vY3RvZGVjay52MS5HZXRTeW5jU3RhdHVzUmVzcG9uc2USVgoNR2V0U3luY1RyYWNlcxIhLm9jdG9kZWNrLnYxLkdldFN5bmNUcmFjZXNSZXF1ZXN0GiIub2N0b2RlY2sudjEuR2V0U3luY1RyYWNlc1Jlc3BvbnNlEl8KEEdldERhdGFiYXNlU3RhdHMSJC5vY3RvZGVjay52MS5HZXREYXRhYmFzZVN0YXRzUmVxdWVzdBolLm9jdG9kZWNrLnYxLkdldERhdGFiYXNlU3RhdHNSZXNwb25zZRJKCglHZXRDb25maWcSHS5vY3RvZGVjay52MS5HZXRDb25maWdSZXF1ZXN0Gh4ub2N0b2RlY2sudjEuR2V0Q29uZmlnUmVzcG9uc2USUwoMVXBkYXRlQ29uZmlnEiAub2N0b2RlY2sudjEuVXBkYXRlQ29uZmlnUmVxdWVzdBohLm9jdG9kZWNrLnYxLlVwZGF0ZUNvbmZpZ1Jlc3BvbnNlEmIKEUNyZWF0ZVNhdmVkU2VhcmNoEiUub2N0b2RlY2sudjEuQ3JlYXRlU2F2ZWRTZWFyY2hSZXF1ZXN0GiYub2N0b2RlY2sudjEuQ3JlYXRlU2F2ZWRTZWFyY2hSZXNwb25zZRJiChFVcGRhdGVTYXZlZFNlYXJjaBIlLm9jdG9kZWNrLnYxLlVwZGF0ZVNhdmVkU2VhcmNoUmVxdWVzdBomLm9jdG9kZWNrLnYxLlVwZGF0ZVNhdmVkU2VhcmNoUmVzcG9uc2USYgoRRGVsZXRlU2F2ZWRTZWFyY2gSJS5vY3RvZGVjay52MS5EZWxldGVTYXZlZFNlYXJjaFJlcXVlc3QaJi5vY3RvZGVjay52MS5EZWxldGVTYXZlZFNlYXJjaFJlc3BvbnNlEmsKFFJlb3JkZXJTYXZlZFNlYXJjaGVzEigub2N0b2RlY2sudjEuUmVvcmRlclNhdmVkU2VhcmNoZXNSZXF1ZXN0Gikub2N0b2RlY2sudjEuUmVvcmRlclNhdmVkU2VhcmNoZXNSZXNwb25zZRJnChJXYXRjaE5vdGlmaWNhdGlvbnMSJi5vY3RvZGVjay52MS5XYXRjaE5vdGlmaWNhdGlvbnNSZXF1ZXN0Gicub2N0b2RlY2sudjEuV2F0Y2hOb3RpZmljYXRpb25zUmVzcG9uc2UwAUK3AQoPY29tLm9jdG9kZWNrLnYxQgxTZXJ2aWNlUHJvdG9QAVpJZ2l0aHViLmNvbS90YWxsY2xhaXIvb2N0b2RlY2svYmFja2VuZC9pbnRlcm5hbC9hcGkvb2N0b2RlY2svdjE7b2N0b2RlY2t2MaICA09YWKoCC09jdG9kZWNrLlYxygILT2N0b2RlY2tcVjHiAhdPY3RvZGVja1xWMVxHUEJNZXRhZGF0YeoCDE9jdG9kZWNrOjpWMWIIZWRpdGlvbnNw6Ac", [file_google_protobuf_field_mask, file_google_protobuf_timestamp, file_octodeck_v1_query, file_octodeck_v1_resources]);
 
 /**
  * @generated from message octodeck.v1.GetItemsRequest
@@ -108,11 +108,21 @@ export type GetFacetsRequest = Message<"octodeck.v1.GetFacetsRequest"> & {
   query?: Expr | undefined;
 
   /**
-   * Fields to facet. FIELD_UNSPECIFIED, FIELD_IN and FIELD_TEXT are InvalidArgument.
+   * Fields to facet. FIELD_UNSPECIFIED, FIELD_IN and FIELD_TEXT are InvalidArgument; may be empty
+   * when only queries are wanted.
    *
    * @generated from field: repeated octodeck.v1.Field fields = 2;
    */
   fields: Field[];
+
+  /**
+   * Additional independent queries to count (saved-search badges), each validated and scoped
+   * exactly like GetItemsRequest.query (an unset entry is the empty query: an inbox count).
+   * At most 100. Not affected by `query`.
+   *
+   * @generated from field: repeated octodeck.v1.Expr queries = 3;
+   */
+  queries: Expr[];
 };
 
 /**
@@ -134,6 +144,13 @@ export type GetFacetsResponse = Message<"octodeck.v1.GetFacetsResponse"> & {
    * @generated from field: repeated octodeck.v1.Facet facets = 1;
    */
   facets: Facet[];
+
+  /**
+   * One result per entry of GetFacetsRequest.queries, in request order.
+   *
+   * @generated from field: repeated octodeck.v1.CountResult counts = 2;
+   */
+  counts: CountResult[];
 };
 
 /**
@@ -469,6 +486,49 @@ export const UpdateSubscriptionResponseSchema: GenMessage<UpdateSubscriptionResp
   messageDesc(file_octodeck_v1_service, 21);
 
 /**
+ * A named dashboard query shown in the sidebar. Stored in config.json; list order is display order.
+ *
+ * @generated from message octodeck.v1.SavedSearch
+ */
+export type SavedSearch = Message<"octodeck.v1.SavedSearch"> & {
+  /**
+   * Server-assigned, stable and opaque (16 random bytes, hex). Assigned on load if missing.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * Display name: trimmed, 1-80 characters, no control characters, unique (case-insensitive).
+   *
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * The query exactly as the user wrote it, in the dashboard's text syntax: non-empty after
+   * trimming, at most 1000 characters, no line breaks. The daemon stores it and never parses it.
+   *
+   * @generated from field: string query = 3;
+   */
+  query: string;
+
+  /**
+   * Sort applied when the search is opened. Unset means the default sort.
+   *
+   * @generated from field: octodeck.v1.Sort sort = 4;
+   */
+  sort?: Sort | undefined;
+};
+
+/**
+ * Describes the message octodeck.v1.SavedSearch.
+ * Use `create(SavedSearchSchema)` to create a new message.
+ */
+export const SavedSearchSchema: GenMessage<SavedSearch> = /*@__PURE__*/
+  messageDesc(file_octodeck_v1_service, 22);
+
+/**
  * @generated from message octodeck.v1.Config
  */
 export type Config = Message<"octodeck.v1.Config"> & {
@@ -478,6 +538,9 @@ export type Config = Message<"octodeck.v1.Config"> & {
   watchedRepos: string[];
 
   /**
+   * Legacy: converted into saved_searches when the config is loaded or updated, and always empty
+   * afterwards. Kept so old config files can still be read.
+   *
    * @generated from field: repeated string pinned_repos = 2;
    */
   pinnedRepos: string[];
@@ -541,6 +604,14 @@ export type Config = Message<"octodeck.v1.Config"> & {
    * @generated from field: octodeck.v1.NotificationSettings notification_settings = 14;
    */
   notificationSettings?: NotificationSettings | undefined;
+
+  /**
+   * Saved searches, in display order. Changed only through the saved search RPCs; UpdateConfig
+   * rejects masks that include this field and preserves it on a full update.
+   *
+   * @generated from field: repeated octodeck.v1.SavedSearch saved_searches = 15;
+   */
+  savedSearches: SavedSearch[];
 };
 
 /**
@@ -548,7 +619,7 @@ export type Config = Message<"octodeck.v1.Config"> & {
  * Use `create(ConfigSchema)` to create a new message.
  */
 export const ConfigSchema: GenMessage<Config> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 22);
+  messageDesc(file_octodeck_v1_service, 23);
 
 /**
  * Desktop notification and badge preferences. Unset fields take the daemon defaults, so GetConfig
@@ -643,7 +714,7 @@ export type NotificationSettings = Message<"octodeck.v1.NotificationSettings"> &
  * Use `create(NotificationSettingsSchema)` to create a new message.
  */
 export const NotificationSettingsSchema: GenMessage<NotificationSettings> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 23);
+  messageDesc(file_octodeck_v1_service, 24);
 
 /**
  * @generated from message octodeck.v1.TrackedQueryStats
@@ -670,7 +741,7 @@ export type TrackedQueryStats = Message<"octodeck.v1.TrackedQueryStats"> & {
  * Use `create(TrackedQueryStatsSchema)` to create a new message.
  */
 export const TrackedQueryStatsSchema: GenMessage<TrackedQueryStats> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 24);
+  messageDesc(file_octodeck_v1_service, 25);
 
 /**
  * @generated from message octodeck.v1.GetConfigRequest
@@ -683,7 +754,7 @@ export type GetConfigRequest = Message<"octodeck.v1.GetConfigRequest"> & {
  * Use `create(GetConfigRequestSchema)` to create a new message.
  */
 export const GetConfigRequestSchema: GenMessage<GetConfigRequest> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 25);
+  messageDesc(file_octodeck_v1_service, 26);
 
 /**
  * @generated from message octodeck.v1.GetConfigResponse
@@ -710,7 +781,7 @@ export type GetConfigResponse = Message<"octodeck.v1.GetConfigResponse"> & {
  * Use `create(GetConfigResponseSchema)` to create a new message.
  */
 export const GetConfigResponseSchema: GenMessage<GetConfigResponse> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 26);
+  messageDesc(file_octodeck_v1_service, 27);
 
 /**
  * @generated from message octodeck.v1.UpdateConfigRequest
@@ -737,7 +808,7 @@ export type UpdateConfigRequest = Message<"octodeck.v1.UpdateConfigRequest"> & {
  * Use `create(UpdateConfigRequestSchema)` to create a new message.
  */
 export const UpdateConfigRequestSchema: GenMessage<UpdateConfigRequest> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 27);
+  messageDesc(file_octodeck_v1_service, 28);
 
 /**
  * @generated from message octodeck.v1.TrackedQueryWarning
@@ -769,7 +840,7 @@ export type TrackedQueryWarning = Message<"octodeck.v1.TrackedQueryWarning"> & {
  * Use `create(TrackedQueryWarningSchema)` to create a new message.
  */
 export const TrackedQueryWarningSchema: GenMessage<TrackedQueryWarning> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 28);
+  messageDesc(file_octodeck_v1_service, 29);
 
 /**
  * @generated from message octodeck.v1.UpdateConfigResponse
@@ -801,7 +872,167 @@ export type UpdateConfigResponse = Message<"octodeck.v1.UpdateConfigResponse"> &
  * Use `create(UpdateConfigResponseSchema)` to create a new message.
  */
 export const UpdateConfigResponseSchema: GenMessage<UpdateConfigResponse> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 29);
+  messageDesc(file_octodeck_v1_service, 30);
+
+/**
+ * Appended at the end of the list. id is ignored.
+ *
+ * @generated from message octodeck.v1.CreateSavedSearchRequest
+ */
+export type CreateSavedSearchRequest = Message<"octodeck.v1.CreateSavedSearchRequest"> & {
+  /**
+   * @generated from field: octodeck.v1.SavedSearch saved_search = 1;
+   */
+  savedSearch?: SavedSearch | undefined;
+};
+
+/**
+ * Describes the message octodeck.v1.CreateSavedSearchRequest.
+ * Use `create(CreateSavedSearchRequestSchema)` to create a new message.
+ */
+export const CreateSavedSearchRequestSchema: GenMessage<CreateSavedSearchRequest> = /*@__PURE__*/
+  messageDesc(file_octodeck_v1_service, 31);
+
+/**
+ * @generated from message octodeck.v1.CreateSavedSearchResponse
+ */
+export type CreateSavedSearchResponse = Message<"octodeck.v1.CreateSavedSearchResponse"> & {
+  /**
+   * As stored, with its id.
+   *
+   * @generated from field: octodeck.v1.SavedSearch saved_search = 1;
+   */
+  savedSearch?: SavedSearch | undefined;
+
+  /**
+   * The full list after the change (includes saved_search).
+   *
+   * @generated from field: repeated octodeck.v1.SavedSearch saved_searches = 2;
+   */
+  savedSearches: SavedSearch[];
+};
+
+/**
+ * Describes the message octodeck.v1.CreateSavedSearchResponse.
+ * Use `create(CreateSavedSearchResponseSchema)` to create a new message.
+ */
+export const CreateSavedSearchResponseSchema: GenMessage<CreateSavedSearchResponse> = /*@__PURE__*/
+  messageDesc(file_octodeck_v1_service, 32);
+
+/**
+ * @generated from message octodeck.v1.UpdateSavedSearchRequest
+ */
+export type UpdateSavedSearchRequest = Message<"octodeck.v1.UpdateSavedSearchRequest"> & {
+  /**
+   * id selects the entry; other fields per update_mask.
+   *
+   * @generated from field: octodeck.v1.SavedSearch saved_search = 1;
+   */
+  savedSearch?: SavedSearch | undefined;
+
+  /**
+   * Paths: "name", "query", "sort" (sort carries both key and order). Empty means all three. A
+   * path in the mask whose field is unset in saved_search clears it (an unset sort resets to the
+   * default), mirroring applyFieldMask. "id" and unknown paths are InvalidArgument.
+   *
+   * @generated from field: google.protobuf.FieldMask update_mask = 2;
+   */
+  updateMask?: FieldMask | undefined;
+};
+
+/**
+ * Describes the message octodeck.v1.UpdateSavedSearchRequest.
+ * Use `create(UpdateSavedSearchRequestSchema)` to create a new message.
+ */
+export const UpdateSavedSearchRequestSchema: GenMessage<UpdateSavedSearchRequest> = /*@__PURE__*/
+  messageDesc(file_octodeck_v1_service, 33);
+
+/**
+ * @generated from message octodeck.v1.UpdateSavedSearchResponse
+ */
+export type UpdateSavedSearchResponse = Message<"octodeck.v1.UpdateSavedSearchResponse"> & {
+  /**
+   * @generated from field: repeated octodeck.v1.SavedSearch saved_searches = 1;
+   */
+  savedSearches: SavedSearch[];
+};
+
+/**
+ * Describes the message octodeck.v1.UpdateSavedSearchResponse.
+ * Use `create(UpdateSavedSearchResponseSchema)` to create a new message.
+ */
+export const UpdateSavedSearchResponseSchema: GenMessage<UpdateSavedSearchResponse> = /*@__PURE__*/
+  messageDesc(file_octodeck_v1_service, 34);
+
+/**
+ * @generated from message octodeck.v1.DeleteSavedSearchRequest
+ */
+export type DeleteSavedSearchRequest = Message<"octodeck.v1.DeleteSavedSearchRequest"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message octodeck.v1.DeleteSavedSearchRequest.
+ * Use `create(DeleteSavedSearchRequestSchema)` to create a new message.
+ */
+export const DeleteSavedSearchRequestSchema: GenMessage<DeleteSavedSearchRequest> = /*@__PURE__*/
+  messageDesc(file_octodeck_v1_service, 35);
+
+/**
+ * @generated from message octodeck.v1.DeleteSavedSearchResponse
+ */
+export type DeleteSavedSearchResponse = Message<"octodeck.v1.DeleteSavedSearchResponse"> & {
+  /**
+   * @generated from field: repeated octodeck.v1.SavedSearch saved_searches = 1;
+   */
+  savedSearches: SavedSearch[];
+};
+
+/**
+ * Describes the message octodeck.v1.DeleteSavedSearchResponse.
+ * Use `create(DeleteSavedSearchResponseSchema)` to create a new message.
+ */
+export const DeleteSavedSearchResponseSchema: GenMessage<DeleteSavedSearchResponse> = /*@__PURE__*/
+  messageDesc(file_octodeck_v1_service, 36);
+
+/**
+ * @generated from message octodeck.v1.ReorderSavedSearchesRequest
+ */
+export type ReorderSavedSearchesRequest = Message<"octodeck.v1.ReorderSavedSearchesRequest"> & {
+  /**
+   * Every saved search id, exactly once, in the new order.
+   *
+   * @generated from field: repeated string ids = 1;
+   */
+  ids: string[];
+};
+
+/**
+ * Describes the message octodeck.v1.ReorderSavedSearchesRequest.
+ * Use `create(ReorderSavedSearchesRequestSchema)` to create a new message.
+ */
+export const ReorderSavedSearchesRequestSchema: GenMessage<ReorderSavedSearchesRequest> = /*@__PURE__*/
+  messageDesc(file_octodeck_v1_service, 37);
+
+/**
+ * @generated from message octodeck.v1.ReorderSavedSearchesResponse
+ */
+export type ReorderSavedSearchesResponse = Message<"octodeck.v1.ReorderSavedSearchesResponse"> & {
+  /**
+   * @generated from field: repeated octodeck.v1.SavedSearch saved_searches = 1;
+   */
+  savedSearches: SavedSearch[];
+};
+
+/**
+ * Describes the message octodeck.v1.ReorderSavedSearchesResponse.
+ * Use `create(ReorderSavedSearchesResponseSchema)` to create a new message.
+ */
+export const ReorderSavedSearchesResponseSchema: GenMessage<ReorderSavedSearchesResponse> = /*@__PURE__*/
+  messageDesc(file_octodeck_v1_service, 38);
 
 /**
  * @generated from message octodeck.v1.GetSyncStatusRequest
@@ -814,7 +1045,7 @@ export type GetSyncStatusRequest = Message<"octodeck.v1.GetSyncStatusRequest"> &
  * Use `create(GetSyncStatusRequestSchema)` to create a new message.
  */
 export const GetSyncStatusRequestSchema: GenMessage<GetSyncStatusRequest> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 30);
+  messageDesc(file_octodeck_v1_service, 39);
 
 /**
  * @generated from message octodeck.v1.SyncStatus
@@ -886,7 +1117,7 @@ export type SyncStatus = Message<"octodeck.v1.SyncStatus"> & {
  * Use `create(SyncStatusSchema)` to create a new message.
  */
 export const SyncStatusSchema: GenMessage<SyncStatus> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 31);
+  messageDesc(file_octodeck_v1_service, 40);
 
 /**
  * @generated from message octodeck.v1.GetSyncStatusResponse
@@ -903,7 +1134,7 @@ export type GetSyncStatusResponse = Message<"octodeck.v1.GetSyncStatusResponse">
  * Use `create(GetSyncStatusResponseSchema)` to create a new message.
  */
 export const GetSyncStatusResponseSchema: GenMessage<GetSyncStatusResponse> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 32);
+  messageDesc(file_octodeck_v1_service, 41);
 
 /**
  * @generated from message octodeck.v1.GetSyncTracesRequest
@@ -930,7 +1161,7 @@ export type GetSyncTracesRequest = Message<"octodeck.v1.GetSyncTracesRequest"> &
  * Use `create(GetSyncTracesRequestSchema)` to create a new message.
  */
 export const GetSyncTracesRequestSchema: GenMessage<GetSyncTracesRequest> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 33);
+  messageDesc(file_octodeck_v1_service, 42);
 
 /**
  * @generated from message octodeck.v1.GetSyncTracesResponse
@@ -947,7 +1178,7 @@ export type GetSyncTracesResponse = Message<"octodeck.v1.GetSyncTracesResponse">
  * Use `create(GetSyncTracesResponseSchema)` to create a new message.
  */
 export const GetSyncTracesResponseSchema: GenMessage<GetSyncTracesResponse> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 34);
+  messageDesc(file_octodeck_v1_service, 43);
 
 /**
  * @generated from message octodeck.v1.DatabaseStats
@@ -1014,7 +1245,7 @@ export type DatabaseStats = Message<"octodeck.v1.DatabaseStats"> & {
  * Use `create(DatabaseStatsSchema)` to create a new message.
  */
 export const DatabaseStatsSchema: GenMessage<DatabaseStats> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 35);
+  messageDesc(file_octodeck_v1_service, 44);
 
 /**
  * @generated from message octodeck.v1.GetDatabaseStatsRequest
@@ -1027,7 +1258,7 @@ export type GetDatabaseStatsRequest = Message<"octodeck.v1.GetDatabaseStatsReque
  * Use `create(GetDatabaseStatsRequestSchema)` to create a new message.
  */
 export const GetDatabaseStatsRequestSchema: GenMessage<GetDatabaseStatsRequest> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 36);
+  messageDesc(file_octodeck_v1_service, 45);
 
 /**
  * @generated from message octodeck.v1.GetDatabaseStatsResponse
@@ -1044,7 +1275,7 @@ export type GetDatabaseStatsResponse = Message<"octodeck.v1.GetDatabaseStatsResp
  * Use `create(GetDatabaseStatsResponseSchema)` to create a new message.
  */
 export const GetDatabaseStatsResponseSchema: GenMessage<GetDatabaseStatsResponse> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 37);
+  messageDesc(file_octodeck_v1_service, 46);
 
 /**
  * @generated from message octodeck.v1.Notification
@@ -1099,7 +1330,7 @@ export type Notification = Message<"octodeck.v1.Notification"> & {
  * Use `create(NotificationSchema)` to create a new message.
  */
 export const NotificationSchema: GenMessage<Notification> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 38);
+  messageDesc(file_octodeck_v1_service, 47);
 
 /**
  * Sent instead of individual notifications when a reconnecting client missed more than a few.
@@ -1135,7 +1366,7 @@ export type NotificationSummary = Message<"octodeck.v1.NotificationSummary"> & {
  * Use `create(NotificationSummarySchema)` to create a new message.
  */
 export const NotificationSummarySchema: GenMessage<NotificationSummary> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 39);
+  messageDesc(file_octodeck_v1_service, 48);
 
 /**
  * @generated from message octodeck.v1.BadgeUpdate
@@ -1171,7 +1402,7 @@ export type BadgeUpdate = Message<"octodeck.v1.BadgeUpdate"> & {
  * Use `create(BadgeUpdateSchema)` to create a new message.
  */
 export const BadgeUpdateSchema: GenMessage<BadgeUpdate> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 40);
+  messageDesc(file_octodeck_v1_service, 49);
 
 /**
  * @generated from message octodeck.v1.Heartbeat
@@ -1184,7 +1415,7 @@ export type Heartbeat = Message<"octodeck.v1.Heartbeat"> & {
  * Use `create(HeartbeatSchema)` to create a new message.
  */
 export const HeartbeatSchema: GenMessage<Heartbeat> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 41);
+  messageDesc(file_octodeck_v1_service, 50);
 
 /**
  * @generated from message octodeck.v1.WatchNotificationsRequest
@@ -1204,7 +1435,7 @@ export type WatchNotificationsRequest = Message<"octodeck.v1.WatchNotificationsR
  * Use `create(WatchNotificationsRequestSchema)` to create a new message.
  */
 export const WatchNotificationsRequestSchema: GenMessage<WatchNotificationsRequest> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 42);
+  messageDesc(file_octodeck_v1_service, 51);
 
 /**
  * @generated from message octodeck.v1.WatchNotificationsResponse
@@ -1252,7 +1483,7 @@ export type WatchNotificationsResponse = Message<"octodeck.v1.WatchNotifications
  * Use `create(WatchNotificationsResponseSchema)` to create a new message.
  */
 export const WatchNotificationsResponseSchema: GenMessage<WatchNotificationsResponse> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_service, 43);
+  messageDesc(file_octodeck_v1_service, 52);
 
 /**
  * How the extension toolbar badge counts items.
@@ -1493,6 +1724,40 @@ export const OctoDeckService: GenService<{
     methodKind: "unary";
     input: typeof UpdateConfigRequestSchema;
     output: typeof UpdateConfigResponseSchema;
+  },
+  /**
+   * Saved searches. Each call is a read-modify-write of the stored list under the config lock.
+   *
+   * @generated from rpc octodeck.v1.OctoDeckService.CreateSavedSearch
+   */
+  createSavedSearch: {
+    methodKind: "unary";
+    input: typeof CreateSavedSearchRequestSchema;
+    output: typeof CreateSavedSearchResponseSchema;
+  },
+  /**
+   * @generated from rpc octodeck.v1.OctoDeckService.UpdateSavedSearch
+   */
+  updateSavedSearch: {
+    methodKind: "unary";
+    input: typeof UpdateSavedSearchRequestSchema;
+    output: typeof UpdateSavedSearchResponseSchema;
+  },
+  /**
+   * @generated from rpc octodeck.v1.OctoDeckService.DeleteSavedSearch
+   */
+  deleteSavedSearch: {
+    methodKind: "unary";
+    input: typeof DeleteSavedSearchRequestSchema;
+    output: typeof DeleteSavedSearchResponseSchema;
+  },
+  /**
+   * @generated from rpc octodeck.v1.OctoDeckService.ReorderSavedSearches
+   */
+  reorderSavedSearches: {
+    methodKind: "unary";
+    input: typeof ReorderSavedSearchesRequestSchema;
+    output: typeof ReorderSavedSearchesResponseSchema;
   },
   /**
    * Desktop notifications and toolbar badge (server streaming). The daemon decides what to

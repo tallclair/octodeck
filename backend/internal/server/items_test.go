@@ -403,3 +403,147 @@ func TestLoadCandidates_FallsBackWhenPrefilterFails(t *testing.T) {
 	_, err = h.loadCandidates(ctx, &database.ItemFilter{Where: "no_such_column = ?", Args: []any{1}})
 	require.Error(t, err, "a cancelled request is not retried")
 }
+
+// TestGetFacets_QueriesCountsAndOrdering tests evaluating queries in GetFacets:
+// valid queries, @me queries, unset queries counting the inbox, implicit inbox per query,
+// request ordering, and per-query compilation errors with relative paths.
+func TestGetFacets_QueriesCountsAndOrdering(t *testing.T) {
+	gh := &mockGitHubClient{authenticated: true, login: "testuser"}
+	env := setupItemsTest(t, nil, gh)
+	env.seed(t,
+		queryItem{id: "A", repo: "acme/web", author: "alice", updated: queryNow},
+		queryItem{id: "B", repo: "acme/web", author: "testuser", updated: queryNow, acked: true},
+		queryItem{id: "C", repo: "other/lib", author: "testuser", updated: queryNow},
+	)
+
+	// queries in order:
+	// 0: valid unscoped query (implicit inbox excludes acked B) -> A (count 1)
+	// 1: valid @me query (author:@me in inbox -> C; B is acked so excluded) -> C (count 1)
+	// 2: unset query (counts the whole inbox: A and C) -> A, C (count 2)
+	// 3: invalid query (state:bogus) -> error, counts 0
+	// 4: explicit triage:all query (includes acked B) -> A, B (count 2, inbox 1)
+	qUnscoped := predicateExpr(octodeckv1.Field_FIELD_REPO, "acme/web")
+	qMe := predicateExpr(octodeckv1.Field_FIELD_AUTHOR, "@me")
+	qUnset := &octodeckv1.Expr{}
+	qInvalid := predicateExpr(octodeckv1.Field_FIELD_STATE, "bogus")
+	qTriageAll := andExpr(
+		predicateExpr(octodeckv1.Field_FIELD_TRIAGE, "all"),
+		predicateExpr(octodeckv1.Field_FIELD_REPO, "acme/web"),
+	)
+
+	req := connect.NewRequest(octodeckv1.GetFacetsRequest_builder{
+		Fields:  []octodeckv1.Field{octodeckv1.Field_FIELD_REPO},
+		Queries: []*octodeckv1.Expr{qUnscoped, qMe, qUnset, qInvalid, qTriageAll},
+	}.Build())
+	env.addHeaders(req)
+	resp, err := env.client.GetFacets(t.Context(), req)
+	require.NoError(t, err)
+
+	require.Len(t, resp.Msg.GetCounts(), 5)
+
+	// 0: unscoped repo:acme/web
+	c0 := resp.Msg.GetCounts()[0]
+	assert.Nil(t, c0.GetError())
+	assert.Equal(t, int32(1), c0.GetCount())
+	assert.Equal(t, int32(1), c0.GetInboxCount())
+	assert.Equal(t, int32(1), c0.GetNewCount())
+
+	// 1: author:@me
+	c1 := resp.Msg.GetCounts()[1]
+	assert.Nil(t, c1.GetError())
+	assert.Equal(t, int32(1), c1.GetCount())
+	assert.Equal(t, int32(1), c1.GetInboxCount())
+
+	// 2: unset query counts whole inbox (A and C)
+	c2 := resp.Msg.GetCounts()[2]
+	assert.Nil(t, c2.GetError())
+	assert.Equal(t, int32(2), c2.GetCount())
+	assert.Equal(t, int32(2), c2.GetInboxCount())
+
+	// 3: invalid query sets only its own error, with path relative to this query
+	c3 := resp.Msg.GetCounts()[3]
+	require.NotNil(t, c3.GetError())
+	assert.Equal(t, "predicate.values[0]", c3.GetError().GetPath())
+	assert.Equal(t, int32(0), c3.GetCount())
+	assert.Equal(t, int32(0), c3.GetNewCount())
+	assert.Equal(t, int32(0), c3.GetInboxCount())
+
+	// 4: triage:all repo:acme/web includes both inbox A and acked B
+	c4 := resp.Msg.GetCounts()[4]
+	assert.Nil(t, c4.GetError())
+	assert.Equal(t, int32(2), c4.GetCount())
+	assert.Equal(t, int32(1), c4.GetInboxCount())
+}
+
+// TestGetFacets_QueriesLimits checks that 101 queries returns InvalidArgument without loading items.
+func TestGetFacets_QueriesLimits(t *testing.T) {
+	env := setupItemsTest(t, nil, &mockGitHubClient{authenticated: true})
+	env.seed(t, queryItem{id: "A", repo: "acme/web", author: "x", updated: queryNow})
+
+	tooMany := make([]*octodeckv1.Expr, 101)
+	for i := range tooMany {
+		tooMany[i] = predicateExpr(octodeckv1.Field_FIELD_REPO, "acme/web")
+	}
+
+	req := connect.NewRequest(octodeckv1.GetFacetsRequest_builder{
+		Fields:  []octodeckv1.Field{octodeckv1.Field_FIELD_REPO},
+		Queries: tooMany,
+	}.Build())
+	env.addHeaders(req)
+	_, err := env.client.GetFacets(t.Context(), req)
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+
+	// Verify that the limit is enforced before loading items: a handler with a nil db returns
+	// InvalidArgument rather than panicking or failing on item loading.
+	h := &octoDeckHandler{}
+	_, err = h.GetFacets(t.Context(), req)
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+
+	// Verify that exactly 100 queries succeeds.
+	exactly100 := make([]*octodeckv1.Expr, 100)
+	for i := range exactly100 {
+		exactly100[i] = predicateExpr(octodeckv1.Field_FIELD_REPO, "acme/web")
+	}
+	req100 := connect.NewRequest(octodeckv1.GetFacetsRequest_builder{
+		Fields:  []octodeckv1.Field{octodeckv1.Field_FIELD_REPO},
+		Queries: exactly100,
+	}.Build())
+	env.addHeaders(req100)
+	resp100, err := env.client.GetFacets(t.Context(), req100)
+	require.NoError(t, err)
+	assert.Len(t, resp100.Msg.GetCounts(), 100)
+}
+
+// TestGetFacets_QueriesWithEmptyFields checks that queries can be evaluated when fields is empty.
+func TestGetFacets_QueriesWithEmptyFields(t *testing.T) {
+	env := setupItemsTest(t, nil, &mockGitHubClient{authenticated: true})
+	env.seed(t, queryItem{id: "A", repo: "acme/web", author: "x", updated: queryNow})
+
+	req := connect.NewRequest(octodeckv1.GetFacetsRequest_builder{
+		Queries: []*octodeckv1.Expr{predicateExpr(octodeckv1.Field_FIELD_REPO, "acme/web")},
+	}.Build())
+	env.addHeaders(req)
+	resp, err := env.client.GetFacets(t.Context(), req)
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetFacets())
+	require.Len(t, resp.Msg.GetCounts(), 1)
+	assert.Equal(t, int32(1), resp.Msg.GetCounts()[0].GetCount())
+}
+
+// TestGetFacets_InvalidMainQueryFails checks that an invalid main query still fails the request.
+func TestGetFacets_InvalidMainQueryFails(t *testing.T) {
+	env := setupItemsTest(t, nil, &mockGitHubClient{authenticated: true})
+	env.seed(t, queryItem{id: "A", repo: "acme/web", author: "x", updated: queryNow})
+
+	req := connect.NewRequest(octodeckv1.GetFacetsRequest_builder{
+		Query:   predicateExpr(octodeckv1.Field_FIELD_STATE, "bogus"),
+		Fields:  []octodeckv1.Field{octodeckv1.Field_FIELD_REPO},
+		Queries: []*octodeckv1.Expr{predicateExpr(octodeckv1.Field_FIELD_REPO, "acme/web")},
+	}.Build())
+	env.addHeaders(req)
+	_, err := env.client.GetFacets(t.Context(), req)
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}

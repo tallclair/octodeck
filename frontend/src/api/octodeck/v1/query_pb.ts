@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file octodeck/v1/query.proto.
  */
 export const file_octodeck_v1_query: GenFile = /*@__PURE__*/
-  fileDesc("ChdvY3RvZGVjay92MS9xdWVyeS5wcm90bxILb2N0b2RlY2sudjEiqAEKBEV4cHISKwoJcHJlZGljYXRlGAEgASgLMhYub2N0b2RlY2sudjEuUHJlZGljYXRlSAASJAoDYW5kGAIgASgLMhUub2N0b2RlY2sudjEuRXhwckxpc3RIABIjCgJvchgDIAEoCzIVLm9jdG9kZWNrLnYxLkV4cHJMaXN0SAASIAoDbm90GAQgASgLMhEub2N0b2RlY2sudjEuRXhwckgAQgYKBGtpbmQiLAoIRXhwckxpc3QSIAoFZXhwcnMYASADKAsyES5vY3RvZGVjay52MS5FeHByIk8KCVByZWRpY2F0ZRIhCgVmaWVsZBgBIAEoDjISLm9jdG9kZWNrLnYxLkZpZWxkEg4KBnZhbHVlcxgCIAMoCRIPCgduZWdhdGVkGAMgASgIIlAKBFNvcnQSIQoDa2V5GAEgASgOMhQub2N0b2RlY2sudjEuU29ydEtleRIlCgVvcmRlchgCIAEoDjIWLm9jdG9kZWNrLnYxLlNvcnRPcmRlciJTCgVGYWNldBIhCgVmaWVsZBgBIAEoDjISLm9jdG9kZWNrLnYxLkZpZWxkEicKBnZhbHVlcxgCIAMoCzIXLm9jdG9kZWNrLnYxLkZhY2V0VmFsdWUicQoKRmFjZXRWYWx1ZRINCgV2YWx1ZRgBIAEoCRINCgVjb3VudBgCIAEoBRINCgVjb2xvchgDIAEoCRI2ChJsYXRlc3RfYWN0aXZpdHlfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIlwKCUV4cHJFcnJvchIMCgRwYXRoGAEgASgJEg8KB21lc3NhZ2UYAiABKAkSIQoFZmllbGQYAyABKA4yEi5vY3RvZGVjay52MS5GaWVsZBINCgV2YWx1ZRgEIAEoCSqvAgoFRmllbGQSFQoRRklFTERfVU5TUEVDSUZJRUQQABIQCgxGSUVMRF9UUklBR0UQARIPCgtGSUVMRF9TVEFURRACEg4KCkZJRUxEX1RZUEUQAxIPCgtGSUVMRF9EUkFGVBAEEhIKDkZJRUxEX1RSQUNLSU5HEAUSEQoNRklFTERfU1RBUlJFRBAGEg0KCUZJRUxEX05FVxAHEg4KCkZJRUxEX1JFUE8QCBINCglGSUVMRF9PUkcQCRIQCgxGSUVMRF9BVVRIT1IQChISCg5GSUVMRF9BU1NJR05FRRALEhMKD0ZJRUxEX01JTEVTVE9ORRAMEg8KC0ZJRUxEX0xBQkVMEA0SDAoIRklFTERfTk8QDhIMCghGSUVMRF9JThAPEg4KCkZJRUxEX1RFWFQQECpjCgdTb3J0S2V5EhgKFFNPUlRfS0VZX1VOU1BFQ0lGSUVEEAASFAoQU09SVF9LRVlfVVBEQVRFRBABEhIKDlNPUlRfS0VZX0FDS0VEEAISFAoQU09SVF9LRVlfQ1JFQVRFRBADKlAKCVNvcnRPcmRlchIaChZTT1JUX09SREVSX1VOU1BFQ0lGSUVEEAASEwoPU09SVF9PUkRFUl9ERVNDEAESEgoOU09SVF9PUkRFUl9BU0MQAkK1AQoPY29tLm9jdG9kZWNrLnYxQgpRdWVyeVByb3RvUAFaSWdpdGh1Yi5jb20vdGFsbGNsYWlyL29jdG9kZWNrL2JhY2tlbmQvaW50ZXJuYWwvYXBpL29jdG9kZWNrL3YxO29jdG9kZWNrdjGiAgNPWFiqAgtPY3RvZGVjay5WMcoCC09jdG9kZWNrXFYx4gIXT2N0b2RlY2tcVjFcR1BCTWV0YWRhdGHqAgxPY3RvZGVjazo6VjFiCGVkaXRpb25zcOgH", [file_google_protobuf_timestamp]);
+  fileDesc("ChdvY3RvZGVjay92MS9xdWVyeS5wcm90bxILb2N0b2RlY2sudjEiqAEKBEV4cHISKwoJcHJlZGljYXRlGAEgASgLMhYub2N0b2RlY2sudjEuUHJlZGljYXRlSAASJAoDYW5kGAIgASgLMhUub2N0b2RlY2sudjEuRXhwckxpc3RIABIjCgJvchgDIAEoCzIVLm9jdG9kZWNrLnYxLkV4cHJMaXN0SAASIAoDbm90GAQgASgLMhEub2N0b2RlY2sudjEuRXhwckgAQgYKBGtpbmQiLAoIRXhwckxpc3QSIAoFZXhwcnMYASADKAsyES5vY3RvZGVjay52MS5FeHByIk8KCVByZWRpY2F0ZRIhCgVmaWVsZBgBIAEoDjISLm9jdG9kZWNrLnYxLkZpZWxkEg4KBnZhbHVlcxgCIAMoCRIPCgduZWdhdGVkGAMgASgIIlAKBFNvcnQSIQoDa2V5GAEgASgOMhQub2N0b2RlY2sudjEuU29ydEtleRIlCgVvcmRlchgCIAEoDjIWLm9jdG9kZWNrLnYxLlNvcnRPcmRlciJTCgVGYWNldBIhCgVmaWVsZBgBIAEoDjISLm9jdG9kZWNrLnYxLkZpZWxkEicKBnZhbHVlcxgCIAMoCzIXLm9jdG9kZWNrLnYxLkZhY2V0VmFsdWUimQEKCkZhY2V0VmFsdWUSDQoFdmFsdWUYASABKAkSDQoFY291bnQYAiABKAUSDQoFY29sb3IYAyABKAkSNgoSbGF0ZXN0X2FjdGl2aXR5X2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIRCgluZXdfY291bnQYBSABKAUSEwoLaW5ib3hfY291bnQYBiABKAUiawoLQ291bnRSZXN1bHQSDQoFY291bnQYASABKAUSEQoJbmV3X2NvdW50GAIgASgFEhMKC2luYm94X2NvdW50GAMgASgFEiUKBWVycm9yGAQgASgLMhYub2N0b2RlY2sudjEuRXhwckVycm9yIlwKCUV4cHJFcnJvchIMCgRwYXRoGAEgASgJEg8KB21lc3NhZ2UYAiABKAkSIQoFZmllbGQYAyABKA4yEi5vY3RvZGVjay52MS5GaWVsZBINCgV2YWx1ZRgEIAEoCSqvAgoFRmllbGQSFQoRRklFTERfVU5TUEVDSUZJRUQQABIQCgxGSUVMRF9UUklBR0UQARIPCgtGSUVMRF9TVEFURRACEg4KCkZJRUxEX1RZUEUQAxIPCgtGSUVMRF9EUkFGVBAEEhIKDkZJRUxEX1RSQUNLSU5HEAUSEQoNRklFTERfU1RBUlJFRBAGEg0KCUZJRUxEX05FVxAHEg4KCkZJRUxEX1JFUE8QCBINCglGSUVMRF9PUkcQCRIQCgxGSUVMRF9BVVRIT1IQChISCg5GSUVMRF9BU1NJR05FRRALEhMKD0ZJRUxEX01JTEVTVE9ORRAMEg8KC0ZJRUxEX0xBQkVMEA0SDAoIRklFTERfTk8QDhIMCghGSUVMRF9JThAPEg4KCkZJRUxEX1RFWFQQECpjCgdTb3J0S2V5EhgKFFNPUlRfS0VZX1VOU1BFQ0lGSUVEEAASFAoQU09SVF9LRVlfVVBEQVRFRBABEhIKDlNPUlRfS0VZX0FDS0VEEAISFAoQU09SVF9LRVlfQ1JFQVRFRBADKlAKCVNvcnRPcmRlchIaChZTT1JUX09SREVSX1VOU1BFQ0lGSUVEEAASEwoPU09SVF9PUkRFUl9ERVNDEAESEgoOU09SVF9PUkRFUl9BU0MQAkK1AQoPY29tLm9jdG9kZWNrLnYxQgpRdWVyeVByb3RvUAFaSWdpdGh1Yi5jb20vdGFsbGNsYWlyL29jdG9kZWNrL2JhY2tlbmQvaW50ZXJuYWwvYXBpL29jdG9kZWNrL3YxO29jdG9kZWNrdjGiAgNPWFiqAgtPY3RvZGVjay5WMcoCC09jdG9kZWNrXFYx4gIXT2N0b2RlY2tcVjFcR1BCTWV0YWRhdGHqAgxPY3RvZGVjazo6VjFiCGVkaXRpb25zcOgH", [file_google_protobuf_timestamp]);
 
 /**
  * A boolean query over items. An unset Expr (or a root Expr with no kind set) is the empty
@@ -205,6 +205,21 @@ export type FacetValue = Message<"octodeck.v1.FacetValue"> & {
    * @generated from field: google.protobuf.Timestamp latest_activity_at = 4;
    */
   latestActivityAt?: Timestamp | undefined;
+
+  /**
+   * Of those, items matching new:any (always inbox items: acked items have no flags). Computed
+   * from each item's activity flags, independent of any new: predicate in the request.
+   *
+   * @generated from field: int32 new_count = 5;
+   */
+  newCount: number;
+
+  /**
+   * Of those, items in the inbox (computed status is not ACKED).
+   *
+   * @generated from field: int32 inbox_count = 6;
+   */
+  inboxCount: number;
 };
 
 /**
@@ -213,6 +228,49 @@ export type FacetValue = Message<"octodeck.v1.FacetValue"> & {
  */
 export const FacetValueSchema: GenMessage<FacetValue> = /*@__PURE__*/
   messageDesc(file_octodeck_v1_query, 5);
+
+/**
+ * Counts for one GetFacetsRequest.queries entry. Same numbers as FacetValue.
+ *
+ * @generated from message octodeck.v1.CountResult
+ */
+export type CountResult = Message<"octodeck.v1.CountResult"> & {
+  /**
+   * Items matching the query (with the implicit triage scope, exactly as GetItems).
+   *
+   * @generated from field: int32 count = 1;
+   */
+  count: number;
+
+  /**
+   * Of those, items matching new:any.
+   *
+   * @generated from field: int32 new_count = 2;
+   */
+  newCount: number;
+
+  /**
+   * Of those, items in the inbox.
+   *
+   * @generated from field: int32 inbox_count = 3;
+   */
+  inboxCount: number;
+
+  /**
+   * Set when the query is invalid; the counts are then 0. error.path is relative to the
+   * queries[i] Expr (not prefixed with "queries[i].").
+   *
+   * @generated from field: octodeck.v1.ExprError error = 4;
+   */
+  error?: ExprError | undefined;
+};
+
+/**
+ * Describes the message octodeck.v1.CountResult.
+ * Use `create(CountResultSchema)` to create a new message.
+ */
+export const CountResultSchema: GenMessage<CountResult> = /*@__PURE__*/
+  messageDesc(file_octodeck_v1_query, 6);
 
 /**
  * Attached as a detail to InvalidArgument errors returned for an invalid Expr.
@@ -255,7 +313,7 @@ export type ExprError = Message<"octodeck.v1.ExprError"> & {
  * Use `create(ExprErrorSchema)` to create a new message.
  */
 export const ExprErrorSchema: GenMessage<ExprError> = /*@__PURE__*/
-  messageDesc(file_octodeck_v1_query, 6);
+  messageDesc(file_octodeck_v1_query, 7);
 
 /**
  * The query vocabulary. This enum and its comments are the single source of truth for the

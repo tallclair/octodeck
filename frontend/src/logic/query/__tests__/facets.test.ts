@@ -119,7 +119,7 @@ describe('buildRepoDropdown', () => {
   const orgs = [fv('kubernetes', 3), fv('golang', 1)];
 
   it('groups repos with matches under their orgs with counts', () => {
-    expect(buildRepoDropdown(repos, orgs, { repos: [], orgs: [] }, [], false)).toEqual({
+    expect(buildRepoDropdown(repos, orgs, { repos: [], orgs: [] }, false)).toEqual({
       orgs: ['golang', 'kubernetes'],
       reposByOrg: {
         golang: [{ value: 'golang/go', count: 1 }],
@@ -129,16 +129,15 @@ describe('buildRepoDropdown', () => {
     });
   });
 
-  it('adds zero-count and pinned repos with Show all', () => {
-    const d = buildRepoDropdown(repos, orgs, { repos: [], orgs: [] }, ['octocat/hello'], true);
-    expect(d.orgs).toEqual(['golang', 'kubernetes', 'octocat']);
+  it('adds zero-count repos with Show all', () => {
+    const d = buildRepoDropdown(repos, orgs, { repos: [], orgs: [] }, true);
+    expect(d.orgs).toEqual(['golang', 'kubernetes']);
     expect(d.reposByOrg).toEqual({
       golang: [{ value: 'golang/go', count: 1 }],
       kubernetes: [
         { value: 'kubernetes/kubernetes', count: 3 },
         { value: 'kubernetes/minikube', count: 0 },
       ],
-      octocat: [{ value: 'octocat/hello', count: 0 }],
     });
   });
 
@@ -148,7 +147,6 @@ describe('buildRepoDropdown', () => {
       [fv('kubernetes/kubernetes', 2), fv('golang/go', 1)],
       [fv('kubernetes', 0), fv('golang', 1)],
       { repos: ['golang/go'], orgs: [] },
-      [],
       false
     );
     expect(d.orgs).toEqual(['golang', 'kubernetes']);
@@ -163,7 +161,6 @@ describe('buildRepoDropdown', () => {
       [fv('kubernetes/kubernetes', 0), fv('golang/go', 1)],
       [fv('kubernetes', 3), fv('golang', 1)],
       { repos: [], orgs: ['golang'] },
-      [],
       false
     );
     expect(d.orgs).toEqual(['golang', 'kubernetes']);
@@ -178,7 +175,6 @@ describe('buildRepoDropdown', () => {
       [],
       [],
       { repos: ['new/repo', 'other/repo'], orgs: ['neworg'] },
-      [],
       false
     );
     expect(d).toEqual({
@@ -194,7 +190,7 @@ describe('buildRepoDropdown', () => {
 
   it('reports no more options when everything is displayed', () => {
     expect(
-      buildRepoDropdown([fv('a/b', 1)], [fv('a', 1)], { repos: [], orgs: [] }, [], false).hasMore
+      buildRepoDropdown([fv('a/b', 1)], [fv('a', 1)], { repos: [], orgs: [] }, false).hasMore
     ).toBe(false);
   });
 
@@ -203,7 +199,6 @@ describe('buildRepoDropdown', () => {
       [],
       [fv('kubernetes', 3)],
       { repos: ['Kubernetes/foo'], orgs: [] },
-      [],
       false
     );
     expect(d.orgs).toEqual(['kubernetes']);
@@ -215,7 +210,6 @@ describe('buildRepoDropdown', () => {
       [],
       [fv('kubernetes', 3)],
       { repos: ['Kubernetes/foo'], orgs: [] },
-      [],
       false
     );
     expect(menuOpts.list).toEqual([
@@ -281,30 +275,25 @@ describe('buildSidebar', () => {
   const now = 1700000000000;
   const day = 86400 * 1000;
 
-  it('splits non-pinned repos by 30-day activity and keeps pinned repos first', () => {
+  it('splits repos by 30-day activity into activeList and hiddenList', () => {
     const repos = [
       fv('kubernetes/kubernetes', 0, { latestMs: now - 31 * day }),
       fv('kubernetes/minikube', 2, { latestMs: now - 5 * day }),
       fv('golang/go', 1, { latestMs: now - 31 * day }),
       fv('octocat/Hello-World', 0, { latestMs: now - 31 * day }),
     ];
-    expect(buildSidebar(repos, ['kubernetes/kubernetes', 'pinned/no-items'], now)).toEqual({
-      pinnedList: ['kubernetes/kubernetes', 'pinned/no-items'],
-      otherList: ['golang/go', 'kubernetes/minikube', 'octocat/Hello-World'],
-      activeOtherList: ['kubernetes/minikube'],
-      hiddenOtherList: ['golang/go', 'octocat/Hello-World'],
+    expect(buildSidebar(repos, now)).toEqual({
+      repoList: ['golang/go', 'kubernetes/kubernetes', 'kubernetes/minikube', 'octocat/Hello-World'],
+      activeList: ['kubernetes/minikube'],
+      hiddenList: ['golang/go', 'kubernetes/kubernetes', 'octocat/Hello-World'],
     });
   });
 
   it('treats activity exactly 30 days old as active and unknown activity as hidden', () => {
     const repos = [fv('a/edge', 0, { latestMs: now - 30 * day }), fv('a/unknown', 1)];
-    const s = buildSidebar(repos, [], now);
-    expect(s.activeOtherList).toEqual(['a/edge']);
-    expect(s.hiddenOtherList).toEqual(['a/unknown']);
-  });
-
-  it('matches pinned repos case-insensitively', () => {
-    expect(buildSidebar([fv('Kubernetes/Kubernetes', 1, { latestMs: now })], ['kubernetes/kubernetes'], now).otherList).toEqual([]);
+    const s = buildSidebar(repos, now);
+    expect(s.activeList).toEqual(['a/edge']);
+    expect(s.hiddenList).toEqual(['a/unknown']);
   });
 });
 

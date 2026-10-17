@@ -29,8 +29,8 @@ export const QUERY_PAD_Y_PX = 1;
 /** Lines shown before the field stops growing and scrolls. */
 export const QUERY_MAX_LINES = 4;
 
-/** Text box padding: left leaves room for the search icon, right for the clear button. */
-const PAD_RIGHT_PX = 28;
+/** Text box padding: left leaves room for the search icon, right for the pin and clear buttons. */
+const PAD_RIGHT_PX = 48;
 
 /** Horizontal room between a pill's glyphs and its border. */
 const PILL_PAD_X_PX = 3.5;

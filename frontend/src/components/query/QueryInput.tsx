@@ -12,6 +12,8 @@ import { toPlaceholderDisplay } from '../../logic/query/displayText';
 import type { ServerInvalidQuery } from '../../logic/query/predicates';
 import type { PillBox } from '../../logic/query/fieldGeometry';
 import { segmentClause } from '../../logic/query/syntax';
+import type { SavedSearchView } from '../../logic/savedSearches';
+import { PinButton } from '../savedSearches/PinButton';
 import {
   ERROR_UNDERLINE_CLASS,
   PILL_METRICS,
@@ -44,6 +46,11 @@ export interface QueryInputProps {
   readonly facets?: QuerySuggestionFacets;
   readonly placeholder?: string;
   readonly inputRef?: Ref<HTMLTextAreaElement>;
+  readonly textareaTestId?: string;
+  readonly activeSearch?: SavedSearchView | null;
+  readonly originSearch?: SavedSearchView | null;
+  readonly isOriginModified?: boolean;
+  readonly onPinClick?: () => void;
 }
 
 export function QueryInput({
@@ -54,6 +61,11 @@ export function QueryInput({
   facets,
   placeholder = DEFAULT_QUERY_PLACEHOLDER,
   inputRef,
+  textareaTestId,
+  activeSearch,
+  originSearch,
+  isOriginModified,
+  onPinClick,
 }: QueryInputProps) {
   const {
     field,
@@ -195,6 +207,7 @@ export function QueryInput({
 
         <textarea
           ref={textareaRef}
+          data-testid={textareaTestId}
           rows={1}
           role="combobox"
           aria-label="Filter or search query"
@@ -220,6 +233,19 @@ export function QueryInput({
           className={querySearchIconClass(field.focused)}
           style={SEARCH_ICON_STYLE}
         />
+
+        {onPinClick && (
+          <PinButton
+            queryText={field.text}
+            parsed={parsed}
+            hasServerError={errors.serverClauseErrors.size > 0 || Boolean(invalidQuery)}
+            activeSearch={activeSearch}
+            originSearch={originSearch}
+            isOriginModified={isOriginModified}
+            insetPosition={field.text !== '' ? 'left-of-clear' : 'right-edge'}
+            onClick={onPinClick}
+          />
+        )}
 
         {field.text !== '' && (
           <button

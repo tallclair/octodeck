@@ -26,7 +26,6 @@ function Harness({ filters }: { filters: FilterControls }) {
       toggleAssignedToMe={() => {}}
       currentUser="alice"
       facets={EMPTY_FACETS}
-      pinnedRepos={[]}
       menus={menus}
     />
   );

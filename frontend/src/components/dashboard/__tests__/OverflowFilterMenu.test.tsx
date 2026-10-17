@@ -55,7 +55,6 @@ function Harness({
               selectedRepos: filters.repo,
               repoFacets: [fc('kubernetes/kubernetes', 5), fc('kubernetes/website', 2)],
               orgFacets: [fc('kubernetes', 7)],
-              pinnedRepos: [],
               setOrgOrRepo: (kind, values) =>
                 setFiltersState((prev) => ({
                   ...prev,

@@ -116,6 +116,14 @@ func (h *octoDeckHandler) UpdateConfig(ctx context.Context,
 	if newCfg == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("config is required"))
 	}
+	for _, p := range req.Msg.GetUpdateMask().GetPaths() {
+		if p == "saved_searches" || p == "savedSearches" {
+			return nil, connect.NewError(
+				connect.CodeInvalidArgument,
+				errors.New("saved_searches cannot be updated via UpdateConfig; use the saved search RPCs"),
+			)
+		}
+	}
 	if err := validateConfigUpdate(newCfg); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}

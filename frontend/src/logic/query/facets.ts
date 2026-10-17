@@ -235,13 +235,12 @@ export interface RepoDropdown {
 /**
  * The repository dropdown: repos grouped under org headers. Repo and org facets are requested
  * together; each excludes only its own predicates, so the org headers are the union of the org
- * facet and the owners of the listed repos. "Show all" adds zero-count values and pinned repos.
+ * facet and the owners of the listed repos. "Show all" adds zero-count values.
  */
 export function buildRepoDropdown(
   repoValues: readonly FacetValue[],
   orgValues: readonly FacetValue[],
   selected: { repos: readonly string[]; orgs: readonly string[] },
-  pinnedRepos: readonly string[],
   showAll: boolean
 ): RepoDropdown {
   const repoCounts = countsByValue(repoValues);
@@ -262,7 +261,6 @@ export function buildRepoDropdown(
     all.orgs.add(v.value);
     if (v.count > 0) displayed.orgs.add(v.value);
   }
-  for (const repo of pinnedRepos) addRepo(all, repo);
   for (const target of [displayed, all]) {
     for (const repo of selected.repos) addRepo(target, repo);
     for (const org of selected.orgs) target.orgs.add(org);
@@ -291,10 +289,9 @@ export function buildRepoMenuOptions(
   repoValues: readonly FacetValue[],
   orgValues: readonly FacetValue[],
   selected: { repos: readonly string[]; orgs: readonly string[] },
-  pinnedRepos: readonly string[],
   showAll: boolean
 ): OptionList<RepoMenuOption> {
-  const dropdown = buildRepoDropdown(repoValues, orgValues, selected, pinnedRepos, showAll);
+  const dropdown = buildRepoDropdown(repoValues, orgValues, selected, showAll);
   const list: RepoMenuOption[] = [];
   for (const org of dropdown.orgs) {
     const group = fold(org);
@@ -320,38 +317,32 @@ export function buildRepoMenuOptions(
 }
 
 export interface SidebarRepos {
-  readonly pinnedList: string[];
-  /** Every non-pinned repo with items. */
-  readonly otherList: string[];
-  /** Non-pinned repos with non-noise activity in the last 30 days. */
-  readonly activeOtherList: string[];
+  readonly repoList: string[];
+  /** Repos with non-noise activity in the last 30 days. */
+  readonly activeList: string[];
   /** The rest, shown behind "More". */
-  readonly hiddenOtherList: string[];
+  readonly hiddenList: string[];
 }
 
 /** Sidebar repository lists from the repo facet of the unfiltered query. */
 export function buildSidebar(
   repoValues: readonly FacetValue[],
-  pinnedRepos: readonly string[],
   nowMs: number = Date.now()
 ): SidebarRepos {
-  const pinned = new FoldedSet();
-  pinnedRepos.forEach((r) => pinned.add(r));
   const latest = new Map<string, number>();
-  const other = new FoldedSet();
+  const repos = new FoldedSet();
   for (const v of repoValues) {
-    if (!v.value.includes('/') || pinned.has(v.value)) continue;
-    other.add(v.value);
+    if (!v.value.includes('/')) continue;
+    repos.add(v.value);
     latest.set(fold(v.value), Math.max(latest.get(fold(v.value)) ?? 0, getProtoTimestampMs(v.latestActivityAt)));
   }
-  const otherList = other.sorted();
+  const repoList = repos.sorted();
   const cutoffMs = nowMs - THIRTY_DAYS_MS;
   const isActive = (repo: string) => (latest.get(fold(repo)) ?? 0) >= cutoffMs;
   return {
-    pinnedList: [...pinnedRepos],
-    otherList,
-    activeOtherList: otherList.filter(isActive),
-    hiddenOtherList: otherList.filter((r) => !isActive(r)),
+    repoList,
+    activeList: repoList.filter(isActive),
+    hiddenList: repoList.filter((r) => !isActive(r)),
   };
 }
 
@@ -365,6 +356,23 @@ export function countsByValue(values: readonly FacetValue[]): Record<string, num
 /** Count of one value (0 if absent). */
 export function countOf(values: readonly FacetValue[], value: string): number {
   return countsByValue(values)[fold(value)] ?? 0;
+}
+
+/** Facet new-activity counts (`newCount`) keyed by lower-cased value. */
+export function newCountsByValue(values: readonly FacetValue[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const v of values) counts[fold(v.value)] = (counts[fold(v.value)] ?? 0) + v.newCount;
+  return counts;
+}
+
+/** New-activity count (`newCount`) of one value (0 if absent). */
+export function newCountOf(values: readonly FacetValue[], value: string): number {
+  return newCountsByValue(values)[fold(value)] ?? 0;
+}
+
+/** Lower-cased values with at least one matching item carrying new activity (`newCount > 0`). */
+export function valuesWithNew(values: readonly FacetValue[]): Set<string> {
+  return new Set(values.filter((v) => v.newCount > 0).map((v) => fold(v.value)));
 }
 
 export interface ActivityOption {
