@@ -8,7 +8,7 @@
  */
 import type { Capabilities } from '../capabilities/types';
 import { detectScope, Resolver, type ResolveEvent } from '../dom/resolver';
-import type { PageFacts, ScopeDetection, ScopeId } from '../dom/types';
+import type { FeatureId, PageFacts, ScopeDetection, ScopeId } from '../dom/types';
 import type { VariantModule } from '../variants/types';
 import { SessionBus } from './bus';
 import { INSTANCE_ATTR, SAFE_ATTR } from './constants';
@@ -44,7 +44,17 @@ export interface BuildCapabilitiesDeps {
 export interface EngineDeps {
   variants: readonly VariantModule[];
   features: readonly FeatureRegistration[];
-  computePageFacts(url: URL, doc: Document, variants: readonly VariantModule[]): { facts: PageFacts; pageDetection: ScopeDetection };
+  computePageFacts(
+    url: URL,
+    doc: Document,
+    variants: readonly VariantModule[],
+    opts: { onEvent: (e: ResolveEvent) => void; report: (d: Diagnostic) => void }
+  ): { facts: PageFacts; pageDetection: ScopeDetection };
+  /**
+   * Features that page-scope diagnostics (identity, repo, viewer) are attributed to: the ones
+   * that act on the page's identity. Page facts are computed before any feature mounts.
+   */
+  pageDiagnosticFeatures?: readonly FeatureId[];
   buildCapabilities(deps: BuildCapabilitiesDeps): Capabilities;
   /** Optional: platform's diagnostics client, given the engine's messenger. */
   createDiagnostics?(messenger: Messenger): DiagnosticsSink;
@@ -218,8 +228,14 @@ export class Engine {
 
     let facts: PageFacts;
     let pageDetection: ScopeDetection;
+    // Page facts are computed before the host exists; buffer their diagnostics and replay them.
+    const pageEvents: ResolveEvent[] = [];
+    const pageDiagnostics: Diagnostic[] = [];
     try {
-      ({ facts, pageDetection } = this.deps.computePageFacts(url, this.doc, this.deps.variants));
+      ({ facts, pageDetection } = this.deps.computePageFacts(url, this.doc, this.deps.variants, {
+        onEvent: (e) => pageEvents.push(e),
+        report: (d) => pageDiagnostics.push(d),
+      }));
     } catch (error) {
       console.debug('[OctoDeck] page facts failed:', error);
       return;
@@ -289,6 +305,9 @@ export class Engine {
       fingerprint: this.deps.fingerprint,
     });
     this.active = { session, controller, host, resolver, detections, bus };
+    const pageTargets = this.deps.pageDiagnosticFeatures ?? [];
+    for (const e of pageEvents) host.reportTo(pageTargets, host.diagnosticFor(e));
+    for (const d of pageDiagnostics) host.reportTo(pageTargets, d);
 
     await host.mountReady();
     // Settle: keep re-detecting scopes that should exist but haven't appeared yet (hydration, partials).

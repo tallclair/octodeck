@@ -51,7 +51,8 @@ export function createContentEngine(overrides: Partial<EngineDeps> = {}): Engine
   return new Engine({
     variants: VARIANTS,
     features: FEATURES,
-    computePageFacts: (url, doc, variants) => computePageFacts(url, doc, variants),
+    computePageFacts: (url, doc, variants, opts) => computePageFacts(url, doc, variants, opts),
+    pageDiagnosticFeatures: ['sidebarWidget', 'ackButton'],
     buildCapabilities,
     createDiagnostics: (messenger) =>
       createDiagnosticsClient({

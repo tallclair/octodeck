@@ -150,8 +150,17 @@ export class FeatureHost {
 
   /** Attributes a resolver event to the running feature, or to every mounted feature requiring that scope. */
   onResolveEvent(event: ResolveEvent): void {
+    const d = this.diagnosticFor(event);
+    const targets = this.active
+      ? [this.active]
+      : this.features.filter((f) => f.requires.includes(event.scope) && this.states.get(f.id)?.mounted).map((f) => f.id);
+    for (const id of targets) this.report(id, d);
+  }
+
+  /** Converts a resolver event into a diagnostic (with a fingerprint of where resolution looked). */
+  diagnosticFor(event: ResolveEvent): Diagnostic {
     const { resolution } = event;
-    const d: Diagnostic = {
+    return {
       code: resolution.status === 'fallback' ? 'DOM_ANCHOR_FALLBACK' : resolution.status === 'ambiguous' ? 'DOM_ANCHOR_AMBIGUOUS' : 'DOM_ANCHOR_MISSING',
       severity: resolution.status === 'fallback' ? 'info' : 'warn',
       scope: event.scope,
@@ -160,10 +169,13 @@ export class FeatureHost {
       count: resolution.status === 'ambiguous' ? resolution.count : undefined,
       fingerprint: event.base ? this.fingerprintOf(event.base) : undefined,
     };
-    const targets = this.active
-      ? [this.active]
-      : this.features.filter((f) => f.requires.includes(event.scope) && this.states.get(f.id)?.mounted).map((f) => f.id);
-    for (const id of targets) this.report(id, d);
+  }
+
+  /** Reports a diagnostic on behalf of specific features (e.g. page-scope findings made before any mount). */
+  reportTo(features: readonly FeatureId[], d: Diagnostic): void {
+    for (const id of features) {
+      if (this.features.some((f) => f.id === id && f.pages.includes(this.session.facts.kind))) this.report(id, d);
+    }
   }
 
   /** Capability diagnostics (unknown kinds, identity mismatch, load failures), attributed like resolver events. */

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { listFixtures, loadFixture, resetFixture } from './fixtureHarness';
+import { listFixtures, loadFixture, resetFixture, type FixtureMeta } from './fixtureHarness';
 import { ownNodes, recordMutations, shutdownAll, startEngine, stubChrome, wait, type BackgroundStub } from './engineHarness';
 
 /**
@@ -13,7 +13,7 @@ interface Chaos {
   /** Mutates the loaded fixture before the engine starts. */
   apply(doc: Document): void;
   hideEvents?: boolean;
-  check(bg: BackgroundStub): void;
+  check(bg: BackgroundStub, meta: FixtureMeta): void;
 }
 
 const outcome = (bg: BackgroundStub, feature: string) =>
@@ -70,10 +70,18 @@ const CHAOS: Chaos[] = [
       foreignIssue.setAttribute('data-gid', 'I_kwDOforeign000');
       doc.body.appendChild(foreignIssue);
     },
-    check: (bg) => {
+    check: (bg, meta) => {
       const ids = bg.messages.filter((m) => m.type === 'GET_ITEM').map((m) => (m as { itemId: string }).itemId);
       expect(ids.length).toBeGreaterThan(0);
       expect(ids.filter((id) => id.includes('foreign'))).toEqual([]);
+      // Where the variant reads identity from data-gid, the disagreement is reported, not just dropped.
+      if (meta.expect?.scopes?.page === 'classic') {
+        const identity = bg.reports.flatMap((r) => r.diagnostics.filter((d) => d.anchor === 'page.identity' || d.code === 'DOM_IDENTITY_MISMATCH'));
+        expect(identity.map((d) => d.code)).toEqual(expect.arrayContaining([expect.stringMatching(/DOM_ANCHOR_AMBIGUOUS|DOM_IDENTITY_MISMATCH/)]));
+        expect(bg.reports.filter((r) => r.diagnostics.some((d) => d.anchor === 'page.identity')).map((r) => r.feature)).toEqual(
+          expect.arrayContaining(['sidebarWidget'])
+        );
+      }
     },
   },
   {
@@ -99,7 +107,7 @@ describe.each(listFixtures())('chaos: %s', (fixture) => {
   });
 
   it.each(CHAOS.map((c) => [c.name, c] as const))('%s', async (_name, chaos) => {
-    await loadFixture(fixture);
+    const meta = await loadFixture(fixture);
     chaos.apply(document);
     const bg = stubChrome({ hideEvents: chaos.hideEvents });
     const recorder = recordMutations();
@@ -113,7 +121,7 @@ describe.each(listFixtures())('chaos: %s', (fixture) => {
     expect(violations.foreignAttrChanges).toEqual([]);
     expect(bg.reports.flatMap((r) => r.diagnostics.map((d) => `${r.feature}:${d.code}`)).filter((c) => /EXCEPTION|DISABLED/.test(c))).toEqual([]);
 
-    chaos.check(bg);
+    chaos.check(bg, meta);
     engine.shutdown();
     expect(ownNodes()).toEqual([]);
   });
