@@ -386,7 +386,7 @@ The bus is typed, synchronous and per session. Handlers are guarded and auto-uns
 
 ```ts
 export interface BusEvents {
-  'item:updated': { item: Item | null };                       // daemon state for the current item (sidebarWidget -> markers, collapser)
+  'item:updated': { item: Item | null; daemon: 'ok' | 'notFound' | 'offline' | 'error'; error?: string }; // sidebarWidget -> ackButton, markers
   'prefs:changed': PrefsSnapshot;
   'timeline:changed': { added: TimelineItem[]; reason: 'mutation' | 'loadMore' | 'live' };
   'timeline:loading': { phase: 'start' | 'batch' | 'end'; loaded: number; remaining: number | null; error?: string };
@@ -427,7 +427,7 @@ export interface FeatureLedger {
 
 ### 5.6 CSS safe mode
 
-All hiding rules in `styles.css` are gated on a document attribute:
+All hiding rules in `content/styles/*.css` are gated on a document attribute:
 
 ```css
 html:not([data-octodeck-safe]) .octodeck-gh-collapsed-comment,
@@ -549,7 +549,8 @@ export interface LoadUntilOptions {
 | `CE_`, `REE_` | Closed/ReopenedEvent | `closeReopen` |
 | `CRE_`, `REFE_`/`REF_` | Cross-referenced/ReferencedEvent | `reference` |
 | `C_`, `PRC_` | Commit / PullRequestCommit | `commit` |
-| `LE_`, `UNLE_`, `AE_`, `UAE_`, `RFRE_`, `RTE_`, ... | other events | `event` |
+| `LE_`, `UNLE_`, `AE_`, `UAE_`, `RFRE_`, `RTE_`, force-push, ready/draft, branch, lock, pin, transfer, deploy, project, milestone | hideable events (Hide events allowlist) | `event` |
+| other recognized events (e.g. review dismissed, marked duplicate, connected) | non-hideable events | `otherEvent` |
 | `PR_`, `I_` (description) | PullRequest/Issue body | `description` |
 | *(unrecognized prefix)* | – | `unknown` + `TIMELINE_UNKNOWN_KIND` (info) diagnostic, recorded so the table can grow |
 
@@ -603,7 +604,7 @@ Variant `ActionAdapter`s own the selectors and text heuristics that live in `act
 4. **Reviews with comments are never collapsed or hidden** (decision 12). An item of kind `review` whose subtree contains any review comment or review body (`body()` non-null, or any `discussion_r*` anchor) breaks noise runs and is excluded from collapsing, whoever the author is (bot or human).
    - Bodiless review events (e.g. "approved these changes" with no text) follow the normal rules.
    - Commit groups and bodiless events can collapse as before.
-   - Before hiding, run a **sanity check**: if the timeline has ≥5 items and 0 have kind `comment`, or more than 80% would be hidden, skip hiding for this pass and report `DOM_CLASSIFY_ANOMALY`.
+   - Before hiding, run a **classification sanity check** that looks at evidence of misclassification, not at ratios: if a row with a body has kind `unknown`, or a heuristic (text) `kindSource` was used, or a comment-body element sits inside an item whose kind isn't `comment`/`review`/`description`, skip hiding for this pass and report `DOM_CLASSIFY_ANOMALY`. Ratio rules (e.g. "0 comments" or ">80% hidden") are deliberately not used: Dependabot/Renovate and label-heavy bot PRs trip them legitimately.
 5. **Identity writes** (ack, star, notes) use `ItemRef` validated as in §6.1. Daemon responses whose item doesn't match `owner/repo#number` are rejected and reported.
 6. **Legitimate absence is declared, never inferred.** Page kind, `absentWhen` (signed out, locked, archived) and scope `absent` status cover it. Anything not declared is drift.
 
@@ -948,8 +949,9 @@ frontend/src/extension/
 │   ├── engine/                      # WP0 (architect)
 │   │   ├── types.ts                 # Feature, FeatureRegistration, FeatureContext, PageSession, EventBus, FeatureLedger, health types
 │   │   ├── constants.ts             # OWN_ATTR, SAFE_ATTR, INSTANCE_ATTR, isOwnNode()
+│   │   ├── engine.ts                # boot hygiene, instance token, navigation -> sessions, settle loop, orphan handling (dependency-injected)
 │   │   ├── featureHost.ts           # lifecycle, guards, circuit breaker, gate, health
-│   │   ├── session.ts               # PageSession, settle logic
+│   │   ├── prefs.ts                 # PrefsStore: hide events, known bots, safe_mode; never blocks mounting
 │   │   ├── navigation.ts            # URL/hash change sources
 │   │   ├── observer.ts              # ScopedObserver
 │   │   ├── bus.ts                   # EventBus
