@@ -1,5 +1,6 @@
 import type { JsonObject } from '@bufbuild/protobuf';
 import { ItemStatus } from '../api/octodeck/v1/resources_pb';
+import type { AnchorId, FeatureId, PageKind, ScopeId, VariantId } from './content/dom/types';
 
 /** octodeck.v1.NotificationSettings in its proto JSON form. */
 export type NotificationSettingsJson = JsonObject;
@@ -24,7 +25,67 @@ export type ExtensionMessage =
   | { type: 'GET_NOTIFICATION_SETTINGS' }
   | { type: 'SAVE_NOTIFICATION_SETTINGS'; settings: NotificationSettingsJson }
   | { type: 'GET_HIDE_EVENTS' }
-  | { type: 'SET_HIDE_EVENTS'; hideEvents: boolean };
+  | { type: 'SET_HIDE_EVENTS'; hideEvents: boolean }
+  // Per page session and gated feature outcome from the content-script DOM engine.
+  | { type: 'REPORT_DIAGNOSTIC'; report: FeatureReport };
+
+// ---------------------------------------------------------------------------
+// GitHub DOM engine diagnostics (docs/internal/extension_dom_engine_design.md section 10)
+// ---------------------------------------------------------------------------
+
+export type { FeatureId, PageKind, ScopeId, VariantId, AnchorId } from './content/dom/types';
+
+export type DiagnosticCode =
+  | 'SCOPE_UNRECOGNIZED'
+  | 'SCOPE_AMBIGUOUS'
+  | 'DOM_ANCHOR_MISSING'
+  | 'DOM_ANCHOR_AMBIGUOUS'
+  | 'DOM_ANCHOR_FALLBACK'
+  | 'DOM_IDENTITY_MISMATCH'
+  | 'DOM_CLASSIFY_ANOMALY'
+  | 'TIMELINE_UNKNOWN_KIND'
+  | 'TIMELINE_HEURISTIC_USED'
+  | 'LOADMORE_FAILED'
+  | 'LOADMORE_NO_PROGRESS'
+  | 'ANCHOR_NOT_FOUND'
+  | 'FEATURE_EXCEPTION'
+  | 'FEATURE_DISABLED';
+
+export type Severity = 'info' | 'warn' | 'error';
+
+/** Outcome of one gated feature on one page session. 'ok' reports clear degraded state. */
+export type FeatureOutcome = 'ok' | 'drifted' | 'unrecognized' | 'disabled' | 'notApplicable';
+
+export interface Diagnostic {
+  code: DiagnosticCode;
+  severity: Severity;
+  scope?: ScopeId;
+  anchor?: AnchorId;
+  /** Selector index that matched (FALLBACK / AMBIGUOUS). */
+  selectorIndex?: number;
+  /** Match count (AMBIGUOUS). */
+  count?: number;
+  /** Sanitized structural fingerprint (design section 10.3), at most 2 KB. */
+  fingerprint?: string;
+  /** Scrubbed exception text, at most 200 characters. */
+  message?: string;
+}
+
+export interface FeatureReport {
+  /** Random per page session; lets the background dedupe resends. */
+  navId: string;
+  feature: FeatureId;
+  outcome: FeatureOutcome;
+  pageKind: PageKind;
+  /** Variant of the feature's primary required scope. */
+  variant: VariantId | 'unknown';
+  /** owner/repo/(pull|issues)/N */
+  path: string;
+  /** GitHub deploy SHA from meta[name=release]. */
+  ghRelease?: string;
+  /** At most 10. */
+  diagnostics: Diagnostic[];
+}
 
 export type ExtensionResponse<T = unknown> =
   | { ok: true; data: T }
