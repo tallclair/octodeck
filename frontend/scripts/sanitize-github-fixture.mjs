@@ -29,7 +29,7 @@
  *
  * The script is deterministic: running it twice on the same input produces identical output.
  */
-import { readFileSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
@@ -462,6 +462,15 @@ function main() {
   mkdirSync(args.outDir, { recursive: true });
   const htmlPath = join(args.outDir, `${name}.html`);
   const metaPath = join(args.outDir, `${name}.meta.json`);
+  // Hand-curated contract expectations ("expect") survive regeneration; review them after re-sanitizing.
+  if (existsSync(metaPath)) {
+    try {
+      const previous = JSON.parse(readFileSync(metaPath, 'utf8'));
+      if (previous.expect) meta.expect = previous.expect;
+    } catch {
+      // A corrupt previous meta file is simply replaced.
+    }
+  }
   writeFileSync(htmlPath, out);
   writeFileSync(metaPath, JSON.stringify(meta, null, 2) + '\n');
   console.log(`Wrote ${htmlPath} (${(out.length / 1024).toFixed(1)} KB, variant ${meta.variant}) and ${metaPath}`);

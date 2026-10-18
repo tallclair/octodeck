@@ -67,5 +67,112 @@
     ".ajax-pagination-form": 1,
     ".ajax-pagination-btn": 2,
     "[data-testid*=\"load-more\"]": 0
+  },
+  "expect": {
+    "scopes": {
+      "page": "classic",
+      "timeline": "classic",
+      "sidebar": "classic",
+      "composer": "classic"
+    },
+    "identity": "PR_kwDOAToIks73sk7P",
+    "anchors": {
+      "page.identity": {
+        "status": "ok",
+        "count": 11
+      },
+      "page.repo": {
+        "status": "ok",
+        "count": 1
+      },
+      "page.viewer": {
+        "status": "ok",
+        "count": 1
+      },
+      "page.release": {
+        "status": "ok",
+        "count": 1
+      },
+      "sidebar.root": {
+        "status": "ok",
+        "count": 1
+      },
+      "sidebar.insertBefore": {
+        "status": "ok",
+        "count": 1
+      },
+      "composer.root": {
+        "status": "ok",
+        "count": 1
+      },
+      "composer.submit": {
+        "status": "ok",
+        "count": 1
+      },
+      "timeline.root": {
+        "status": "ok",
+        "count": 1
+      },
+      "timeline.item": {
+        "status": "ok",
+        "count": 13
+      },
+      "timeline.row": {
+        "status": "ok",
+        "count": 10
+      },
+      "timeline.hiddenRange": {
+        "status": "ok",
+        "count": 1
+      },
+      "timeline.collapsedThread": {
+        "status": "ok",
+        "count": 1
+      },
+      "timeline.hiddenComments": {
+        "status": "ok",
+        "count": 0
+      }
+    },
+    "items": [
+      "comment",
+      "event",
+      "comment",
+      "event",
+      "comment",
+      "event",
+      "comment",
+      "event",
+      "review",
+      "review",
+      "reference",
+      "review",
+      "commit"
+    ],
+    "groupRows": {
+      "RFRE_": [
+        "event",
+        "event",
+        "event",
+        "event",
+        "event",
+        "event",
+        "event"
+      ]
+    },
+    "humanCommentIds": [
+      "issuecomment-5114001121",
+      "issuecomment-5881883338"
+    ],
+    "botCommentIds": [
+      "issuecomment-5110459218",
+      "issuecomment-5110459357"
+    ],
+    "hidden": {
+      "range": 1,
+      "collapsedThread": 1,
+      "hiddenComments": 0
+    },
+    "supportsLoadMore": true
   }
 }

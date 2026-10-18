@@ -67,5 +67,81 @@
     ".ajax-pagination-form": 0,
     ".ajax-pagination-btn": 0,
     "[data-testid*=\"load-more\"]": 0
+  },
+  "expect": {
+    "scopes": {
+      "page": "react",
+      "timeline": "react",
+      "sidebar": "react",
+      "composer": "react"
+    },
+    "identity": "I_kwDOAToIks8AAAABWyjgrw",
+    "anchors": {
+      "page.identity": {
+        "status": "ok",
+        "count": 1
+      },
+      "page.repo": {
+        "status": "ok",
+        "count": 1
+      },
+      "page.viewer": {
+        "status": "ok",
+        "count": 1
+      },
+      "page.release": {
+        "status": "ok",
+        "count": 1
+      },
+      "sidebar.root": {
+        "status": "ok",
+        "count": 1
+      },
+      "sidebar.insertBefore": {
+        "status": "ok",
+        "count": 1
+      },
+      "composer.root": {
+        "status": "ok",
+        "count": 1
+      },
+      "composer.submit": {
+        "status": "ok",
+        "count": 1
+      },
+      "timeline.root": {
+        "status": "ok",
+        "count": 1
+      },
+      "timeline.item": {
+        "status": "ok",
+        "count": 8
+      }
+    },
+    "items": [
+      "comment",
+      "event",
+      "comment",
+      "reference",
+      "comment",
+      "event",
+      "reference",
+      "comment"
+    ],
+    "groupRows": {},
+    "humanCommentIds": [
+      "issuecomment-6139385994",
+      "issuecomment-6221341618"
+    ],
+    "botCommentIds": [
+      "issuecomment-6138049603",
+      "issuecomment-6138050676"
+    ],
+    "hidden": {
+      "range": 0,
+      "collapsedThread": 0,
+      "hiddenComments": 0
+    },
+    "supportsLoadMore": false
   }
 }

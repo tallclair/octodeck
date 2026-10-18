@@ -39,6 +39,29 @@ export interface FixtureMeta {
   notes: string;
   /** Selector -> number of matches in the sanitized fixture (regression baseline). */
   expectedAnchors: Record<string, number>;
+  /** Hand-curated DOM-contract expectations (design section 11.1), read by contract tests. */
+  expect?: FixtureExpectations;
+}
+
+export interface FixtureExpectations {
+  /** Scope -> expected recognized variant id. */
+  scopes: Record<string, string>;
+  /** Expected validated node id of the page's item. */
+  identity: string | null;
+  /** Anchor id -> expected resolution status and match count (scope-root resolution). */
+  anchors: Record<string, { status: 'ok' | 'fallback' | 'missing' | 'ambiguous'; count?: number }>;
+  /** Kinds of timeline.items() in document order. */
+  items: string[];
+  /** Node-id prefix of a grouped item (e.g. 'RFRE_') -> expected row kinds. */
+  groupRows: Record<string, string[]>;
+  /** Comment anchors written by humans (must never be hidden). */
+  humanCommentIds: string[];
+  /** Comment anchors written by bots/apps (detected via author signals). */
+  botCommentIds: string[];
+  /** Hidden-content segments per kind (timeline.hidden()). */
+  hidden: Record<'range' | 'collapsedThread' | 'hiddenComments', number>;
+  /** Whether the variant's load-more is verified (fail closed otherwise). */
+  supportsLoadMore: boolean;
 }
 
 const FIXTURE_DIR = '../__fixtures__/';
