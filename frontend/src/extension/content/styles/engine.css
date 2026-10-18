@@ -1,0 +1,14 @@
+/*
+ * Engine-level content styles (owner: engine). Feature styles live in features.css and
+ * navigation.css; all files in this directory are concatenated into content.css by the build.
+ */
+
+/*
+ * CSS safe-mode valve (docs/internal/extension_dom_engine_design.md 5.6): with
+ * html[data-octodeck-safe], every OctoDeck node is hidden and every OctoDeck hiding class stops
+ * applying, so GitHub's original rendering returns even if no JavaScript cleanup runs.
+ * Feature CSS must scope its hiding rules with html:not([data-octodeck-safe]).
+ */
+html[data-octodeck-safe] [data-octodeck] {
+  display: none !important;
+}

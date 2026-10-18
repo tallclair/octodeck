@@ -137,6 +137,8 @@ export interface ScopeDetection {
   status: 'recognized' | 'absent' | 'unrecognized' | 'ambiguous';
   variant?: VariantId;
   root?: Element;
+  /** Index of the detector root selector that matched; > 0 is reported as drift. */
+  selectorIndex?: number;
   /** Every variant whose detector matched; more than one means `ambiguous` (fail closed). */
   candidates: VariantId[];
 }

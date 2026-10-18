@@ -45,7 +45,7 @@ export interface PrefsSource {
   /** Current values; defaults or cached values until storage answers (never blocks mounting). */
   current(): PrefsSnapshot;
   onChange(cb: (prefs: PrefsSnapshot) => void, signal: AbortSignal): void;
-  /** Persist the hide-events preference (local cache + background). */
+  /** Persist the hide-events preference (local cache + background); updates current() and notifies every onChange listener in the session. */
   setHideEvents(hide: boolean): void;
 }
 
@@ -54,6 +54,11 @@ export interface ScopeChange {
   scope: ScopeId;
   /** Non-OctoDeck elements added inside the scope since the last notification. */
   addedElements: readonly Element[];
+  /**
+   * OctoDeck-owned elements that someone else (GitHub/React) detached from inside the scope since
+   * the last notification. Removal-only mutations are delivered so owners can re-insert.
+   */
+  removedOwn: readonly Element[];
   /** The scope root was detached or replaced; capabilities for it have been rebuilt. */
   rootReplaced: boolean;
 }
@@ -61,7 +66,12 @@ export interface ScopeChange {
 /** Typed, synchronous, per-session events (section 5.4). */
 export interface BusEvents {
   /** Daemon state for the current item (emitted by sidebarWidget). */
-  'item:updated': { item: Item | null };
+  'item:updated': {
+    item: Item | null;
+    /** Daemon availability for this item; item is non-null only when 'ok'. */
+    daemon: 'ok' | 'notFound' | 'offline' | 'error';
+    error?: string;
+  };
   'prefs:changed': PrefsSnapshot;
   'timeline:changed': { added: readonly TimelineItem[]; reason: 'mutation' | 'loadMore' | 'live' };
   'timeline:loading': { phase: 'start' | 'batch' | 'end'; loaded: number; remaining: number | null; error?: string };

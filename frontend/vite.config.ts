@@ -2,8 +2,8 @@
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import { resolve } from 'path'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { resolve, basename } from 'path'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { execSync } from 'child_process'
 
 const isWebApp = process.env.BUILD_TARGET === 'webapp';
@@ -44,7 +44,6 @@ export default defineConfig({
       closeBundle() {
         if (isExtension) {
           const manifestSrc = resolve(__dirname, 'src/extension/manifest.json');
-          const stylesSrc = resolve(__dirname, 'src/extension/content/styles.css');
           const outDir = resolve(__dirname, '../extension_dist');
           if (!existsSync(outDir)) {
             mkdirSync(outDir, { recursive: true });
@@ -56,8 +55,17 @@ export default defineConfig({
             manifest.version_name = appVersion;
             writeFileSync(resolve(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
           }
-          if (existsSync(stylesSrc)) {
-            copyFileSync(stylesSrc, resolve(outDir, 'content.css'));
+          // Content CSS is split per owner (content/styles/*.css) and concatenated into one content.css.
+          const stylesDir = resolve(__dirname, 'src/extension/content/styles');
+          const cssParts = existsSync(stylesDir)
+            ? readdirSync(stylesDir)
+                .filter((f) => f.endsWith('.css'))
+                .sort()
+                .map((f) => resolve(stylesDir, f))
+            : [];
+          if (cssParts.length > 0) {
+            const css = cssParts.map((p) => `/* ${basename(p)} */\n${readFileSync(p, 'utf8')}`).join('\n');
+            writeFileSync(resolve(outDir, 'content.css'), css);
           }
           const nestedHtml = resolve(outDir, 'src/extension/options.html');
           if (existsSync(nestedHtml)) {

@@ -36,7 +36,10 @@ export type TimelineItemKind =
   | 'closeReopen'
   | 'reference'
   | 'commit'
+  /** Allowlisted noise events (labels, assignments, review requests, renames, project, milestone): hideable. */
   | 'event'
+  /** Known event types that are not allowlisted (force-push, draft/ready, branch, lock, pin, deploy...): never hidden. */
+  | 'otherEvent'
   | 'description'
   | 'unknown';
 
@@ -59,6 +62,8 @@ export interface TimelineRow {
   /** DOM ids inside this row usable as URL hashes. */
   readonly anchors: readonly string[];
   timestamp(): number | null;
+  /** Markdown body inside this row (comment text, review body), or null. Rows with a body are never hidden. */
+  body(): Element | null;
 }
 
 /** One whole timeline item: the unit for collapse runs and marker placement. */

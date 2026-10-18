@@ -53,6 +53,8 @@ export interface FakeRowSpec {
   kind?: TimelineItemKind;
   anchors?: string[];
   timestamp?: number | null;
+  /** Body element for this row (defaults to the item's body for single-row items). */
+  body?: Element | null;
 }
 
 export interface FakeItemSpec {
@@ -86,15 +88,17 @@ export function createFakeTimelineItem(spec: FakeItemSpec = {}): TimelineItem {
   }
   const kind = spec.kind ?? 'comment';
   const timestamp = spec.timestamp ?? null;
-  const rows: TimelineRow[] = (spec.rows ?? [{ el, kind, anchors: spec.anchors, timestamp }]).map((r) => {
+  const rows: TimelineRow[] = (spec.rows ?? [{ el, kind, anchors: spec.anchors, timestamp, body: bodyEl }]).map((r) => {
     const rowEl = r.el ?? el;
     if (rowEl !== el && !rowEl.parentElement) el.appendChild(rowEl);
+    const rowBody = r.body ?? null;
     return {
       el: rowEl,
       kind: r.kind ?? kind,
       kindSource: 'gid' as const,
       anchors: r.anchors ?? [],
       timestamp: () => r.timestamp ?? null,
+      body: () => rowBody,
     };
   });
   return {
@@ -151,7 +155,9 @@ export function createFakeTimeline(opts: FakeTimelineOptions = {}): FakeTimeline
     findByAnchor: (hash) => {
       for (const item of items) {
         if (!item.anchors.includes(hash)) continue;
-        const target = item.el.querySelector(`#${CSS.escape(hash)}`) ?? item.el;
+        // getElementById avoids CSS.escape, which jsdom lacks.
+        const byId = item.el.ownerDocument.getElementById(hash);
+        const target = byId && item.el.contains(byId) ? byId : item.el;
         return { item, target };
       }
       return null;

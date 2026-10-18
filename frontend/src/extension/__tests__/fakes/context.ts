@@ -62,9 +62,10 @@ export type FakeLedger = FeatureLedger & {
 
 export function createFakeLedger(featureId: FeatureId): FakeLedger {
   const created: Element[] = [];
-  const addedClasses: Array<[Element, OwnClass]> = [];
+  const addedClasses: Array<[Element, OwnClass, boolean]> = [];
   const dataChanges: Array<[Element, string, string | null]> = [];
-  const seenKeys = new Set<string>();
+  const keyed = new Map<string, Element>();
+  const removedByLedger = new WeakSet<Element>();
   let reinserts = 0;
 
   const assertOwn = (node: Element) => {
@@ -89,8 +90,10 @@ export function createFakeLedger(featureId: FeatureId): FakeLedger {
       assertOwn(node);
       const key = node.getAttribute(OWN_KEY_ATTR);
       if (key) {
-        if (seenKeys.has(key) && !node.isConnected) reinserts++;
-        seenKeys.add(key);
+        // Mirrors the real ledger: only re-inserting after an external removal counts.
+        const prev = keyed.get(key);
+        if (prev && !prev.isConnected && !removedByLedger.has(prev)) reinserts++;
+        keyed.set(key, node);
       }
       if ('before' in where) where.before.parentNode?.insertBefore(node, where.before);
       else if ('after' in where) where.after.parentNode?.insertBefore(node, where.after.nextSibling);
@@ -98,12 +101,14 @@ export function createFakeLedger(featureId: FeatureId): FakeLedger {
     },
     remove(node) {
       assertOwn(node);
+      removedByLedger.add(node);
       node.remove();
     },
     addClass(el, cls) {
       if (el.classList.contains(cls)) return;
+      const hadClassAttr = el.hasAttribute('class');
       el.classList.add(cls);
-      addedClasses.push([el, cls]);
+      addedClasses.push([el, cls, hadClassAttr]);
     },
     removeClass(el, cls) {
       el.classList.remove(cls);
@@ -126,7 +131,11 @@ export function createFakeLedger(featureId: FeatureId): FakeLedger {
     },
     revert() {
       for (const el of created) el.remove();
-      for (const [el, cls] of addedClasses) el.classList.remove(cls);
+      // Mirrors the real ledger: drop a class attribute that only existed because of us.
+      for (const [el, cls, hadClassAttr] of addedClasses) {
+        el.classList.remove(cls);
+        if (!hadClassAttr && el.classList.length === 0) el.removeAttribute('class');
+      }
       for (const [el, attr, prev] of dataChanges.reverse()) {
         if (prev === null) el.removeAttribute(attr);
         else el.setAttribute(attr, prev);
@@ -197,6 +206,8 @@ export function createFakeContext(opts: FakeContextOptions = {}): FakeContextHan
     },
     setHideEvents: (hide) => {
       hideEventsWrites.push(hide);
+      prefs = { ...prefs, hideEvents: hide };
+      for (const cb of Array.from(prefListeners)) cb(prefs);
     },
   };
 
