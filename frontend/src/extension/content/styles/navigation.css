@@ -1,0 +1,52 @@
+/*
+ * Navigation styles (WP2): permalink-target highlight and the anchor-repair banner toast.
+ * See docs/internal/extension_dom_engine_design.md sections 9.5 and 6.4.
+ *
+ * Contract with capabilities/navigation.ts (HIGHLIGHT_CLASS / TOAST_CLASS):
+ * - scrollToAndHighlight() adds the ledger class `octodeck-gh-anchor-target` to the GitHub node
+ *   and removes it after the highlight period (or on revert).
+ * - showToast() renders an own node with class `octodeck-gh-toast` (role="status").
+ * Everything is inert in safe mode (engine.css hides own nodes; the highlight is gated here).
+ */
+
+@keyframes octodeck-anchor-fade {
+  0%,
+  40% {
+    box-shadow: 0 0 0 3px var(--borderColor-accent-emphasis, #0969da);
+    background-color: var(--bgColor-attention-muted, rgba(212, 167, 44, 0.2));
+  }
+  100% {
+    box-shadow: 0 0 0 3px transparent;
+    background-color: transparent;
+  }
+}
+
+html:not([data-octodeck-safe]) .octodeck-gh-anchor-target {
+  border-radius: 6px;
+  animation: octodeck-anchor-fade 2s ease-out 1 both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-octodeck-safe]) .octodeck-gh-anchor-target {
+    animation: none;
+    box-shadow: 0 0 0 3px var(--borderColor-accent-emphasis, #0969da);
+  }
+}
+
+.octodeck-gh-toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483000;
+  max-width: min(90vw, 520px);
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--borderColor-default, #d0d7de);
+  background: var(--bgColor-default, #ffffff);
+  color: var(--fgColor-default, #1f2328);
+  box-shadow: var(--shadow-floating-small, 0 1px 3px rgba(31, 35, 40, 0.12), 0 8px 24px rgba(66, 74, 83, 0.12));
+  font-size: 14px;
+  line-height: 20px;
+  pointer-events: none;
+}

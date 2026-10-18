@@ -1,0 +1,671 @@
+/*
+ * OctoDeck feature styles (WP4): sidebar widget, Ack button, collapsed-noise boxes, timeline
+ * markers and the Expand all control.
+ *
+ * Rules target only OctoDeck's own classes (octodeck-gh-*) and own attributes. GitHub's DOM is
+ * never selected here; the safe-mode hiding rules live in engine.css. Layout tweaks for a specific
+ * markup variant key off data-octodeck-variant, which features set on their own nodes.
+ */
+
+/* ------------------------------------------------------------------------------------------ */
+/* Sidebar widget                                                                             */
+/* ------------------------------------------------------------------------------------------ */
+
+.octodeck-gh-sidebar-section {
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--borderColor-muted, var(--color-border-muted, #d0d7de));
+  font-size: 12px;
+  color: var(--fgColor-default, var(--color-fg-default, #1f2328));
+}
+
+.octodeck-gh-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.octodeck-gh-header-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fgColor-muted, var(--color-fg-muted, #656d76));
+  background: transparent;
+  border: none;
+  padding: 2px 6px;
+  margin-left: -6px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color 100ms ease, background-color 100ms ease;
+  line-height: 1;
+}
+
+.octodeck-gh-header-btn:hover:not(:disabled) {
+  color: var(--fgColor-accent, var(--color-accent-fg, #0969da));
+  background-color: var(--bgColor-muted, var(--color-canvas-subtle, #f6f8fa));
+}
+
+.octodeck-gh-header-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: inherit;
+}
+
+.octodeck-gh-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.octodeck-gh-star-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--fgColor-muted, var(--color-fg-muted, #656d76));
+  border-radius: 4px;
+  transition: color 100ms ease, transform 100ms ease, background-color 100ms ease;
+  line-height: 1;
+}
+
+.octodeck-gh-star-btn:hover:not(:disabled) {
+  color: #d4a72c;
+  background-color: var(--bgColor-muted, var(--color-canvas-subtle, #f6f8fa));
+}
+
+.octodeck-gh-star-btn.octodeck-gh-star-active {
+  color: #d4a72c;
+}
+
+.octodeck-gh-star-btn:active:not(:disabled) {
+  transform: scale(0.9);
+}
+
+.octodeck-gh-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 12px;
+  line-height: 1.4;
+  text-transform: none;
+}
+
+.octodeck-gh-badge-tracked {
+  background-color: rgba(9, 105, 218, 0.15);
+  color: #0969da;
+  border: 1px solid rgba(9, 105, 218, 0.3);
+}
+
+.octodeck-gh-badge-untracked {
+  background-color: rgba(101, 109, 118, 0.15);
+  color: #656d76;
+  border: 1px solid rgba(101, 109, 118, 0.3);
+}
+
+.octodeck-gh-badge-offline,
+.octodeck-gh-badge-error {
+  background-color: var(--bgColor-danger-muted, rgba(248, 81, 73, 0.2));
+  color: var(--fgColor-danger, var(--color-danger-fg, #cf222e));
+  border: 1px solid var(--borderColor-danger-muted, rgba(248, 81, 73, 0.5));
+  font-weight: 700;
+  cursor: help;
+}
+
+/* "Limited" chip: some OctoDeck features are paused on this page (decision 6). */
+.octodeck-gh-limited-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  border-radius: 12px;
+  cursor: help;
+  color: var(--fgColor-attention, var(--color-attention-fg, #9a6700));
+  background-color: var(--bgColor-attention-muted, rgba(212, 167, 44, 0.15));
+  border: 1px solid var(--borderColor-attention-muted, rgba(212, 167, 44, 0.4));
+}
+
+/* Disabled states (daemon offline or erroring) */
+.octodeck-gh-disabled,
+.octodeck-gh-star-btn:disabled,
+.octodeck-gh-comment-ack-btn:disabled,
+.octodeck-gh-notes-trigger:disabled,
+.octodeck-gh-jump-btn:disabled {
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+}
+
+/* General buttons (notes Save/Cancel, Expand all) */
+.octodeck-gh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  line-height: 20px;
+  border-radius: 6px;
+  border: 1px solid var(--button-default-borderColor-rest, var(--color-btn-border, #d0d7de));
+  background-color: var(--button-default-bgColor-rest, var(--color-btn-bg, #f6f8fa));
+  color: var(--button-default-fgColor-rest, var(--color-btn-text, #24292f));
+  box-shadow: var(--shadow-resting-xsmall, 0 1px 0 rgba(31, 35, 40, 0.04));
+  cursor: pointer;
+  text-decoration: none;
+  user-select: none;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: 80ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+.octodeck-gh-btn:hover {
+  background-color: var(--button-default-bgColor-hover, var(--color-btn-hover-bg, #f3f4f6));
+  border-color: var(--button-default-borderColor-hover, var(--color-btn-hover-border, #1b1f2426));
+}
+
+.octodeck-gh-btn:active {
+  background-color: var(--button-default-bgColor-active, var(--color-btn-active-bg, #ebecf0));
+}
+
+.octodeck-gh-btn-sm {
+  padding: 3px 8px;
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.octodeck-gh-btn-primary {
+  background-color: var(--button-primary-bgColor-rest, #1f883d);
+  border-color: var(--button-primary-borderColor-rest, rgba(31, 35, 40, 0.15));
+  color: var(--button-primary-fgColor-rest, #ffffff);
+}
+
+.octodeck-gh-btn-primary:hover {
+  background-color: var(--button-primary-bgColor-hover, #1a7f37);
+  color: var(--button-primary-fgColor-rest, #ffffff);
+}
+
+.octodeck-gh-btn-primary:active {
+  background-color: var(--button-primary-bgColor-active, #176f30);
+}
+
+/* Private notes */
+.octodeck-gh-notes-section {
+  width: 100%;
+}
+
+.octodeck-gh-notes-box {
+  background-color: var(--bgColor-muted, var(--color-canvas-subtle, #f6f8fa));
+  border: 1px solid var(--borderColor-muted, var(--color-border-muted, #d0d7de));
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  position: relative;
+  transition: border-color 120ms ease;
+}
+
+.octodeck-gh-notes-box:hover {
+  border-color: var(--borderColor-default, var(--color-border-default, #8c959f));
+}
+
+.octodeck-gh-notes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.octodeck-gh-notes-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fgColor-muted, var(--color-fg-muted, #656d76));
+}
+
+.octodeck-gh-notes-text {
+  color: var(--fgColor-default, var(--color-fg-default, #1f2328));
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.45;
+  font-size: 12px;
+}
+
+/* Edit icon visible only on hover (and keyboard focus) */
+.octodeck-gh-notes-edit-btn {
+  opacity: 0;
+  transition: opacity 120ms ease;
+  color: var(--fgColor-muted, var(--color-fg-muted, #656d76));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 4px;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+.octodeck-gh-notes-box:hover .octodeck-gh-notes-edit-btn,
+.octodeck-gh-notes-edit-btn:focus-visible {
+  opacity: 1;
+}
+
+.octodeck-gh-notes-edit-btn:hover {
+  color: var(--fgColor-accent, var(--color-accent-fg, #0969da));
+}
+
+.octodeck-gh-notes-trigger {
+  color: var(--fgColor-muted, var(--color-fg-muted, #656d76));
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  padding: 4px 0;
+}
+
+.octodeck-gh-notes-trigger:hover {
+  color: var(--fgColor-accent, var(--color-accent-fg, #0969da));
+  text-decoration: underline;
+}
+
+.octodeck-gh-notes-edit-container {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.octodeck-gh-notes-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  display: block;
+  min-height: 72px;
+  padding: 6px 8px;
+  font-size: 12px;
+  border: 1px solid var(--borderColor-default, var(--color-border-default, #d0d7de));
+  border-radius: 6px;
+  background-color: var(--bgColor-default, var(--color-canvas-default, #ffffff));
+  color: var(--fgColor-default, var(--color-fg-default, #1f2328));
+  resize: vertical;
+  margin-bottom: 6px;
+  font-family: inherit;
+  line-height: 1.4;
+}
+
+.octodeck-gh-notes-textarea:focus {
+  outline: none;
+  border-color: var(--fgColor-accent, var(--color-accent-fg, #0969da));
+  box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.2);
+}
+
+.octodeck-gh-notes-edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* Hide events switch */
+.octodeck-gh-filter-row {
+  margin-top: 10px;
+}
+
+.octodeck-gh-filter-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--fgColor-muted, var(--color-fg-muted, #656d76));
+  cursor: pointer;
+  user-select: none;
+}
+
+.octodeck-gh-filter-label:hover {
+  color: var(--fgColor-default, var(--color-fg-default, #1f2328));
+}
+
+.octodeck-gh-filter-checkbox {
+  cursor: pointer;
+  margin: 0;
+  accent-color: var(--fgColor-accent, var(--color-accent-fg, #0969da));
+}
+
+.octodeck-gh-filter-text {
+  font-weight: 400;
+}
+
+/* Expand all control (decisions 1-2) */
+.octodeck-gh-expand-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.octodeck-gh-expand-row[hidden] {
+  display: none;
+}
+
+.octodeck-gh-expand-status {
+  font-size: 12px;
+  color: var(--fgColor-muted, var(--color-fg-muted, #656d76));
+}
+
+.octodeck-gh-expand-error {
+  color: var(--fgColor-danger, var(--color-danger-fg, #cf222e));
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* Ack button                                                                                 */
+/* ------------------------------------------------------------------------------------------ */
+
+/* Set by the Ack button on its insertion parent, so a subtle footer background doesn't bleed. */
+html:not([data-octodeck-safe]) .octodeck-gh-comment-actions-clean {
+  background-color: transparent !important;
+}
+
+.octodeck-gh-comment-ack-btn {
+  margin-left: 16px;
+  margin-right: 6px;
+  min-width: 92px;
+  box-sizing: border-box;
+  cursor: pointer;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  vertical-align: middle;
+  background-color: var(--button-default-bgColor-rest, var(--color-btn-bg, #f6f8fa));
+  border: 1px solid var(--button-default-borderColor-rest, var(--color-btn-border, #d0d7de));
+  border-radius: 6px;
+  color: var(--button-default-fgColor-rest, var(--color-btn-text, #24292f));
+  box-shadow: var(--shadow-resting-xsmall, 0 1px 0 rgba(31, 35, 40, 0.04));
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  padding: 5px 12px;
+  text-align: center;
+}
+
+/* The React composer footer already spaces its children. */
+.octodeck-gh-comment-ack-btn[data-octodeck-variant='react'] {
+  margin-left: 12px;
+  margin-right: 0;
+}
+
+.octodeck-gh-comment-ack-btn:hover {
+  background-color: var(--button-default-bgColor-hover, var(--color-btn-hover-bg, #f3f4f6));
+  border-color: var(--button-default-borderColor-hover, var(--color-btn-hover-border, #1b1f2426));
+}
+
+.octodeck-gh-comment-ack-btn.octodeck-gh-btn-acked {
+  color: var(--fgColor-success, #1a7f37);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* Collapsed noise boxes                                                                      */
+/* ------------------------------------------------------------------------------------------ */
+
+/*
+ * Hiding classes on GitHub nodes (noiseCollapser). Gated by the safe-mode valve: with
+ * html[data-octodeck-safe] GitHub's original rendering returns even if no JS cleanup runs.
+ */
+html:not([data-octodeck-safe]) .octodeck-gh-collapsed-comment,
+html:not([data-octodeck-safe]) .octodeck-gh-hidden-event {
+  display: none !important;
+}
+
+/* Mirrors a condensed timeline entry: sits on the timeline's vertical rail. */
+.octodeck-gh-dense-timeline-item,
+.octodeck-gh-timeline-marker {
+  position: relative;
+  display: flex;
+  list-style: none;
+  margin-left: var(--base-size-16, 16px);
+  padding: var(--base-size-4, 4px) 0 0;
+}
+
+.octodeck-gh-dense-timeline-item::before,
+.octodeck-gh-timeline-marker::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: block;
+  width: 2px;
+  content: '';
+  background-color: var(--borderColor-muted, var(--color-border-muted, #d0d7de));
+}
+
+.octodeck-gh-dense-body {
+  flex: auto;
+  min-width: 0;
+  max-width: 100%;
+  margin-top: calc(var(--base-size-12, 12px) + 1px);
+  margin-bottom: calc(var(--base-size-12, 12px) + 1px);
+}
+
+.octodeck-gh-dense-box {
+  position: relative;
+  z-index: 1;
+  margin-left: calc(-1 * var(--base-size-16, 16px));
+  background-color: var(--bgColor-muted, var(--color-canvas-subtle, #f6f8fa));
+  border: 1px solid var(--borderColor-muted, var(--color-border-muted, #d0d7de));
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--fgColor-default, var(--color-fg-default, #1f2328));
+  box-sizing: border-box;
+  width: auto;
+}
+
+.octodeck-gh-dense-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.octodeck-gh-dense-row {
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.octodeck-gh-dense-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 20px;
+  min-height: 20px;
+}
+
+.octodeck-gh-dense-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+
+.octodeck-gh-dense-author {
+  font-weight: 600;
+  color: var(--fgColor-default, var(--color-fg-default, #1f2328));
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.octodeck-gh-dense-text {
+  color: var(--fgColor-muted, var(--color-fg-muted, #656d76));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.octodeck-gh-dense-expand-btn {
+  background: none;
+  border: none;
+  color: var(--fgColor-muted, var(--color-fg-muted, #656d76));
+  cursor: pointer;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  padding: 0 2px;
+  flex-shrink: 0;
+  font-weight: 500;
+  line-height: 1;
+  transition: color 80ms ease;
+}
+
+.octodeck-gh-dense-expand-btn:hover {
+  color: var(--fgColor-accent, var(--color-accent-fg, #0969da));
+}
+
+.octodeck-gh-dense-rest {
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--fgColor-muted, var(--color-fg-muted, #656d76));
+  margin: 0;
+  padding: 0;
+  word-break: break-word;
+}
+
+.octodeck-gh-dense-rest[hidden] {
+  display: none;
+}
+
+.octodeck-gh-dense-rest * {
+  font-size: 12px;
+}
+
+.octodeck-gh-dense-rest p {
+  margin: 2px 0 0 0;
+  line-height: 20px;
+}
+
+.octodeck-gh-dense-rest ul,
+.octodeck-gh-dense-rest ol {
+  margin: 2px 0 0 0;
+  padding-left: 20px;
+}
+
+.octodeck-gh-dense-rest li {
+  line-height: 20px;
+}
+
+.octodeck-gh-dense-rest pre {
+  margin: 2px 0 0 0;
+  padding: 4px 8px;
+  background-color: var(--bgColor-inset, var(--color-canvas-inset, #eaeef2));
+  border-radius: 4px;
+  overflow-x: auto;
+  line-height: 18px;
+}
+
+.octodeck-gh-dense-rest code {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+.octodeck-gh-dense-rest a,
+.octodeck-gh-dense-link {
+  color: var(--fgColor-accent, var(--color-accent-fg, #0969da));
+  text-decoration: underline;
+}
+
+.octodeck-gh-dense-rest table {
+  margin: 2px 0 0 0;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.octodeck-gh-dense-rest th,
+.octodeck-gh-dense-rest td {
+  padding: 2px 8px;
+  border: 1px solid var(--borderColor-muted, var(--color-border-muted, #d0d7de));
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* Timeline markers (Acknowledged & Last Viewed)                                              */
+/* ------------------------------------------------------------------------------------------ */
+
+.octodeck-gh-timeline-marker {
+  z-index: 2;
+  padding: var(--base-size-16, 16px) 0;
+}
+
+/* React issue timelines indent entries slightly further than the classic conversation. */
+.octodeck-gh-dense-timeline-item[data-octodeck-variant='react'],
+.octodeck-gh-timeline-marker[data-octodeck-variant='react'] {
+  margin-left: var(--base-size-20, 20px);
+}
+
+.octodeck-gh-timeline-marker-body {
+  flex: auto;
+  min-width: 0;
+  width: 100%;
+}
+
+.octodeck-gh-timeline-marker-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding-left: 8px;
+  box-sizing: border-box;
+}
+
+.octodeck-gh-timeline-marker-line {
+  flex: 1;
+  height: 1px;
+}
+
+.octodeck-gh-timeline-marker-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  user-select: none;
+  white-space: nowrap;
+  line-height: 16px;
+}
+
+.octodeck-gh-timeline-marker-acked .octodeck-gh-timeline-marker-line {
+  background-color: var(--borderColor-success-muted, rgba(16, 185, 129, 0.4));
+}
+
+.octodeck-gh-timeline-marker-acked .octodeck-gh-timeline-marker-label {
+  color: var(--fgColor-success, var(--color-success-fg, #1a7f37));
+  background-color: var(--bgColor-success-muted, rgba(16, 185, 129, 0.1));
+  border: 1px solid var(--borderColor-success-muted, rgba(16, 185, 129, 0.3));
+}
+
+.octodeck-gh-timeline-marker-viewed .octodeck-gh-timeline-marker-line {
+  background-color: var(--borderColor-attention-muted, rgba(234, 179, 8, 0.4));
+}
+
+.octodeck-gh-timeline-marker-viewed .octodeck-gh-timeline-marker-label {
+  color: var(--fgColor-attention, var(--color-attention-fg, #9a6700));
+  background-color: var(--bgColor-attention-muted, rgba(234, 179, 8, 0.1));
+  border: 1px solid var(--borderColor-attention-muted, rgba(234, 179, 8, 0.3));
+}
