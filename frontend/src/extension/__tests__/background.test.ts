@@ -27,6 +27,13 @@ import {
 } from '../../api/octodeck/v1/service_pb';
 import { DEFAULT_BASE_URL } from '../../utils/constants';
 
+const EXTENSION_ID = 'ext-id';
+const EXTENSION_ORIGIN = `chrome-extension://${EXTENSION_ID}/`;
+/** A content script on a GitHub PR page. */
+const githubSender = { id: EXTENSION_ID, url: 'https://github.com/tallclair/octodeck/pull/101', tab: { id: 7 } } as any;
+/** The options page (opened in a tab). */
+const optionsSender = { id: EXTENSION_ID, url: `${EXTENSION_ORIGIN}options.html`, tab: { id: 8 } } as any;
+
 describe('Extension Background Service Worker', () => {
   let mockStorage: Record<string, any> = {};
   let mockSession: Record<string, any> = {};
@@ -93,7 +100,9 @@ describe('Extension Background Service Worker', () => {
       runtime: {
         onInstalled: { addListener: vi.fn() },
         onMessage: { addListener: vi.fn() },
-        getURL: vi.fn((path: string) => path),
+        id: EXTENSION_ID,
+        getURL: vi.fn((path: string) => `${EXTENSION_ORIGIN}${path}`),
+        getManifest: vi.fn(() => ({ version: '1.2.3', version_name: 'v1.2.3' })),
       },
     };
   });
@@ -290,7 +299,7 @@ describe('Extension Background Service Worker', () => {
       const response = await new Promise<any>((resolve) => {
         handleExtensionMessage(
           { type: 'REFETCH_ITEM', itemId: 'tallclair/octodeck#101' },
-          {} as any,
+          githubSender,
           (res: any) => resolve(res)
         );
       });
@@ -307,41 +316,22 @@ describe('Extension Background Service Worker', () => {
       );
     });
 
-    it('handles SYNC_ITEM message by invoking the daemon RefetchItem ConnectRPC endpoint', async () => {
+    it('rejects the removed SYNC_ITEM message without calling the daemon', async () => {
       const { handleExtensionMessage } = await import('../background');
-      mockStorage.bearer_token = 'valid-token';
-
-      (globalThis.fetch as any).mockImplementation((url: string, opts: any) => {
-        if (url.endsWith('/octodeck.v1.OctoDeckService/RefetchItem')) {
-          const body = JSON.parse(opts.body);
-          expect(body).toEqual({ itemId: 'tallclair/octodeck#202' });
-          return Promise.resolve({
-            ok: true,
-            json: () =>
-              Promise.resolve({
-                item: {
-                  id: 'tallclair/octodeck#202',
-                  title: 'Sync item',
-                },
-              }),
-          });
-        }
-        if (url.endsWith('/status')) {
-          return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
-        }
-        return Promise.reject(new Error(`Unexpected fetch URL: ${url}`));
-      });
-
       const response = await new Promise<any>((resolve) => {
-        handleExtensionMessage(
-          { type: 'SYNC_ITEM', itemId: 'tallclair/octodeck#202' },
-          {} as any,
-          (res: any) => resolve(res)
-        );
+        handleExtensionMessage({ type: 'SYNC_ITEM', itemId: 'tallclair/octodeck#202' }, githubSender, resolve);
       });
+      expect(response).toEqual({ ok: false, error: 'Message rejected' });
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
 
-      expect(response.ok).toBe(true);
-      expect(response.data.id).toBe('tallclair/octodeck#202');
+    it('rejects settings messages from GitHub content scripts', async () => {
+      const { handleExtensionMessage } = await import('../background');
+      const response = await new Promise<any>((resolve) => {
+        handleExtensionMessage({ type: 'SAVE_NOTIFICATION_SETTINGS', settings: {} }, githubSender, resolve);
+      });
+      expect(response).toEqual({ ok: false, error: 'Message rejected' });
+      expect(globalThis.fetch).not.toHaveBeenCalled();
     });
   });
 
@@ -374,8 +364,9 @@ describe('Extension Background Service Worker', () => {
   });
 
   describe('badge', () => {
-    it('applies the badge pushed by the daemon', () => {
-      applyBadge(
+    it('applies the badge pushed by the daemon', async () => {
+      await applyStreamStatus('connected');
+      await applyBadge(
         create(BadgeUpdateSchema, {
           count: 3,
           mode: BadgeCountMode.INBOX,
@@ -383,37 +374,99 @@ describe('Extension Background Service Worker', () => {
           tooltip: 'OctoDeck (3 inbox items)',
         })
       );
-      expect(chrome.action.setBadgeText).toHaveBeenCalledWith({ text: '3' });
-      expect(chrome.action.setTitle).toHaveBeenCalledWith({ title: 'OctoDeck (3 inbox items)' });
+      expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: '3' });
+      expect(chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({ color: '#2563eb' });
+      expect(chrome.action.setTitle).toHaveBeenLastCalledWith({ title: 'OctoDeck (3 inbox items)' });
     });
 
-    it('clears the badge text when the daemon sends an empty badge', () => {
-      applyBadge(create(BadgeUpdateSchema, { mode: BadgeCountMode.DISABLED, text: '', tooltip: '' }));
-      expect(chrome.action.setBadgeText).toHaveBeenCalledWith({ text: '' });
-      expect(chrome.action.setTitle).toHaveBeenCalledWith({ title: 'Open OctoDeck Dashboard' });
+    it('clears the badge text when the daemon sends an empty badge', async () => {
+      await applyBadge(create(BadgeUpdateSchema, { mode: BadgeCountMode.DISABLED, text: '', tooltip: '' }));
+      expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: '' });
+      expect(chrome.action.setTitle).toHaveBeenLastCalledWith({ title: 'Open OctoDeck Dashboard' });
     });
 
-    it('sets red ! badge when the daemon is offline', () => {
-      applyStreamStatus('offline');
-      expect(chrome.action.setBadgeText).toHaveBeenCalledWith({ text: '!' });
-      expect(chrome.action.setBadgeBackgroundColor).toHaveBeenCalledWith({ color: '#dc2626' });
+    it('sets red ! badge when the daemon is offline, over the last count', async () => {
+      await applyBadge(create(BadgeUpdateSchema, { text: '3', tooltip: 'x' }));
+      await applyStreamStatus('offline');
+      expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: '!' });
+      expect(chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({ color: '#dc2626' });
     });
 
-    it('sets orange SETUP badge when the extension is not paired', () => {
-      applyStreamStatus('setup');
-      expect(chrome.action.setBadgeText).toHaveBeenCalledWith({ text: 'SETUP' });
-      expect(chrome.action.setBadgeBackgroundColor).toHaveBeenCalledWith({ color: '#f97316' });
+    it('sets orange SETUP badge when the extension is not paired', async () => {
+      await applyStreamStatus('setup');
+      expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: 'SETUP' });
+      expect(chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({ color: '#f97316' });
     });
 
-    it('sets orange UPD badge when daemon and extension versions differ', () => {
-      applyStreamStatus('version-mismatch');
-      expect(chrome.action.setBadgeText).toHaveBeenCalledWith({ text: 'UPD' });
-      expect(chrome.action.setBadgeBackgroundColor).toHaveBeenCalledWith({ color: '#f97316' });
+    it('sets orange UPD badge when daemon and extension versions differ', async () => {
+      await applyStreamStatus('version-mismatch');
+      expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: 'UPD' });
+      expect(chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({ color: '#f97316' });
     });
 
-    it('leaves the badge alone on connect (the daemon sends it)', () => {
-      applyStreamStatus('connected');
-      expect(chrome.action.setBadgeText).not.toHaveBeenCalled();
+    it('shows the last daemon count again on reconnect', async () => {
+      await applyBadge(create(BadgeUpdateSchema, { text: '5', tooltip: 'five' }));
+      await applyStreamStatus('offline');
+      await applyStreamStatus('connected');
+      expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: '5' });
+    });
+
+    it('persists the toolbar state in session storage', async () => {
+      await applyBadge(create(BadgeUpdateSchema, { text: '2', tooltip: 'two' }));
+      expect(mockSession.action_state.badge).toEqual({ text: '2', tooltip: 'two' });
+    });
+  });
+
+  describe('GitHub integration diagnostics', () => {
+    const report = (n: number, outcome = 'unrecognized') => ({
+      navId: `nav-0000000${n}`,
+      feature: 'sidebarWidget',
+      outcome,
+      pageKind: 'pr-conversation',
+      variant: 'classic',
+      path: `tallclair/octodeck/pull/${n}`,
+      diagnostics: [{ code: 'DOM_ANCHOR_MISSING', severity: 'warn', scope: 'sidebar', anchor: 'sidebar.insertBefore' }],
+    });
+    const send = async (message: unknown, sender: any) => {
+      const { handleExtensionMessage } = await import('../background');
+      return new Promise<any>((resolve) => handleExtensionMessage(message, sender, resolve));
+    };
+    const fromTab = (n: number) => ({ id: EXTENSION_ID, url: `https://github.com/tallclair/octodeck/pull/${n}`, tab: { id: 100 + n } });
+
+    it('turns the badge amber, keeping the count, once a feature is degraded on several pages', async () => {
+      await applyBadge(create(BadgeUpdateSchema, { text: '4', tooltip: 'OctoDeck (4)' }));
+      for (const n of [1, 2, 3]) {
+        expect(await send({ type: 'REPORT_DIAGNOSTIC', report: report(n) }, fromTab(n))).toEqual({ ok: true, data: true });
+      }
+      expect(chrome.action.setBadgeText).toHaveBeenLastCalledWith({ text: '4' });
+      expect(chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({ color: '#d97706' });
+      expect(chrome.action.setTitle).toHaveBeenCalledWith({
+        title: 'OctoDeck (4)\nGitHub integration limited: Sidebar widget. See the extension options.',
+      });
+      // The reporting tab gets page detail on top of the global tooltip.
+      expect(chrome.action.setTitle).toHaveBeenCalledWith({
+        tabId: 103,
+        title: 'OctoDeck (4)\nGitHub integration limited: Sidebar widget. See the extension options.\nOn this page: Sidebar widget paused.',
+      });
+
+      const snapshot = await send({ type: 'GET_DIAGNOSTICS' }, optionsSender);
+      expect(snapshot.ok).toBe(true);
+      expect(snapshot.data.health[0]).toMatchObject({ feature: 'sidebarWidget', state: 'degraded' });
+      expect(snapshot.data.records[0]).toMatchObject({ count: 3, extVersion: 'v1.2.3' });
+    });
+
+    it('rejects reports from extension pages and diagnostics reads from GitHub', async () => {
+      expect(await send({ type: 'REPORT_DIAGNOSTIC', report: report(1) }, optionsSender)).toEqual({ ok: false, error: 'Message rejected' });
+      expect(await send({ type: 'GET_DIAGNOSTICS' }, githubSender)).toEqual({ ok: false, error: 'Message rejected' });
+    });
+
+    it('clears records and the amber state', async () => {
+      for (const n of [1, 2, 3]) await send({ type: 'REPORT_DIAGNOSTIC', report: report(n) }, fromTab(n));
+      expect(await send({ type: 'CLEAR_DIAGNOSTICS' }, optionsSender)).toEqual({ ok: true, data: true });
+      expect(mockSession.action_state.degraded).toEqual([]);
+      expect(chrome.action.setBadgeBackgroundColor).toHaveBeenLastCalledWith({ color: '#2563eb' });
+      const snapshot = await send({ type: 'GET_DIAGNOSTICS' }, optionsSender);
+      expect(snapshot.data.records).toEqual([]);
     });
   });
 
@@ -578,7 +631,7 @@ describe('Extension Background Service Worker', () => {
       });
 
       const response = await new Promise<any>((resolve) => {
-        handleExtensionMessage({ type: 'GET_NOTIFICATION_SETTINGS' }, {} as any, resolve);
+        handleExtensionMessage({ type: 'GET_NOTIFICATION_SETTINGS' }, optionsSender, resolve);
       });
 
       expect(response).toEqual({ ok: true, data: { enabled: true, repoExcludes: ['a/b'] } });
@@ -598,7 +651,7 @@ describe('Extension Background Service Worker', () => {
       });
 
       const response = await new Promise<any>((resolve) => {
-        handleExtensionMessage({ type: 'SAVE_NOTIFICATION_SETTINGS', settings }, {} as any, resolve);
+        handleExtensionMessage({ type: 'SAVE_NOTIFICATION_SETTINGS', settings }, optionsSender, resolve);
       });
 
       expect(response).toEqual({ ok: true, data: settings });
@@ -616,7 +669,7 @@ describe('Extension Background Service Worker', () => {
       (globalThis.fetch as any).mockRejectedValueOnce(new Error('Failed to fetch'));
 
       const response = await new Promise<any>((resolve) => {
-        handleExtensionMessage({ type: 'GET_NOTIFICATION_SETTINGS' }, {} as any, resolve);
+        handleExtensionMessage({ type: 'GET_NOTIFICATION_SETTINGS' }, optionsSender, resolve);
       });
       expect(response.ok).toBe(false);
     });

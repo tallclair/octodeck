@@ -292,6 +292,82 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       font-weight: 600;
     }
+
+    .status-warning {
+      background: rgba(217, 119, 6, 0.15);
+      color: #fbbf24;
+      border: 1px solid rgba(217, 119, 6, 0.4);
+    }
+
+    .compat-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin: 12px 0;
+    }
+
+    .compat-table th,
+    .compat-table td {
+      text-align: left;
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .compat-table th {
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .compat-state-degraded {
+      color: #fbbf24;
+      font-weight: 600;
+    }
+
+    .compat-state-healthy {
+      color: var(--success);
+    }
+
+    .compat-records details {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-bottom: 8px;
+      font-size: 13px;
+    }
+
+    .compat-records summary {
+      cursor: pointer;
+    }
+
+    .compat-records pre {
+      background-color: #0b1120;
+      border-radius: 6px;
+      padding: 8px;
+      overflow-x: auto;
+      font-size: 12px;
+    }
+
+    .compat-records .record-meta {
+      color: var(--text-muted);
+      font-size: 12px;
+      margin-top: 6px;
+    }
+
+    .compat-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .btn-secondary {
+      background-color: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .btn-secondary:hover {
+      background-color: var(--border);
+    }
   </style>
 </head>
 <body>
@@ -457,6 +533,42 @@
           </div>
         </div>
       </fieldset>
+    </div>
+
+    <!-- GitHub Compatibility Card -->
+    <div class="card" id="compat-card">
+      <div class="card-title">
+        <span>GitHub Compatibility</span>
+        <span id="compat-badge" class="status-badge status-online">Checking...</span>
+      </div>
+      <div class="form-desc">
+        OctoDeck checks that it recognizes GitHub's page layout before changing a page. When GitHub changes its
+        markup, the affected features pause on those pages and show up here.
+      </div>
+
+      <label class="checkbox-row" style="margin-top: 14px;">
+        <input type="checkbox" id="safe-mode">
+        <div>
+          <div class="checkbox-label">Safe mode</div>
+          <div class="checkbox-desc">Stop all OctoDeck changes to GitHub pages and hide OctoDeck's on-page controls. View tracking and action sync keep working.</div>
+        </div>
+      </label>
+
+      <table class="compat-table" id="compat-health" style="display: none;">
+        <thead>
+          <tr><th>Feature</th><th>Page layout</th><th>Status</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div id="compat-empty" class="form-desc">No GitHub pages checked yet.</div>
+
+      <div id="compat-records" class="compat-records"></div>
+
+      <div class="compat-actions">
+        <button type="button" id="compat-copy" class="btn btn-secondary">Copy report</button>
+        <button type="button" id="compat-download" class="btn btn-secondary">Download JSON</button>
+        <button type="button" id="compat-clear" class="btn btn-secondary">Clear</button>
+      </div>
     </div>
   </div>
 

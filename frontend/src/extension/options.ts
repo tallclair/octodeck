@@ -8,8 +8,12 @@ import type {
   ExtensionMessage,
   ExtensionResponse,
   DaemonStatus,
+  DiagnosticsSnapshot,
+  FeatureHealthState,
   NotificationSettingsJson,
+  StoredExtensionData,
 } from './types';
+import { FEATURE_LABELS, buildDiagnosticsExport, formatDiagnosticsMarkdown } from './background/diagnostics';
 import { parseFilterPatterns, serializeFilterPatterns, validateBasePattern, validateFilterPatterns } from '../utils/patterns';
 import { validateRepoFilterPatterns } from '../utils/repos';
 import { validateLabelFilterPatterns } from '../utils/labels';
@@ -314,6 +318,179 @@ export function updateDaemonUI(status: DaemonStatus): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// GitHub compatibility panel (drift health, records, export, Safe mode)
+// ---------------------------------------------------------------------------
+
+/** Browser name and major version for reports, e.g. 'Chrome 131'. */
+export function browserLabel(nav: Navigator = navigator): string {
+  const brands = (nav as Navigator & { userAgentData?: { brands?: { brand: string; version: string }[] } }).userAgentData
+    ?.brands;
+  const brand = brands?.find((b) => /chrom/i.test(b.brand) && !/not/i.test(b.brand));
+  if (brand) return `${brand.brand} ${brand.version}`;
+  const m = /Chrome\/(\d+)/.exec(nav.userAgent);
+  return m ? `Chrome ${m[1]}` : nav.userAgent.slice(0, 60);
+}
+
+let lastSnapshot: DiagnosticsSnapshot | null = null;
+
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, className?: string): HTMLElementTagNameMap[K] {
+  const node = document.createElement(tag);
+  if (text !== undefined) node.textContent = text;
+  if (className) node.className = className;
+  return node;
+}
+
+function formatTime(ms: number | undefined): string {
+  return ms === undefined ? '' : new Date(ms).toLocaleString();
+}
+
+function healthStatusText(h: FeatureHealthState): { text: string; className: string } {
+  if (h.state === 'degraded') return { text: `Paused: page layout not recognized (since ${formatTime(h.since)})`, className: 'compat-state-degraded' };
+  if (h.consecutiveFailures > 0) return { text: `Not recognized on ${h.consecutiveFailures} recent page(s)`, className: '' };
+  return { text: 'OK', className: 'compat-state-healthy' };
+}
+
+/** Renders the panel from a snapshot (all page-derived strings go through textContent). */
+export function renderDiagnostics(snapshot: DiagnosticsSnapshot): void {
+  lastSnapshot = snapshot;
+  const badge = document.getElementById('compat-badge');
+  const table = document.getElementById('compat-health') as HTMLTableElement | null;
+  const empty = document.getElementById('compat-empty');
+  const recordsEl = document.getElementById('compat-records');
+
+  const degraded = snapshot.health.some((h) => h.state === 'degraded');
+  if (badge) {
+    badge.textContent = snapshot.health.length === 0 ? 'No data yet' : degraded ? 'Limited' : 'OK';
+    badge.className = `status-badge ${degraded ? 'status-warning' : 'status-online'}`;
+  }
+
+  if (table) {
+    const body = table.tBodies[0];
+    body.replaceChildren(
+      ...snapshot.health.map((h) => {
+        const row = el('tr');
+        const status = healthStatusText(h);
+        row.append(el('td', FEATURE_LABELS[h.feature]), el('td', h.variant), el('td', status.text, status.className));
+        return row;
+      })
+    );
+    table.style.display = snapshot.health.length > 0 ? '' : 'none';
+  }
+  if (empty) empty.style.display = snapshot.health.length > 0 ? 'none' : '';
+
+  if (recordsEl) {
+    recordsEl.replaceChildren(
+      ...snapshot.records.map((r) => {
+        const details = el('details');
+        const where = [r.scope, r.anchor].filter(Boolean).join(' / ');
+        details.append(
+          el('summary', `${FEATURE_LABELS[r.feature]}: ${r.code}${where ? ` (${where})` : ''}, ${r.count}×`),
+          el(
+            'div',
+            `Layout ${r.variant}, ${r.pageKind}, ${r.resolution}. Seen ${formatTime(r.firstSeen)} to ${formatTime(r.lastSeen)}. Extension ${r.extVersion}.`,
+            'record-meta'
+          )
+        );
+        if (r.samplePaths.length > 0) details.append(el('div', `Pages: ${r.samplePaths.join(', ')}`, 'record-meta'));
+        if (r.message) details.append(el('div', `Message: ${r.message}`, 'record-meta'));
+        if (r.fingerprint) details.append(el('pre', r.fingerprint));
+        return details;
+      })
+    );
+  }
+}
+
+export async function loadDiagnostics(): Promise<void> {
+  const res = await sendMessage<DiagnosticsSnapshot>({ type: 'GET_DIAGNOSTICS' });
+  if (!res.ok) {
+    console.debug('[OctoDeck Options] Failed to load diagnostics:', res.error);
+    return;
+  }
+  renderDiagnostics(res.data);
+}
+
+function reportEnvironment() {
+  return { browser: browserLabel(), generatedAt: Date.now() };
+}
+
+export async function copyDiagnosticsReport(): Promise<boolean> {
+  if (!lastSnapshot) await loadDiagnostics();
+  if (!lastSnapshot) return false;
+  try {
+    await navigator.clipboard.writeText(formatDiagnosticsMarkdown(lastSnapshot, reportEnvironment()));
+    showToast('Report copied');
+    return true;
+  } catch (err) {
+    console.debug('[OctoDeck Options] Clipboard write failed:', err);
+    showToast('Could not copy the report');
+    return false;
+  }
+}
+
+export async function downloadDiagnosticsReport(): Promise<void> {
+  if (!lastSnapshot) await loadDiagnostics();
+  if (!lastSnapshot) return;
+  const data = buildDiagnosticsExport(lastSnapshot, reportEnvironment());
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = el('a');
+  a.href = url;
+  a.download = `octodeck-diagnostics-${data.generatedAt.slice(0, 10).replace(/-/g, '')}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function clearDiagnostics(): Promise<void> {
+  const res = await sendMessage<boolean>({ type: 'CLEAR_DIAGNOSTICS' });
+  if (!res.ok) {
+    showToast('Could not clear diagnostics');
+    return;
+  }
+  await loadDiagnostics();
+  showToast('Diagnostics cleared');
+}
+
+/** Safe mode lives in chrome.storage.local ('safe_mode'); content scripts watch it. */
+export async function initSafeMode(): Promise<void> {
+  const checkbox = input('safe-mode');
+  if (!checkbox) return;
+  const { safe_mode } = (await chrome.storage.local.get(['safe_mode'])) as StoredExtensionData;
+  checkbox.checked = Boolean(safe_mode);
+  checkbox.addEventListener('change', () => {
+    const value = checkbox.checked;
+    void chrome.storage.local.set({ safe_mode: value } satisfies StoredExtensionData).then(
+      () => showToast(value ? 'Safe mode on' : 'Safe mode off'),
+      () => showToast('Could not save Safe mode')
+    );
+  });
+}
+
+let diagnosticsReloadTimer: number | null = null;
+
+function initCompatibilityPanel(): void {
+  document.getElementById('compat-copy')?.addEventListener('click', () => void copyDiagnosticsReport());
+  document.getElementById('compat-download')?.addEventListener('click', () => void downloadDiagnosticsReport());
+  document.getElementById('compat-clear')?.addEventListener('click', () => void clearDiagnostics());
+  void initSafeMode().catch((err) => console.debug('[OctoDeck Options] Failed to read Safe mode:', err));
+  void loadDiagnostics();
+
+  // Live updates while the page is open (debounced: several tabs may report at once).
+  chrome.storage?.onChanged?.addListener((changes, area) => {
+    if ((area === 'local' && changes.diag_records) || (area === 'session' && changes.diag_health)) {
+      if (diagnosticsReloadTimer !== null) clearTimeout(diagnosticsReloadTimer);
+      diagnosticsReloadTimer = window.setTimeout(() => {
+        diagnosticsReloadTimer = null;
+        void loadDiagnostics();
+      }, 300);
+    }
+    if (area === 'local' && changes.safe_mode) {
+      const checkbox = input('safe-mode');
+      if (checkbox) checkbox.checked = Boolean(changes.safe_mode.newValue);
+    }
+  });
+}
+
 export async function initOptions(): Promise<void> {
   // Populate extension version immediately
   const extVerEl = document.getElementById('extension-version');
@@ -325,6 +502,8 @@ export async function initOptions(): Promise<void> {
   void sendMessage<DaemonStatus>({ type: 'GET_DAEMON_STATUS' }).then((res) => {
     updateDaemonUI(res.ok ? res.data : { online: false, error: res.error || 'Daemon unreachable' });
   });
+
+  initCompatibilityPanel();
 
   // Every control saves the whole settings message on change.
   const controls = [

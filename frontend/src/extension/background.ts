@@ -1,13 +1,18 @@
 import { DEFAULT_BASE_URL, DEFAULT_API_BASE_URL } from '../utils/constants';
 import type {
-  ExtensionMessage,
   ExtensionResponse,
   StoredExtensionData,
   SessionExtensionData,
   DaemonStatus,
+  DiagnosticsSnapshot,
+  FeatureOutcome,
+  FeatureReport,
   NotificationSettingsJson,
 } from './types';
 import { OBSOLETE_STORAGE_KEYS } from './types';
+import { createMessageRouter, type MessageHandlers } from './background/router';
+import { FEATURE_LABELS, createDiagnosticsStore, type DiagnosticsStore } from './background/diagnostics';
+import { readActionState, removeTab, resetTab, setTabFeature, updateActionState } from './background/action';
 import type { Item } from '../api/octodeck/v1/resources_pb';
 import type {
   BadgeUpdate,
@@ -46,6 +51,19 @@ async function setStoredData(data: Partial<StoredExtensionData>): Promise<void> 
 // Daemon RPC Client Helpers
 // ---------------------------------------------------------------------------
 
+/** A hung daemon must not leave callers (e.g. a content script's sidebar) waiting forever. */
+export const DAEMON_FETCH_TIMEOUT_MS = 10_000;
+
+function daemonFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(DAEMON_FETCH_TIMEOUT_MS) });
+}
+
+/** Turns fetch's timeout error into a message the UI can show. */
+function describeFetchError(err: unknown): string {
+  if (err instanceof DOMException && err.name === 'TimeoutError') return 'OctoDeck daemon is not responding';
+  return err instanceof Error ? err.message : String(err);
+}
+
 let refreshingTokenPromise: Promise<TokenResult> | null = null;
 
 /**
@@ -73,7 +91,7 @@ function doRefreshToken(): Promise<TokenResult> {
 
   refreshingTokenPromise = (async (): Promise<TokenResult> => {
     try {
-      const res = await fetch(`${DEFAULT_API_BASE_URL}/auth/companion-token`, {
+      const res = await daemonFetch(`${DEFAULT_API_BASE_URL}/auth/companion-token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -112,11 +130,16 @@ export async function callDaemonRpc<TReq, TRes>(methodName: string, req: TReq, i
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${DEFAULT_API_BASE_URL}/octodeck.v1.OctoDeckService/${methodName}`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(req),
-  });
+  let res: Response;
+  try {
+    res = await daemonFetch(`${DEFAULT_API_BASE_URL}/octodeck.v1.OctoDeckService/${methodName}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(req),
+    });
+  } catch (err) {
+    throw new Error(`Daemon RPC ${methodName} failed: ${describeFetchError(err)}`, { cause: err });
+  }
 
   if (res.status === 401 && !isRetry) {
     console.log(`[OctoDeck BG] RPC ${methodName} returned 401 Unauthorized -> attempting token refresh & retry`);
@@ -142,7 +165,7 @@ export async function checkDaemonStatus(): Promise<DaemonStatus> {
     if (data.bearer_token) {
       headers['Authorization'] = `Bearer ${data.bearer_token}`;
     }
-    const res = await fetch(`${DEFAULT_API_BASE_URL}/status`, { headers });
+    const res = await daemonFetch(`${DEFAULT_API_BASE_URL}/status`, { headers });
     if (!res.ok) {
       return { online: false, error: `HTTP ${res.status}` };
     }
@@ -154,43 +177,32 @@ export async function checkDaemonStatus(): Promise<DaemonStatus> {
       error: resData.error,
     };
   } catch (err) {
-    return { online: false, error: err instanceof Error ? err.message : String(err) };
+    return { online: false, error: describeFetchError(err) };
   }
 }
 
 // ---------------------------------------------------------------------------
-// Toolbar Badge (counts are computed by the daemon and pushed over the stream)
+// Toolbar Badge (counts are computed by the daemon and pushed over the stream; rendering combines
+// them with the stream status and GitHub-integration health, see background/action.ts)
 // ---------------------------------------------------------------------------
 
-export function applyBadge(badge: BadgeUpdate): void {
-  chrome.action.setBadgeText({ text: badge.text });
-  chrome.action.setBadgeBackgroundColor({ color: '#2563eb' });
-  chrome.action.setTitle({ title: badge.tooltip || 'Open OctoDeck Dashboard' });
+export function applyBadge(badge: BadgeUpdate): Promise<void> {
+  return updateActionState((s) => {
+    s.badge = { text: badge.text, tooltip: badge.tooltip };
+  }).then(
+    () => undefined,
+    () => undefined
+  );
 }
 
-export function applyStreamStatus(status: StreamStatus): void {
-  switch (status) {
-    case 'offline':
-      chrome.action.setBadgeText({ text: '!' });
-      chrome.action.setBadgeBackgroundColor({ color: '#dc2626' }); // Bright red badge
-      chrome.action.setTitle({ title: 'OctoDeck daemon is offline' });
-      break;
-    case 'setup':
-      chrome.action.setBadgeText({ text: 'SETUP' });
-      chrome.action.setBadgeBackgroundColor({ color: '#f97316' }); // Orange badge
-      chrome.action.setTitle({ title: 'Open OctoDeck Dashboard to pair companion extension' });
-      break;
-    case 'version-mismatch':
-      chrome.action.setBadgeText({ text: 'UPD' });
-      chrome.action.setBadgeBackgroundColor({ color: '#f97316' }); // Orange badge
-      chrome.action.setTitle({
-        title: 'OctoDeck daemon and companion extension versions differ; update both to get notifications',
-      });
-      break;
-    case 'connected':
-      // The daemon sends the current badge right after connecting.
-      break;
-  }
+export function applyStreamStatus(status: StreamStatus): Promise<void> {
+  return updateActionState((s) => {
+    if (s.stream?.status === status) return false;
+    s.stream = { status, since: Date.now() };
+  }).then(
+    () => undefined,
+    () => undefined
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -321,8 +333,8 @@ export function createStreamDeps(): NotificationStreamDeps {
     ...createCursorStore(),
     onNotification: showNotification,
     onSummary: showSummary,
-    onBadge: applyBadge,
-    onStatus: applyStreamStatus,
+    onBadge: (badge) => void applyBadge(badge),
+    onStatus: (status) => void applyStreamStatus(status),
     setTimer: (fn, ms) => setTimeout(fn, ms),
     clearTimer: (handle) => clearTimeout(handle),
   };
@@ -370,176 +382,143 @@ interface ConfigJsonResponse {
 
 const inFlightRefetches = new Map<string, Promise<{ item: Item }>>();
 
+/** Coalesces concurrent refetches of the same item (several action trackers can fire at once). */
+function refetchItem(itemId: string): Promise<{ item: Item }> {
+  let prom = inFlightRefetches.get(itemId);
+  if (!prom) {
+    prom = callDaemonRpc<{ itemId: string }, { item: Item }>('RefetchItem', { itemId });
+    inFlightRefetches.set(itemId, prom);
+    const settled = prom;
+    settled
+      .finally(() => {
+        if (inFlightRefetches.get(itemId) === settled) inFlightRefetches.delete(itemId);
+      })
+      .catch(() => {});
+  }
+  return prom;
+}
+
+// ---------------------------------------------------------------------------
+// GitHub-integration diagnostics (content-script drift reports)
+// ---------------------------------------------------------------------------
+
+function extensionVersion(): string {
+  const manifest = chrome.runtime.getManifest?.();
+  return manifest?.version_name || manifest?.version || 'unknown';
+}
+
+let diagnosticsStore: DiagnosticsStore | null = null;
+
+function getDiagnosticsStore(): DiagnosticsStore {
+  diagnosticsStore ??= createDiagnosticsStore(chrome.storage, extensionVersion());
+  return diagnosticsStore;
+}
+
+const LIMITED_OUTCOMES: readonly FeatureOutcome[] = ['unrecognized', 'disabled'];
+
+/** Records a content-script report and updates the toolbar (global amber state, per-tab detail). */
+export async function handleDiagnosticReport(report: FeatureReport, tabId: number | undefined): Promise<true> {
+  const result = await getDiagnosticsStore().ingest(report);
+  await updateActionState((s) => {
+    let changed = false;
+    if (result.degradedChanged || s.degraded.join('\n') !== result.degraded.join('\n')) {
+      s.degraded = result.degraded;
+      changed = true;
+    }
+    if (tabId !== undefined && report.outcome !== 'notApplicable') {
+      const limited = LIMITED_OUTCOMES.includes(report.outcome);
+      changed = setTabFeature(s, tabId, report.navId, FEATURE_LABELS[report.feature], limited) || changed;
+    }
+    return changed;
+  });
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Message handlers (validated and access-checked by background/router.ts)
+// ---------------------------------------------------------------------------
+
+export const messageHandlers: MessageHandlers = {
+  GET_ITEM: async (msg) => (await callDaemonRpc<{ itemId: string }, { item: Item }>('GetItem', { itemId: msg.itemId })).item,
+  VIEW_ITEM: async (msg) => (await callDaemonRpc<{ itemId: string }, { item: Item }>('ViewItem', { itemId: msg.itemId })).item,
+  ACK_ITEM: async (msg) =>
+    (
+      await callDaemonRpc<{ itemId: string; acked?: boolean }, { item: Item }>('AckItem', {
+        itemId: msg.itemId,
+        acked: msg.acked,
+      })
+    ).item,
+  STAR_ITEM: async (msg) =>
+    (
+      await callDaemonRpc<{ itemId: string; starred: boolean }, { item: Item }>('StarItem', {
+        itemId: msg.itemId,
+        starred: msg.starred,
+      })
+    ).item,
+  SET_NOTES: async (msg) =>
+    (await callDaemonRpc<{ itemId: string; notes: string }, { item: Item }>('SetNotes', { itemId: msg.itemId, notes: msg.notes }))
+      .item,
+  REFETCH_ITEM: async (msg) => (await refetchItem(msg.itemId)).item,
+  GET_KNOWN_BOTS: async () => {
+    const data = await getStoredData(['known_bots']);
+    if (data.known_bots && data.known_bots.length > 0) return data.known_bots;
+    return (await syncKnownBots()) || data.known_bots || [];
+  },
+  OPEN_DASHBOARD: async (msg) => {
+    const targetUrl = msg.itemId ? `${DASHBOARD_URL}?item=${encodeURIComponent(msg.itemId)}` : DASHBOARD_URL;
+    console.log(`[OctoDeck BG] Opening dashboard tab at ${targetUrl}`);
+    await chrome.tabs.create({ url: targetUrl });
+    return true;
+  },
+  GET_DAEMON_STATUS: () => checkDaemonStatus(),
+  GET_NOTIFICATION_SETTINGS: async () =>
+    (await callDaemonRpc<Record<string, never>, ConfigJsonResponse>('GetConfig', {})).config?.notificationSettings ?? {},
+  SAVE_NOTIFICATION_SETTINGS: async (msg) => {
+    // Only notification_settings is updated, so concurrent edits to other config fields
+    // (e.g. from the dashboard) aren't overwritten. FieldMask's JSON form is a
+    // comma-separated string of camelCase paths.
+    const resp = await callDaemonRpc<
+      { config: { notificationSettings: NotificationSettingsJson }; updateMask: string },
+      ConfigJsonResponse
+    >('UpdateConfig', {
+      config: { notificationSettings: msg.settings },
+      updateMask: 'notificationSettings',
+    });
+    return resp.config?.notificationSettings ?? msg.settings;
+  },
+  GET_HIDE_EVENTS: async () => Boolean((await getStoredData(['hide_events'])).hide_events),
+  SET_HIDE_EVENTS: async (msg) => {
+    await setStoredData({ hide_events: msg.hideEvents });
+    return true;
+  },
+  REPORT_DIAGNOSTIC: (msg, sender) => handleDiagnosticReport(msg.report, sender.tab?.id),
+  GET_DIAGNOSTICS: async (): Promise<DiagnosticsSnapshot> => {
+    const action = await readActionState();
+    return getDiagnosticsStore().snapshot(action.stream);
+  },
+  CLEAR_DIAGNOSTICS: async () => {
+    await getDiagnosticsStore().clear();
+    await updateActionState((s) => {
+      s.degraded = [];
+      for (const tab of Object.values(s.tabs)) tab.limited = [];
+    });
+    return true;
+  },
+};
+
+let router: ReturnType<typeof createMessageRouter> | null = null;
+
+/** chrome.runtime.onMessage listener for content scripts and the options page. */
 export function handleExtensionMessage(
-  message: ExtensionMessage,
+  message: unknown,
   sender: chrome.runtime.MessageSender,
   sendResponse: (res: ExtensionResponse) => void
 ): boolean {
-  console.log(
-    `[OctoDeck BG] Message received: ${message.type} from ${
-      sender?.tab ? `tab ${sender.tab.id} (${sender.tab.url})` : 'extension context'
-    }`
-  );
-
-  const safeSendResponse = (res: ExtensionResponse) => {
-    try {
-      sendResponse(res);
-    } catch (err) {
-      console.debug('[OctoDeck BG] Could not send response (channel closed):', err);
-    }
-  };
-
-  (async () => {
-    try {
-      switch (message.type) {
-        case 'GET_ITEM': {
-          if (!message.itemId) {
-            safeSendResponse({ ok: false, error: 'itemId is required' });
-            break;
-          }
-          const resp = await callDaemonRpc<{ itemId: string }, { item: Item }>('GetItem', { itemId: message.itemId });
-          safeSendResponse({ ok: true, data: resp.item });
-          break;
-        }
-        case 'VIEW_ITEM': {
-          if (!message.itemId) {
-            safeSendResponse({ ok: false, error: 'itemId is required' });
-            break;
-          }
-          const resp = await callDaemonRpc<{ itemId: string }, { item: Item }>('ViewItem', { itemId: message.itemId });
-          safeSendResponse({ ok: true, data: resp.item });
-          break;
-        }
-        case 'ACK_ITEM': {
-          if (!message.itemId) {
-            safeSendResponse({ ok: false, error: 'itemId is required' });
-            break;
-          }
-          const resp = await callDaemonRpc<{ itemId: string; acked?: boolean }, { item: Item }>('AckItem', {
-            itemId: message.itemId,
-            acked: message.acked,
-          });
-          safeSendResponse({ ok: true, data: resp.item });
-          break;
-        }
-        case 'STAR_ITEM': {
-          if (!message.itemId) {
-            safeSendResponse({ ok: false, error: 'itemId is required' });
-            break;
-          }
-          const resp = await callDaemonRpc<{ itemId: string; starred: boolean }, { item: Item }>('StarItem', {
-            itemId: message.itemId,
-            starred: message.starred,
-          });
-          safeSendResponse({ ok: true, data: resp.item });
-          break;
-        }
-        case 'SET_NOTES': {
-          if (!message.itemId) {
-            safeSendResponse({ ok: false, error: 'itemId is required' });
-            break;
-          }
-          const resp = await callDaemonRpc<{ itemId: string; notes: string }, { item: Item }>('SetNotes', {
-            itemId: message.itemId,
-            notes: message.notes,
-          });
-          safeSendResponse({ ok: true, data: resp.item });
-          break;
-        }
-        case 'REFETCH_ITEM':
-        case 'SYNC_ITEM': {
-          if (!message.itemId) {
-            safeSendResponse({ ok: false, error: 'itemId is required' });
-            break;
-          }
-          let prom = inFlightRefetches.get(message.itemId);
-          if (!prom) {
-            prom = callDaemonRpc<{ itemId: string }, { item: Item }>('RefetchItem', {
-              itemId: message.itemId,
-            });
-            inFlightRefetches.set(message.itemId, prom);
-            prom.finally(() => {
-              if (inFlightRefetches.get(message.itemId) === prom) {
-                inFlightRefetches.delete(message.itemId);
-              }
-            });
-          }
-          const resp = await prom;
-          safeSendResponse({ ok: true, data: resp.item });
-          break;
-        }
-        case 'GET_CONFIG': {
-          const resp = await callDaemonRpc<Record<string, never>, GetConfigResponse>('GetConfig', {});
-          if (resp.config?.knownBots) {
-            await setStoredData({ known_bots: resp.config.knownBots });
-          }
-          safeSendResponse({ ok: true, data: resp });
-          break;
-        }
-        case 'GET_KNOWN_BOTS': {
-          const data = await getStoredData(['known_bots']);
-          if (data.known_bots && data.known_bots.length > 0) {
-            safeSendResponse({ ok: true, data: data.known_bots });
-          } else {
-            const freshBots = await syncKnownBots();
-            safeSendResponse({ ok: true, data: freshBots || data.known_bots || [] });
-          }
-          break;
-        }
-        case 'OPEN_DASHBOARD': {
-          const targetUrl = message.itemId
-            ? `${DASHBOARD_URL}?item=${encodeURIComponent(message.itemId)}`
-            : DASHBOARD_URL;
-          console.log(`[OctoDeck BG] Opening dashboard tab at ${targetUrl}`);
-          chrome.tabs.create({ url: targetUrl });
-          safeSendResponse({ ok: true, data: true });
-          break;
-        }
-        case 'GET_DAEMON_STATUS': {
-          const status = await checkDaemonStatus();
-          safeSendResponse({ ok: true, data: status });
-          break;
-        }
-        case 'GET_NOTIFICATION_SETTINGS': {
-          const resp = await callDaemonRpc<Record<string, never>, ConfigJsonResponse>('GetConfig', {});
-          safeSendResponse({ ok: true, data: resp.config?.notificationSettings ?? {} });
-          break;
-        }
-        case 'SAVE_NOTIFICATION_SETTINGS': {
-          // Only notification_settings is updated, so concurrent edits to other config fields
-          // (e.g. from the dashboard) aren't overwritten. FieldMask's JSON form is a
-          // comma-separated string of camelCase paths.
-          const resp = await callDaemonRpc<
-            { config: { notificationSettings: NotificationSettingsJson }; updateMask: string },
-            ConfigJsonResponse
-          >('UpdateConfig', {
-            config: { notificationSettings: message.settings },
-            updateMask: 'notificationSettings',
-          });
-          safeSendResponse({ ok: true, data: resp.config?.notificationSettings ?? message.settings });
-          break;
-        }
-        case 'GET_HIDE_EVENTS': {
-          const data = await getStoredData(['hide_events']);
-          safeSendResponse({ ok: true, data: Boolean(data.hide_events) });
-          break;
-        }
-        case 'SET_HIDE_EVENTS': {
-          await setStoredData({ hide_events: message.hideEvents });
-          safeSendResponse({ ok: true, data: true });
-          break;
-        }
-        default:
-          safeSendResponse({ ok: false, error: `Unknown message type` });
-      }
-    } catch (err) {
-      console.debug(`[OctoDeck BG] Error handling message ${message.type}:`, err);
-      safeSendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) });
-    }
-  })();
-
-  // Keep channel open for async response
-  return true;
+  router ??= createMessageRouter(messageHandlers, {
+    runtimeId: chrome.runtime.id,
+    extensionOrigin: chrome.runtime.getURL(''),
+  });
+  return router(message, sender, sendResponse);
 }
 
 /** Removes state left by the extension-side notification engine of earlier versions. */
@@ -601,6 +580,14 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onInstalled) {
 
   // Message Router for Content Scripts & Options Page
   chrome.runtime.onMessage.addListener(handleExtensionMessage);
+
+  // Per-tab toolbar detail ("On this page: ... paused") belongs to the page that reported it.
+  chrome.tabs?.onUpdated?.addListener((tabId, changeInfo) => {
+    if (changeInfo.status === 'loading') void updateActionState((s) => resetTab(s, tabId)).catch(() => {});
+  });
+  chrome.tabs?.onRemoved?.addListener((tabId) => {
+    void updateActionState((s) => removeTab(s, tabId)).catch(() => {});
+  });
 
   // Every time the service worker starts (including wake-ups for events), reconnect and make sure
   // the watchdog alarm exists.

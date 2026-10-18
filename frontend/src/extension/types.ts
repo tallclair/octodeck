@@ -15,8 +15,6 @@ export type ExtensionMessage =
   | { type: 'STAR_ITEM'; itemId: string; starred: boolean }
   | { type: 'SET_NOTES'; itemId: string; notes: string }
   | { type: 'REFETCH_ITEM'; itemId: string }
-  | { type: 'SYNC_ITEM'; itemId: string }
-  | { type: 'GET_CONFIG' }
   | { type: 'GET_KNOWN_BOTS' }
   | { type: 'GET_DAEMON_STATUS' }
   | { type: 'OPEN_DASHBOARD'; itemId?: string }
@@ -27,34 +25,44 @@ export type ExtensionMessage =
   | { type: 'GET_HIDE_EVENTS' }
   | { type: 'SET_HIDE_EVENTS'; hideEvents: boolean }
   // Per page session and gated feature outcome from the content-script DOM engine.
-  | { type: 'REPORT_DIAGNOSTIC'; report: FeatureReport };
+  | { type: 'REPORT_DIAGNOSTIC'; report: FeatureReport }
+  // Extension pages only: the GitHub compatibility panel on the options page.
+  | { type: 'GET_DIAGNOSTICS' }
+  | { type: 'CLEAR_DIAGNOSTICS' };
+
+export type ExtensionMessageType = ExtensionMessage['type'];
 
 // ---------------------------------------------------------------------------
 // GitHub DOM engine diagnostics (docs/internal/extension_dom_engine_design.md section 10)
 // ---------------------------------------------------------------------------
 
 export type { FeatureId, PageKind, ScopeId, VariantId, AnchorId } from './content/dom/types';
+export { FEATURE_IDS, PAGE_KINDS, SCOPE_IDS, ANCHOR_IDS } from './content/dom/types';
 
-export type DiagnosticCode =
-  | 'SCOPE_UNRECOGNIZED'
-  | 'SCOPE_AMBIGUOUS'
-  | 'DOM_ANCHOR_MISSING'
-  | 'DOM_ANCHOR_AMBIGUOUS'
-  | 'DOM_ANCHOR_FALLBACK'
-  | 'DOM_IDENTITY_MISMATCH'
-  | 'DOM_CLASSIFY_ANOMALY'
-  | 'TIMELINE_UNKNOWN_KIND'
-  | 'TIMELINE_HEURISTIC_USED'
-  | 'LOADMORE_FAILED'
-  | 'LOADMORE_NO_PROGRESS'
-  | 'ANCHOR_NOT_FOUND'
-  | 'FEATURE_EXCEPTION'
-  | 'FEATURE_DISABLED';
+export const DIAGNOSTIC_CODES = [
+  'SCOPE_UNRECOGNIZED',
+  'SCOPE_AMBIGUOUS',
+  'DOM_ANCHOR_MISSING',
+  'DOM_ANCHOR_AMBIGUOUS',
+  'DOM_ANCHOR_FALLBACK',
+  'DOM_IDENTITY_MISMATCH',
+  'DOM_CLASSIFY_ANOMALY',
+  'TIMELINE_UNKNOWN_KIND',
+  'TIMELINE_HEURISTIC_USED',
+  'LOADMORE_FAILED',
+  'LOADMORE_NO_PROGRESS',
+  'ANCHOR_NOT_FOUND',
+  'FEATURE_EXCEPTION',
+  'FEATURE_DISABLED',
+] as const;
+export type DiagnosticCode = (typeof DIAGNOSTIC_CODES)[number];
 
-export type Severity = 'info' | 'warn' | 'error';
+export const SEVERITIES = ['info', 'warn', 'error'] as const;
+export type Severity = (typeof SEVERITIES)[number];
 
 /** Outcome of one gated feature on one page session. 'ok' reports clear degraded state. */
-export type FeatureOutcome = 'ok' | 'drifted' | 'unrecognized' | 'disabled' | 'notApplicable';
+export const FEATURE_OUTCOMES = ['ok', 'drifted', 'unrecognized', 'disabled', 'notApplicable'] as const;
+export type FeatureOutcome = (typeof FEATURE_OUTCOMES)[number];
 
 export interface Diagnostic {
   code: DiagnosticCode;
@@ -87,6 +95,73 @@ export interface FeatureReport {
   diagnostics: Diagnostic[];
 }
 
+/**
+ * Live health of one feature in one markup variant (chrome.storage.session). Keyed per variant so
+ * one arm of a GitHub A/B test can degrade on its own.
+ */
+export interface FeatureHealthState {
+  feature: FeatureId;
+  variant: VariantId | 'unknown';
+  state: 'healthy' | 'degraded';
+  /** 'unrecognized' / 'disabled' outcomes since the last 'ok' / 'drifted'. */
+  consecutiveFailures: number;
+  /** Distinct page paths in the current failure streak (capped). */
+  failurePaths: string[];
+  lastOkAt?: number;
+  lastFailureAt?: number;
+  lastFailureCodes?: DiagnosticCode[];
+  /** When state last changed. */
+  since: number;
+}
+
+/** How a drift record's anchor or feature failed. */
+export type DriftResolution =
+  | `fallback:${number}`
+  | 'missing'
+  | `ambiguous:${number}`
+  | 'exception'
+  | 'disabled'
+  | 'anomaly'
+  | 'other';
+
+/**
+ * Durable, deduplicated record of one kind of drift (chrome.storage.local), detailed enough for a
+ * developer to update the DOM contract.
+ */
+export interface DriftRecord {
+  /** Hash of code|feature|scope|anchor|variant|pageKind|resolution|fingerprint|extVersion. */
+  key: string;
+  code: DiagnosticCode;
+  severity: Severity;
+  feature: FeatureId;
+  scope?: ScopeId;
+  anchor?: AnchorId;
+  variant: VariantId | 'unknown';
+  pageKind: PageKind;
+  resolution: DriftResolution;
+  fingerprint?: string;
+  message?: string;
+  extVersion: string;
+  ghReleaseFirst?: string;
+  ghReleaseLast?: string;
+  firstSeen: number;
+  lastSeen: number;
+  count: number;
+  /** Distinct sample page paths (owner/repo/kind/N), newest last, capped. */
+  samplePaths: string[];
+}
+
+/** Extension-side connection state of the daemon notification stream. */
+export type DaemonStreamStatus = 'connected' | 'offline' | 'setup' | 'version-mismatch';
+
+/** Everything the options page's GitHub compatibility panel shows. */
+export interface DiagnosticsSnapshot {
+  extensionVersion: string;
+  stream: { status: DaemonStreamStatus; since: number } | null;
+  health: FeatureHealthState[];
+  records: DriftRecord[];
+}
+
 export type ExtensionResponse<T = unknown> =
   | { ok: true; data: T }
   | { ok: false; error: string };
@@ -104,6 +179,10 @@ export interface StoredExtensionData {
   known_bots?: string[];
   /** Resume cursor of the notification stream (proto JSON Timestamp). */
   last_received_at?: string;
+  /** Global Safe mode switch (options page): content mutators off, OctoDeck UI hidden on GitHub. */
+  safe_mode?: boolean;
+  /** Drift records, newest last (background/diagnostics.ts). */
+  diag_records?: { schema: number; records: DriftRecord[] };
 }
 
 /** Keys written by earlier extension versions that are removed on install/update. */
@@ -116,10 +195,28 @@ export const OBSOLETE_STORAGE_KEYS = [
 
 /**
  * Session storage (cleared when the browser exits): shown notification IDs mapped to the URL a
- * click opens, and the freshest copy of the stream's resume cursor.
+ * click opens, the freshest copy of the stream's resume cursor, live diagnostics health and the
+ * toolbar action state.
  */
 export interface SessionExtensionData {
   notification_urls?: Record<string, string>;
   /** Resume cursor updated on every stream message (proto JSON Timestamp). */
   last_received_at?: string;
+  /** Live feature health, keyed 'feature|variant' (background/diagnostics.ts). */
+  diag_health?: { schema: number; health: Record<string, FeatureHealthState> };
+  /** Last outcome per 'navId|feature', so resent or follow-up reports count once (bounded). */
+  diag_seen?: [string, FeatureOutcome][];
+  /** Toolbar action inputs (background/action.ts). */
+  action_state?: ActionState;
+}
+
+/** Inputs to the single toolbar renderer (background/action.ts). */
+export interface ActionState {
+  stream: { status: DaemonStreamStatus; since: number } | null;
+  /** Last badge pushed by the daemon. */
+  badge: { text: string; tooltip: string } | null;
+  /** Human-readable names of degraded features (global). */
+  degraded: string[];
+  /** Per tab: the latest session's limited features on that tab. */
+  tabs: Record<string, { navId: string; limited: string[] }>;
 }
