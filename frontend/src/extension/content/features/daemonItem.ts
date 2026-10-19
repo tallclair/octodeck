@@ -112,6 +112,10 @@ export function candidateIds(ref: ItemRef, item: Item | null): string[] {
 /**
  * Sends an item message, trying each candidate id until one succeeds. Returns the validated item,
  * or a failure detail.
+ *
+ * A candidate that resolves to a different item (e.g. a node id read from DOM that GitHub had not
+ * yet updated after an in-page navigation) is reported and skipped, so the URL-derived id still
+ * gets a chance. The page's owner/repo#number always comes from the URL, which is authoritative.
  */
 export async function sendItemMessage(
   ctx: FeatureContext,
@@ -129,7 +133,8 @@ export async function sendItemMessage(
           severity: 'warn',
           message: 'daemon item does not match the page',
         });
-        return { ok: false, error: 'item mismatch' };
+        lastError = 'item mismatch';
+        continue;
       }
       return { ok: true, item: res.data };
     }

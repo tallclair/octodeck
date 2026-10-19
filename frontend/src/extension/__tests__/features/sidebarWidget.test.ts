@@ -131,6 +131,27 @@ describe('sidebarWidget', () => {
     expect(ctx.bus.last('item:updated')?.item).toBeNull();
   });
 
+  it('falls back to the URL item id when a stale node id resolves to another item', async () => {
+    // After an in-page navigation GitHub may still expose the previous item's node id in the DOM;
+    // the URL-derived owner/repo#n must still find the right item.
+    const { reports, ctx, sent } = setup({
+      handlers: {
+        GET_ITEM: (m) =>
+          (m as { itemId: string }).itemId === 'octo/deck#1'
+            ? { ok: true, data: makeItem() }
+            : { ok: true, data: makeItem({ id: 'I_previous', number: 2 }) },
+      },
+    });
+    await flush();
+    expect(sent.filter((m) => m.type === 'GET_ITEM').map((m) => (m as { itemId: string }).itemId)).toEqual([
+      'I_node1',
+      'octo/deck#1',
+    ]);
+    expect(reports.some((r) => r.code === 'DOM_IDENTITY_MISMATCH')).toBe(true);
+    expect(ctx.bus.last('item:updated')?.daemon).toBe('ok');
+    expect(ctx.bus.last('item:updated')?.item?.number).toBe(1);
+  });
+
   it('stars optimistically and adopts the daemon response', async () => {
     const { root, sent, ctx } = setup({
       handlers: {
