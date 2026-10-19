@@ -562,10 +562,13 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onInstalled) {
   // Notification Clicked -> Open OctoDeck Dashboard at the notification's target
   chrome.notifications?.onClicked?.addListener(handleNotificationClick);
 
-  // The watchdog reconnects the stream if the worker was suspended or the daemon restarted.
+  // The watchdog reconnects the stream if the worker was suspended or the daemon restarted, and
+  // refreshes the cached known bots: the daemon adds bots it discovers during sync, and content
+  // scripts pick up the new list through chrome.storage.onChanged.
   chrome.alarms?.onAlarm?.addListener((alarm) => {
     if (alarm.name === WATCHDOG_ALARM) {
       connectNotificationStream();
+      void syncKnownBots();
     }
   });
 
@@ -593,6 +596,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime?.onInstalled) {
   // the watchdog alarm exists.
   void ensureWatchdogAlarm().catch((err) => console.debug('[OctoDeck BG] Failed to ensure watchdog alarm:', err));
   connectNotificationStream();
+  void syncKnownBots();
 
   console.log('[OctoDeck BG] Companion background service worker initialized.');
 }
