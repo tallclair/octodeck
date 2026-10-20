@@ -990,8 +990,7 @@ frontend/src/extension/
 │   │   └── viewTracker.ts  actionTracker.ts  expandAll.ts  anchorNav.ts            # WP2
 │   └── styles/                      # concatenated into content.css by the build (WP0 owns the vite step)
 │       ├── engine.css               # WP0: safe mode, own-node base rules
-│       ├── features.css             # WP4: sidebar widget, ack button, collapser, markers
-│       ├── expandAll.css            # inline "Load all" button next to GitHub's Load more
+│       ├── features.css             # WP4: sidebar widget, ack button, collapser, markers, inline "Load all" button
 │       └── navigation.css           # WP2: anchor highlight, banner toast
 ├── __fixtures__/*.html|*.meta.json, README.md              # injector (Phase 1); sanitizer: frontend/scripts/sanitize-github-fixture.mjs
 └── __tests__/ fixtureHarness.ts (injector), contract/invariants/chaos/layering (WP1/WP0), fakes/ (WP0), per-module tests (owners)

@@ -27,7 +27,7 @@ export const EXPAND_BATCH_TIMEOUT_MS = 15000;
 /** How long the result toast stays up after a run ends (cancelled runs show none). */
 export const EXPAND_RESULT_TOAST_MS = 4000;
 
-/** Class of the inline button; styled in styles/expandAll.css. */
+/** Class of the inline button; styled in the Expand all section of styles/features.css. */
 export const LOAD_ALL_CLASS = 'octodeck-gh-load-all';
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;

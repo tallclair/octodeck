@@ -28,7 +28,7 @@ Engineering rules for agents working in `frontend/src/extension/`. For details, 
 - Features are registered as factories (`FeatureRegistration.create()`), so each mount gets a fresh instance.
 - Use `ctx.signal`, `ctx.guard`, `ctx.setTimer`/`ctx.delay`, `ctx.onScopeChange`, `ctx.bus` and `ctx.send`. No raw listeners, timers, observers or `chrome.runtime` calls. All of these become no-ops after abort (`ctx.send` never settles after abort).
 - The host trips a circuit breaker on a mount exception, on 3 guarded errors in 30s, or when the ledger's re-inject budget is exceeded (more than 5 re-insertions after external removal in 10s).
-- Features talk only through bus events (`item:updated`, `expand:*`, `reveal:request`, ...), never by importing each other.
+- Features talk only through bus events (`item:updated`, `timeline:loading`, `reveal:request`, ...), never by importing each other.
 
 ## Diagnostics
 - `ctx.report(diagnostic)` takes `DiagnosticCode`s from `types.ts`. The host turns them into per-session outcomes: `ok`, `drifted`, `unrecognized`, `disabled`, `notApplicable`.

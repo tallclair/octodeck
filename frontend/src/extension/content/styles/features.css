@@ -1,6 +1,6 @@
 /*
- * OctoDeck feature styles (WP4): sidebar widget, Ack button, collapsed-noise boxes and timeline
- * markers.
+ * OctoDeck feature styles (WP4): sidebar widget, Ack button, collapsed-noise boxes, timeline
+ * markers and the inline "Load all" button of Expand all.
  *
  * Rules target only OctoDeck's own classes (octodeck-gh-*) and own attributes. GitHub's DOM is
  * never selected here; the safe-mode hiding rules live in engine.css. Layout tweaks for a specific
@@ -647,4 +647,36 @@ html:not([data-octodeck-safe]) .octodeck-gh-hidden-event {
   color: var(--fgColor-attention, var(--color-attention-fg, #9a6700));
   background-color: var(--bgColor-attention-muted, rgba(234, 179, 8, 0.1));
   border: 1px solid var(--borderColor-attention-muted, rgba(234, 179, 8, 0.3));
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* Expand all (inline Load all)                                                               */
+/* ------------------------------------------------------------------------------------------ */
+/*
+ * Contract with features/expandAll.ts (LOAD_ALL_CLASS): an own `button.octodeck-gh-load-all`
+ * (type="button") inserted by the ledger at the slot the variant's load adapter chose, next to
+ * GitHub's own "Load more" control (docs/internal/extension_dom_engine_design.md section 9.4).
+ * It mirrors GitHub's link-style pagination buttons through GitHub's CSS variables, so it follows
+ * the page theme. Progress and Cancel live in the banner toast (navigation.css).
+ */
+.octodeck-gh-load-all {
+  display: block;
+  margin: 0 auto 4px;
+  padding: 0 16px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--fgColor-accent, #0969da);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.octodeck-gh-load-all:hover {
+  text-decoration: underline;
+}
+
+.octodeck-gh-load-all:focus-visible {
+  outline: 2px solid var(--focus-outlineColor, #0969da);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
