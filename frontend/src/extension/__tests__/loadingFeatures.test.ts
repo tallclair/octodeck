@@ -146,7 +146,8 @@ describe('expandAll feature', () => {
     expect(s.navigation.toasts[0].text).toBe(EXPAND_TEXT.progress({ added: 30, remaining: 74 }));
     expect(s.navigation.toasts[0].text).toContain('74 remaining');
     calls[0].onProgress?.({ batches: 2, added: 60, remaining: null });
-    expect(s.navigation.toasts[0].text).toContain('60 items loaded');
+    // An unknown remaining count keeps the neutral text instead of switching message shape.
+    expect(s.navigation.toasts[0].text).toBe('Loading hidden items…');
   });
 
   it('reports completion briefly, then removes the toast; nothing left to load means no control', async () => {

@@ -196,7 +196,10 @@ export const classicLoadAdapter: TimelineLoadAdapter = {
     const out: HiddenItemsInfo[] = [];
     // querySelectorAll on a selector list returns each element once, in document order.
     for (const form of Array.from(root.querySelectorAll(`${RANGE_PRIMARY}, ${RANGE_FORM}`))) {
-      if (isOwnNode(form)) continue;
+      // Review threads load their hidden replies through the same ajax-pagination form, marked
+      // with the hidden-comment hook. Those are reported as 'hiddenComments' below, never as a
+      // timeline range: they carry no count, and Load all must not expand threads.
+      if (isOwnNode(form) || form.matches(HIDDEN_COMMENTS)) continue;
       out.push({ kind: 'range', segment: form, count: parseHiddenCount(form) });
     }
     for (const thread of Array.from(root.querySelectorAll(COLLAPSED_THREAD))) {

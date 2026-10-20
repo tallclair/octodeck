@@ -651,7 +651,7 @@ export interface HiddenItemsInfo {
 
 | Kind | classic (`variants/classic/load.ts`) | react |
 |---|---|---|
-| `range` | `#js-progressive-timeline-item-container form.js-ajax-pagination` ("104 hidden items" / "Load more…"). There's one hidden middle range between the front and back segments. | Probed from `react-app.embeddedData` `timelineItems{totalCount,beforeFocusCount,afterFocusCount,pageInfo}` (a load-time snapshot, detection only). The control is unknown until captured. |
+| `range` | `#js-progressive-timeline-item-container form.js-ajax-pagination` ("104 hidden items" / "Load more…"). There's one hidden middle range between the front and back segments. Review threads load hidden replies through the same `form.js-ajax-pagination` (marked `.js-thread-hidden-comment-ids`, button "Load more…" with no count); those are `hiddenComments`, never `range`. | Probed from `react-app.embeddedData` `timelineItems{totalCount,beforeFocusCount,afterFocusCount,pageInfo}` (a load-time snapshot, detection only). The control is unknown until captured. |
 | `collapsedThread` | `review-thread-collapsible[data-hidden-comment-ids]` (2 in the fixture, with no `discussion_r` inside until opened) | n/a |
 | `hiddenComments` | `.js-thread-hidden-comment-ids`, `.js-review-hidden-comment-ids` forms (long threads and reviews; 0 in the fixture) | n/a |
 

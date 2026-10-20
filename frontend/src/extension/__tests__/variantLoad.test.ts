@@ -3,6 +3,7 @@ import { classicLoadAdapter, openCollapsedAncestors, parseHiddenCount } from '..
 import { reactLoadAdapter } from '../content/variants/react/load';
 import type { HiddenItemsInfo } from '../content/capabilities/types';
 import { loadFixture, resetFixture } from './fixtureHarness';
+import { threadLoader } from './githubMarkup';
 
 const timelineRoot = () => document.querySelector('.js-discussion') as Element;
 const range = () => classicLoadAdapter.hidden(timelineRoot()).find((h) => h.kind === 'range') as HiddenItemsInfo;
@@ -64,6 +65,18 @@ describe('classic load adapter (fixture classic-pr-141014)', () => {
     // Open threads are not hidden content.
     for (const t of threads) expect(t.segment.querySelector('[aria-expanded="true"]')).toBeNull();
     expect(classicLoadAdapter.supportsLoadMore()).toBe(true);
+  });
+
+  it('reports a review thread\'s "Load more…" loader as hidden comments, never as a timeline range', async () => {
+    await loadFixture('classic-pr-141014');
+    // Shape observed in a timeline_more_items batch on kubernetes/enhancements#6169: review threads
+    // load hidden replies through the same ajax-pagination form, with no count in the button.
+    timelineRoot().append(threadLoader('111,222,333'));
+    const hidden = classicLoadAdapter.hidden(timelineRoot());
+    expect(hidden.filter((h) => h.kind === 'range')).toEqual([expect.objectContaining({ count: 104 })]);
+    expect(hidden.filter((h) => h.kind === 'hiddenComments')).toEqual([
+      expect.objectContaining({ count: 3, containsCommentIds: ['111', '222', '333'] }),
+    ]);
   });
 
   it('loadOne clicks GitHub\'s control and resolves "loaded" when the form is replaced by new items', async () => {

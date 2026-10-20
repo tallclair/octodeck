@@ -40,10 +40,10 @@ export const EXPAND_TEXT = {
   cancel: 'Cancel',
   starting: (count: number | null) =>
     count !== null && count > 0 ? `Loading ${plural(count, 'hidden item', 'hidden items')}…` : 'Loading hidden items…',
+  // When GitHub doesn't say how many items remain, keep the neutral loading text rather than
+  // switching to a differently shaped message mid-run.
   progress: (p: { added: number; remaining: number | null }) =>
-    p.remaining !== null
-      ? `Loading hidden items… ${p.remaining} remaining`
-      : `Loading hidden items… ${plural(p.added, 'item', 'items')} loaded`,
+    p.remaining !== null ? `Loading hidden items… ${p.remaining} remaining` : 'Loading hidden items…',
   done: (added: number) => `Loaded ${plural(added, 'hidden item', 'hidden items')}`,
   bounded: (added: number) => `Loaded ${plural(added, 'item', 'items')}; more remain. Choose "Continue loading all" to keep going.`,
   failed: "Couldn't load more hidden items",

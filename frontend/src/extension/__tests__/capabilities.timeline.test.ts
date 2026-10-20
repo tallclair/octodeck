@@ -5,6 +5,7 @@ import { LOAD_ALL_CLASS, expandAllFeature } from '../content/features/expandAll'
 import { createFakeContext } from './fakes/context';
 import { openCapabilitySession } from './capabilitySession';
 import { loadFixture, resetFixture } from './fixtureHarness';
+import { threadLoader } from './githubMarkup';
 
 const REACT = 'react-issue-142957';
 const CLASSIC = 'classic-pr-141014';
@@ -207,6 +208,22 @@ describe('capabilities: timeline.loadMoreControls (native Load more anchors)', (
     expect(next.contains(after[0].control)).toBe(true);
     next.remove();
     expect(s.caps.timeline!.loadMoreControls()).toEqual([]);
+  });
+
+  it('ignores review-thread "Load more…" loaders: no control beside them, remaining count stays known', async () => {
+    const meta = await loadFixture(CLASSIC);
+    document.querySelector('.js-discussion')!.append(threadLoader('111,222'));
+    const s = openCapabilitySession(meta.url);
+    const timeline = s.caps.timeline!;
+    expect(timeline.hidden().filter((h) => h.kind === 'range')).toEqual([expect.objectContaining({ count: 104 })]);
+    expect(timeline.loadMoreControls().map((c) => c.control)).toEqual([loaderButton()]);
+    expect(controlReports(s)).toEqual([]);
+
+    const h = createFakeContext({ id: 'expandAll', caps: s.caps });
+    expandAllFeature.create().mount(h.ctx);
+    expect(document.querySelectorAll(`button.${LOAD_ALL_CLASS}`)).toHaveLength(1);
+    expect(document.querySelector(`button.${LOAD_ALL_CLASS}`)!.previousElementSibling).toBe(loaderButton());
+    h.abort();
   });
 
   it('expandAll on the real classic capability: "Load all" sits after GitHub\'s button and is invisible to the loader', async () => {
