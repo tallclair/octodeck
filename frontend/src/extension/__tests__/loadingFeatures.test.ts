@@ -245,6 +245,35 @@ describe('expandAll feature', () => {
     expect(s.h.errors).toHaveLength(1);
   });
 
+  it('moves focus into the toast on keyboard activation and back to the inline button afterwards', async () => {
+    const { loadUntil, calls } = pendingLoad();
+    const s = setup({ loadUntil });
+    s.buttons()[0].focus();
+    s.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(s.navigation.toasts[0].focused).toBe(true);
+
+    // The focused Cancel button goes away with the toast; focus lands on the restored inline button.
+    s.navigation.toasts[0].action!.onClick();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(document.activeElement).toBe(s.buttons()[0]);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('does not take focus on a pointer start without focus, nor from where the user moved it', async () => {
+    const { loadUntil } = pendingLoad();
+    const s = setup({ loadUntil });
+    s.click(); // button never focused
+    await vi.advanceTimersByTimeAsync(0);
+    expect(s.navigation.toasts[0].focused).toBeUndefined();
+
+    const input = document.body.appendChild(document.createElement('input'));
+    input.focus();
+    s.navigation.toasts[0].action!.onClick();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(document.activeElement).toBe(input);
+  });
+
   it('session end aborts the run, removes the toast and leaves no own nodes', async () => {
     const { loadUntil, calls } = pendingLoad();
     const s = setup({ loadUntil });

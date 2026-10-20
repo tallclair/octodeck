@@ -6,7 +6,9 @@
  * UI: a "Load all" button rendered next to each of GitHub's own "Load more" controls
  * (timeline.loadMoreControls()), re-rendered whenever the timeline changes, and absent when nothing
  * is hidden or the variant's loader is not verified. While a run is active the inline buttons are
- * withdrawn and a banner toast (navigation.showToast) shows progress with a Cancel button.
+ * withdrawn and a banner toast (navigation.showToast) shows progress with a Cancel button. Focus
+ * follows a keyboard activation into the toast's Cancel button, and returns to the re-rendered
+ * inline button when the run ends (unless the user has moved focus elsewhere meanwhile).
  *
  * All loading goes through timeline.loadUntil, which clicks GitHub's own control in bounded,
  * polite batches and shares a per-session mutex with anchorNav. Resolved/outdated review threads
@@ -14,6 +16,7 @@
  * reached the inline button offers to continue.
  */
 import type { HiddenItemsInfo, LoadResult, TimelineCap, ToastHandle } from '../capabilities/types';
+import { OWN_ATTR } from '../engine/constants';
 import type { Feature, FeatureContext, FeatureRegistration } from '../engine/types';
 
 /** Batches per run before the control offers to continue (decision 2). */
@@ -84,6 +87,23 @@ function createExpandAll(): Feature {
       const buttons = new Map<Element, HTMLButtonElement>();
       let keySeq = 0;
 
+      // Keyboard users must not be dropped onto <body> when the inline button is withdrawn or the
+      // toast goes away. Focus counts as "ours" when it is on one of this feature's own nodes or
+      // has already fallen back to the body (a focused node was removed).
+      const ownSelector = `[${OWN_ATTR}="${ctx.id}"]`;
+      const focusIsOurs = () => {
+        const active = document.activeElement;
+        return !active || active === document.body || active.closest(ownSelector) !== null;
+      };
+      const focusFirstButton = () => {
+        for (const btn of Array.from(buttons.values())) {
+          if (btn.isConnected) {
+            btn.focus();
+            return;
+          }
+        }
+      };
+
       const clearResult = () => {
         cancelResultTimer?.();
         cancelResultTimer = null;
@@ -115,7 +135,7 @@ function createExpandAll(): Feature {
             btn.title = EXPAND_TEXT.title;
             btn.addEventListener('click', (event) => {
               event.preventDefault();
-              start();
+              start(document.activeElement === event.currentTarget);
             });
             buttons.set(hidden.segment, btn);
           }
@@ -129,7 +149,8 @@ function createExpandAll(): Feature {
         }
       };
 
-      const start = ctx.guard(async () => {
+      /** `fromFocus`: the user activated a focused inline button, so focus follows into the toast. */
+      const start = ctx.guard(async (fromFocus: boolean) => {
         if (run) return; // already running
         const ranges = rangesOf(timeline);
         if (ranges.length === 0) {
@@ -149,8 +170,10 @@ function createExpandAll(): Feature {
           ledger: ctx.ledger,
           action: { label: EXPAND_TEXT.cancel, onClick: ctx.guard(() => controller.abort()) },
         });
+        if (fromFocus) toast.focusAction();
 
         let result: LoadResult | null = null;
+        let restoreFocus = false;
         try {
           result = await timeline.loadUntil(() => false, {
             signal: controller.signal,
@@ -163,9 +186,13 @@ function createExpandAll(): Feature {
         } finally {
           ctx.signal.removeEventListener('abort', onSessionAbort);
           run = null;
+          restoreFocus = focusIsOurs();
           toast.dismiss();
           // On an exception (reported by the guard) still bring the inline control back.
-          if (!result) render();
+          if (!result) {
+            render();
+            if (restoreFocus) focusFirstButton();
+          }
         }
         if (ctx.signal.aborted) return;
 
@@ -191,6 +218,7 @@ function createExpandAll(): Feature {
             break;
         }
         render();
+        if (restoreFocus) focusFirstButton();
       });
 
       // GitHub (or another feature's load) adds, replaces and removes ranges: follow them.

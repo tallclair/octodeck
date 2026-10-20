@@ -577,7 +577,7 @@ export interface NavigationCap {
   // Polite banner toast at the top of the viewport (anchor repair, expand-all progress). Dismissed when `signal` aborts.
   // `ledger` attributes the nodes to the calling feature (default: the engine's anchorNav ledger).
   // `action` adds a native button (e.g. Cancel); clicking it does not dismiss the toast.
-  showToast(text: string, opts: { signal: AbortSignal; ledger?: FeatureLedger; action?: { label: string; onClick(): void } }): { update(text: string): void; dismiss(): void };
+  showToast(text: string, opts: { signal: AbortSignal; ledger?: FeatureLedger; action?: { label: string; onClick(): void } }): { update(text: string): void; focusAction(): void; dismiss(): void };
 }
 ```
 
@@ -723,6 +723,7 @@ loop:
 - **Run:** `loadUntil(() => false, { kinds: ['range'], maxBatches: 25, batchTimeoutMs: 15000, interBatchDelayMs: 400, signal })`.
   - While it runs, the inline buttons are withdrawn and a banner toast (`navigation.showToast` with the feature's own ledger, §6.4) shows "Loading N hidden items…", then "… M remaining" from `onProgress`, with a **Cancel** button.
   - The toast follows the run's AbortSignal, so it disappears at once on Cancel, navigation, or `unmount`; every other ending dismisses it explicitly (including a thrown loader).
+  - Focus: activating a focused "Load all" moves focus to the toast's Cancel (`focusAction()`); when the run ends with focus still on our nodes (or fallen back to `<body>`), it moves to the re-rendered inline button. Focus the user moved elsewhere is never taken.
   - On `bounded` (batch cap reached) a short result toast says more remain and the inline button reads "Continue loading all". On `exhausted` the result toast reports how many items loaded. Result toasts disappear after 4 s; a cancelled run shows none.
   - Whether expand-all also opens `collapsedThread`s (resolved or outdated review threads that GitHub collapses on purpose) is decision 16.
 - **Interaction:**
@@ -756,7 +757,7 @@ loop:
 **Loading toast (decision 4).** While steps 3-5 are loading, `navigation.showToast(text, {signal})` shows a banner toast, e.g. "Loading hidden comments to find the linked comment…". It's dismissed when the target is found, the repair ends, or the signal aborts.
 - The toast is a single own node (`ledger.create`) appended to `document.body`, positioned `fixed`, with `role="status"` and `aria-live="polite"`.
 - It depends on no GitHub anchor, so it's safe even on a partly recognized page.
-- It's used **only** by this flow. Drift is never shown as a toast (decision 6).
+- The same toast shows expand-all progress (§9.4, decision 4); each flow passes its own ledger (§6.4). Drift is never shown as a toast (decision 6).
 
 **Highlight:** `navigation.scrollToAndHighlight(target)` adds the ledger class `octodeck-gh-anchor-target`, which fades out, and calls `scrollIntoView({block:'center'})`, respecting `prefers-reduced-motion`. It never re-assigns `location.hash`.
 
