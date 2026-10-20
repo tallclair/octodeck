@@ -220,6 +220,8 @@ export interface FakeToast {
   text: string;
   dismissed: boolean;
   action?: ToastAction;
+  /** Set once focusAction() is called on a shown toast that has an action. */
+  focused?: boolean;
 }
 
 export function createFakeNavigation(initialHash = ''): FakeNavigation {
@@ -251,6 +253,9 @@ export function createFakeNavigation(initialHash = ''): FakeNavigation {
           if (!entry.dismissed) entry.text = t;
         },
         dismiss,
+        focusAction: () => {
+          if (!entry.dismissed && entry.action) entry.focused = true;
+        },
       };
     },
     setHash: (h) => {

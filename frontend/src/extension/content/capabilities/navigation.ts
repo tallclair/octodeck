@@ -84,9 +84,10 @@ export function createNavigationCap(deps: NavigationCapDeps): NavigationCap {
       el.appendChild(label);
 
       let dismissed = false;
+      let button: HTMLButtonElement | null = null;
       if (action) {
         // A native <button> is focusable and activates on Enter/Space without extra key handling.
-        const button = ledger.create('button');
+        button = ledger.create('button');
         button.type = 'button';
         button.className = TOAST_ACTION_CLASS;
         button.textContent = action.label;
@@ -113,6 +114,9 @@ export function createNavigationCap(deps: NavigationCapDeps): NavigationCap {
           if (!dismissed) label.textContent = next;
         },
         dismiss,
+        focusAction: () => {
+          if (!dismissed && button?.isConnected) button.focus();
+        },
       };
     },
   };

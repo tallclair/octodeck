@@ -193,6 +193,25 @@ describe('capabilities: navigation', () => {
     expect(el.isConnected).toBe(false);
   });
 
+  it('focusAction() focuses the action button while shown and is a no-op otherwise', () => {
+    const { nav } = makeNav();
+    const controller = new AbortController();
+    const textOnly = nav.showToast('Done', { signal: controller.signal });
+    expect(() => textOnly.focusAction()).not.toThrow();
+    expect(document.activeElement).toBe(document.body);
+
+    const toast = nav.showToast('Loading…', { signal: controller.signal, action: { label: 'Cancel', onClick: () => {} } });
+    const btn = document.querySelector<HTMLButtonElement>(`.${TOAST_ACTION_CLASS}`)!;
+    toast.focusAction();
+    expect(document.activeElement).toBe(btn);
+
+    btn.blur();
+    toast.dismiss();
+    toast.focusAction();
+    expect(document.activeElement).not.toBe(btn);
+    controller.abort();
+  });
+
   it('does not render a toast for an already-aborted signal', () => {
     const { nav } = makeNav();
     const controller = new AbortController();
@@ -201,6 +220,7 @@ describe('capabilities: navigation', () => {
     expect(document.querySelector(`.${TOAST_CLASS}`)).toBeNull();
     expect(() => toast.update('x')).not.toThrow();
     expect(() => toast.dismiss()).not.toThrow();
+    expect(() => toast.focusAction()).not.toThrow();
   });
 });
 

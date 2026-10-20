@@ -170,6 +170,8 @@ export interface SidebarCap {
 export interface ToastHandle {
   update(text: string): void;
   dismiss(): void;
+  /** Moves keyboard focus to the action button, if there is one and the toast is still shown. */
+  focusAction(): void;
 }
 
 export interface NavigationCap {

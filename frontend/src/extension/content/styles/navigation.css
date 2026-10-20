@@ -58,6 +58,11 @@ html:not([data-octodeck-safe]) .octodeck-gh-anchor-target {
   gap: 12px;
 }
 
+/* A second concurrent toast (e.g. anchor repair waiting while expand-all runs) stacks below. */
+.octodeck-gh-toast ~ .octodeck-gh-toast {
+  top: 64px;
+}
+
 .octodeck-gh-toast-text {
   min-width: 0;
   overflow-wrap: anywhere;
