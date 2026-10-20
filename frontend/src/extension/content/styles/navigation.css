@@ -1,11 +1,13 @@
 /*
- * Navigation styles (WP2): permalink-target highlight and the anchor-repair banner toast.
+ * Navigation styles (WP2): permalink-target highlight and the top-of-viewport banner toast.
  * See docs/internal/extension_dom_engine_design.md sections 9.5 and 6.4.
  *
- * Contract with capabilities/navigation.ts (HIGHLIGHT_CLASS / TOAST_CLASS):
+ * Contract with capabilities/navigation.ts (HIGHLIGHT_CLASS / TOAST_CLASS / TOAST_TEXT_CLASS /
+ * TOAST_ACTION_CLASS):
  * - scrollToAndHighlight() adds the ledger class `octodeck-gh-anchor-target` to the GitHub node
  *   and removes it after the highlight period (or on revert).
- * - showToast() renders an own node with class `octodeck-gh-toast` (role="status").
+ * - showToast() renders an own node with class `octodeck-gh-toast` (role="status") holding a
+ *   `octodeck-gh-toast-text` span and, optionally, a `octodeck-gh-toast-action` button.
  * Everything is inert in safe mode (engine.css hides own nodes; the highlight is gated here).
  */
 
@@ -48,5 +50,38 @@ html:not([data-octodeck-safe]) .octodeck-gh-anchor-target {
   box-shadow: var(--shadow-floating-small, 0 1px 3px rgba(31, 35, 40, 0.12), 0 8px 24px rgba(66, 74, 83, 0.12));
   font-size: 14px;
   line-height: 20px;
+  /* The banner never blocks the page; only its action button takes pointer input. */
   pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.octodeck-gh-toast-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.octodeck-gh-toast-action {
+  pointer-events: auto;
+  flex: none;
+  padding: 2px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--button-default-borderColor-rest, var(--borderColor-default, #d0d7de));
+  background: var(--button-default-bgColor-rest, var(--bgColor-muted, #f6f8fa));
+  color: var(--button-default-fgColor-rest, var(--fgColor-default, #1f2328));
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.octodeck-gh-toast-action:hover {
+  background: var(--button-default-bgColor-hover, var(--bgColor-neutral-muted, #eaeef2));
+}
+
+.octodeck-gh-toast-action:focus-visible {
+  outline: 2px solid var(--focus-outlineColor, #0969da);
+  outline-offset: 2px;
 }

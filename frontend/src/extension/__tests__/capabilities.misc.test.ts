@@ -1,5 +1,11 @@
 import { createActionsCap } from '../content/capabilities/actions';
-import { HIGHLIGHT_CLASS, TOAST_CLASS, createNavigationCap } from '../content/capabilities/navigation';
+import {
+  HIGHLIGHT_CLASS,
+  TOAST_ACTION_CLASS,
+  TOAST_CLASS,
+  TOAST_TEXT_CLASS,
+  createNavigationCap,
+} from '../content/capabilities/navigation';
 import { OWN_ATTR } from '../content/engine/constants';
 import type { VariantModule } from '../content/variants/types';
 import { openCapabilitySession } from './capabilitySession';
@@ -116,6 +122,78 @@ describe('capabilities: navigation', () => {
     expect(el.textContent).toBe('Still loading…');
     controller.abort();
     expect(el.isConnected).toBe(false);
+    expect(() => toast.dismiss()).not.toThrow();
+  });
+
+  it('renders text-only toasts without a button, attributed to the navigation ledger by default', () => {
+    const { nav, navLedger } = makeNav();
+    const controller = new AbortController();
+    const toast = nav.showToast('Loading…', { signal: controller.signal });
+    const el = document.querySelector(`.${TOAST_CLASS}`)!;
+    expect(el.querySelector('button')).toBeNull();
+    expect(el.querySelector(`.${TOAST_TEXT_CLASS}`)!.textContent).toBe('Loading…');
+    expect(el.getAttribute(OWN_ATTR)).toBe('anchorNav');
+    expect(navLedger.created).toContain(el);
+    toast.dismiss();
+    expect(el.isConnected).toBe(false);
+    controller.abort();
+  });
+
+  it('renders an accessible action button that calls onClick, keeps it across updates, and ignores clicks after dismiss', () => {
+    const { nav } = makeNav();
+    const controller = new AbortController();
+    const onClick = vi.fn();
+    const toast = nav.showToast('Loading 1 of 3…', { signal: controller.signal, action: { label: 'Cancel', onClick } });
+    const el = document.querySelector(`.${TOAST_CLASS}`)!;
+    const btn = el.querySelector<HTMLButtonElement>(`button.${TOAST_ACTION_CLASS}`)!;
+    expect(btn.type).toBe('button');
+    expect(btn.textContent).toBe('Cancel');
+    expect(btn.hasAttribute(OWN_ATTR)).toBe(true);
+    expect(btn.tabIndex).toBe(0);
+
+    toast.update('Loading 2 of 3…');
+    expect(el.querySelector(`.${TOAST_TEXT_CLASS}`)!.textContent).toBe('Loading 2 of 3…');
+    expect(el.contains(btn)).toBe(true);
+
+    btn.click();
+    expect(onClick).toHaveBeenCalledTimes(1);
+    // The action does not dismiss by itself; the caller decides.
+    expect(el.isConnected).toBe(true);
+
+    toast.dismiss();
+    expect(el.isConnected).toBe(false);
+    btn.click();
+    toast.update('ignored');
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(el.querySelector(`.${TOAST_TEXT_CLASS}`)!.textContent).toBe('Loading 2 of 3…');
+    controller.abort();
+  });
+
+  it("attributes the toast to the caller's ledger when one is passed, and dismisses it on abort", () => {
+    const { nav, navLedger } = makeNav();
+    const callerLedger = createFakeLedger('expandAll');
+    const controller = new AbortController();
+    nav.showToast('Loading…', {
+      signal: controller.signal,
+      ledger: callerLedger,
+      action: { label: 'Cancel', onClick: () => {} },
+    });
+    const el = document.querySelector(`.${TOAST_CLASS}`)!;
+    expect(el.getAttribute(OWN_ATTR)).toBe('expandAll');
+    expect(el.querySelector('button')!.getAttribute(OWN_ATTR)).toBe('expandAll');
+    expect(callerLedger.created).toContain(el);
+    expect(navLedger.created).toHaveLength(0);
+    controller.abort();
+    expect(el.isConnected).toBe(false);
+  });
+
+  it('does not render a toast for an already-aborted signal', () => {
+    const { nav } = makeNav();
+    const controller = new AbortController();
+    controller.abort();
+    const toast = nav.showToast('Loading…', { signal: controller.signal, action: { label: 'Cancel', onClick: () => {} } });
+    expect(document.querySelector(`.${TOAST_CLASS}`)).toBeNull();
+    expect(() => toast.update('x')).not.toThrow();
     expect(() => toast.dismiss()).not.toThrow();
   });
 });

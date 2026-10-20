@@ -20,6 +20,7 @@ import type {
   TimelineItem,
   TimelineItemKind,
   TimelineRow,
+  ToastAction,
   ToastHandle,
 } from '../../content/capabilities/types';
 import type { PageFacts } from '../../content/dom/types';
@@ -198,14 +199,21 @@ export function createFakeSidebar(point: InsertionPoint | null): SidebarCap {
 export type FakeNavigation = NavigationCap & {
   setHash(hash: string): void;
   readonly highlighted: Element[];
-  readonly toasts: Array<{ text: string; dismissed: boolean }>;
+  readonly toasts: FakeToast[];
 };
+
+/** One recorded showToast() call; `action` is present only when the caller passed one. */
+export interface FakeToast {
+  text: string;
+  dismissed: boolean;
+  action?: ToastAction;
+}
 
 export function createFakeNavigation(initialHash = ''): FakeNavigation {
   let hash = initialHash;
   const listeners = new Set<(h: string) => void>();
   const highlighted: Element[] = [];
-  const toasts: Array<{ text: string; dismissed: boolean }> = [];
+  const toasts: FakeToast[] = [];
   return {
     hash: () => hash,
     onHash: (cb, signal) => {
@@ -216,16 +224,18 @@ export function createFakeNavigation(initialHash = ''): FakeNavigation {
     scrollToAndHighlight: (target) => {
       highlighted.push(target);
     },
-    showToast: (text, { signal }): ToastHandle => {
-      const entry = { text, dismissed: false };
+    showToast: (text, { signal, action }): ToastHandle => {
+      const entry: FakeToast = { text, dismissed: false };
+      if (action) entry.action = action;
       toasts.push(entry);
       const dismiss = () => {
         entry.dismissed = true;
       };
-      signal.addEventListener('abort', dismiss, { once: true });
+      if (signal.aborted) dismiss();
+      else signal.addEventListener('abort', dismiss, { once: true });
       return {
         update: (t) => {
-          entry.text = t;
+          if (!entry.dismissed) entry.text = t;
         },
         dismiss,
       };

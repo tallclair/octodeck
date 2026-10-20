@@ -231,56 +231,13 @@ describe('sidebarWidget', () => {
     expect(box.checked).toBe(true);
   });
 
-  describe('Expand all control', () => {
-    it('is hidden until expandAll reports hidden items', async () => {
-      const { root } = setup();
-      await flush();
-      expect(root()!.querySelector<HTMLElement>('.octodeck-gh-expand-row')!.hidden).toBe(true);
-    });
-
-    it('renders the hidden count and sends start/stop/continue commands', async () => {
-      const bus = createFakeBus();
-      const { root, ctx } = setup({ bus });
-      await flush();
-      const commands: string[] = [];
-      ctx.bus.on('expand:command', (v) => commands.push(v.action));
-      const row = () => root()!.querySelector<HTMLElement>('.octodeck-gh-expand-row')!;
-      const btn = () => row().querySelector<HTMLButtonElement>('button')!;
-
-      ctx.bus.emit('expand:state', { available: true, count: 104, running: false, bounded: false });
-      expect(row().hidden).toBe(false);
-      expect(btn().textContent).toBe('Expand all (104 hidden)');
-      btn().click();
-
-      ctx.bus.emit('expand:state', { available: true, count: 60, running: true, bounded: false });
-      expect(row().textContent).toContain('Loading hidden items');
-      expect(btn().textContent).toBe('Stop');
-      btn().click();
-
-      ctx.bus.emit('expand:state', { available: true, count: 60, running: false, bounded: true });
-      expect(btn().textContent).toBe('Continue (60 hidden)');
-      btn().click();
-
-      ctx.bus.emit('expand:state', { available: true, count: null, running: false, bounded: false, error: 'timeout' });
-      expect(row().textContent).toContain("Couldn't load more");
-
-      ctx.bus.emit('expand:state', { available: false, count: null, running: false, bounded: false });
-      expect(row().hidden).toBe(true);
-      expect(commands).toEqual(['start', 'stop', 'continue']);
-    });
-
-    it('renders state published before it mounted', async () => {
-      const bus = createFakeBus();
-      bus.forSignal(new AbortController().signal).emit('expand:state', {
-        available: true,
-        count: 7,
-        running: false,
-        bounded: false,
-      });
-      const { root } = setup({ bus });
-      await flush();
-      expect(root()!.querySelector('.octodeck-gh-expand-row button')?.textContent).toBe('Expand all (7 hidden)');
-    });
+  it('renders no Expand all control (it lives inline in the timeline)', async () => {
+    const bus = createFakeBus();
+    const { root, ctx } = setup({ bus });
+    await flush();
+    ctx.bus.emit('expand:state', { available: true, count: 104, running: false, bounded: false });
+    expect(root()!.querySelector('.octodeck-gh-expand-row')).toBeNull();
+    expect(root()!.textContent).not.toContain('Expand all');
   });
 
   describe('Limited chip', () => {

@@ -346,27 +346,6 @@
   font-weight: 400;
 }
 
-/* Expand all control (decisions 1-2) */
-.octodeck-gh-expand-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.octodeck-gh-expand-row[hidden] {
-  display: none;
-}
-
-.octodeck-gh-expand-status {
-  font-size: 12px;
-  color: var(--fgColor-muted, var(--color-fg-muted, #656d76));
-}
-
-.octodeck-gh-expand-error {
-  color: var(--fgColor-danger, var(--color-danger-fg, #cf222e));
-}
-
 /* ------------------------------------------------------------------------------------------ */
 /* Ack button                                                                                 */
 /* ------------------------------------------------------------------------------------------ */

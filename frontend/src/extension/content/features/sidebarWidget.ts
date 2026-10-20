@@ -2,8 +2,8 @@
  * OctoDeck sidebar widget (mutator; requires the sidebar scope).
  *
  * Shows the item's OctoDeck state (tracked badge, star, private notes), the Hide events switch,
- * the manual "Expand all" control (decision 1; expandAll does the loading), and a "Limited" chip
- * when other OctoDeck features are paused on this page (decision 6).
+ * and a "Limited" chip when other OctoDeck features are paused on this page (decision 6).
+ * The Expand all control lives inline in the timeline (owned by expandAll), not here.
  *
  * It owns the daemon fetch for the current item and publishes it as 'item:updated'.
  */
@@ -95,7 +95,6 @@ class SidebarWidget implements Feature {
   private root!: HTMLDivElement;
   private headerEl!: HTMLDivElement;
   private notesEl!: HTMLDivElement;
-  private expandEl!: HTMLDivElement;
   private hideEventsBox!: HTMLInputElement;
 
   /** Last snapshot from the daemon; item survives offline periods. */
@@ -135,7 +134,6 @@ class SidebarWidget implements Feature {
       this.renderHeader();
       if (!this.isEditingNotes) this.renderNotes();
     });
-    ctx.bus.on('expand:state', () => this.renderExpand());
     ctx.bus.on('host:health', () => this.renderHeader());
 
     startItemSync(ctx, ref, () => this.snapshot?.item ?? null, (s) => this.applySnapshot(s));
@@ -168,11 +166,9 @@ class SidebarWidget implements Feature {
     label.append(this.hideEventsBox, h('span', 'octodeck-gh-filter-text', 'Hide events'));
     filterRow.appendChild(label);
 
-    this.expandEl = h('div', 'octodeck-gh-expand-row');
-    this.root.append(this.headerEl, this.notesEl, filterRow, this.expandEl);
+    this.root.append(this.headerEl, this.notesEl, filterRow);
     this.renderHeader();
     this.renderNotes();
-    this.renderExpand();
   }
 
   private applySnapshot(s: ItemSnapshot): void {
@@ -338,38 +334,6 @@ class SidebarWidget implements Feature {
     add.append(svgIcon(ICON_PLUS, 14), h('span', undefined, 'Add Private Note'));
     add.addEventListener('click', startEditing);
     this.notesEl.replaceChildren(add);
-  }
-
-  /** Renders the manual Expand all control from expandAll's published state (decisions 1-2). */
-  private renderExpand(): void {
-    const state = this.ctx.bus.last('expand:state');
-    const children: Node[] = [];
-    const command = (action: BusEvents['expand:command']['action']) =>
-      this.ctx.guard(() => this.ctx.bus.emit('expand:command', { action }));
-    const countText = (count: number | null) => (count !== null && count > 0 ? ` (${count} hidden)` : '');
-
-    if (state?.running) {
-      children.push(h('span', 'octodeck-gh-expand-status', 'Loading hidden items…'));
-      const stop = button('octodeck-gh-btn octodeck-gh-btn-sm octodeck-gh-expand-btn');
-      stop.textContent = 'Stop';
-      stop.addEventListener('click', command('stop'));
-      children.push(stop);
-    } else if (state?.error) {
-      children.push(h('span', 'octodeck-gh-expand-status octodeck-gh-expand-error', "Couldn't load more"));
-      if (state.available) {
-        const retry = button('octodeck-gh-btn octodeck-gh-btn-sm octodeck-gh-expand-btn');
-        retry.textContent = 'Retry';
-        retry.addEventListener('click', command(state.bounded ? 'continue' : 'start'));
-        children.push(retry);
-      }
-    } else if (state?.available) {
-      const start = button('octodeck-gh-btn octodeck-gh-btn-sm octodeck-gh-expand-btn');
-      start.textContent = `${state.bounded ? 'Continue' : 'Expand all'}${countText(state.count)}`;
-      start.addEventListener('click', command(state.bounded ? 'continue' : 'start'));
-      children.push(start);
-    }
-    this.expandEl.hidden = children.length === 0;
-    this.expandEl.replaceChildren(...children);
   }
 
   private async toggleStar(): Promise<void> {

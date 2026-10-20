@@ -6,6 +6,7 @@
  * listener registrations take the caller's AbortSignal so they are torn down with the feature.
  */
 import type { PageFacts } from '../dom/types';
+import type { FeatureLedger } from '../engine/types';
 
 export interface Capabilities {
   page: PageCap;
@@ -163,8 +164,28 @@ export interface NavigationCap {
   onHash(cb: (hash: string) => void, signal: AbortSignal): void;
   /** Scroll into view (sticky-header aware) and apply a fading highlight class; respects reduced motion. */
   scrollToAndHighlight(target: Element, opts: { signal: AbortSignal }): void;
-  /** Banner toast for the anchor-repair flow only (decision 4). Dismissed automatically on abort. */
-  showToast(text: string, opts: { signal: AbortSignal }): ToastHandle;
+  /**
+   * Polite banner toast at the top of the viewport (anchor repair, expand-all progress).
+   * Dismissed automatically when `signal` aborts.
+   */
+  showToast(text: string, opts: ToastOptions): ToastHandle;
+}
+
+/** Optional button rendered inside a toast (e.g. "Cancel"). */
+export interface ToastAction {
+  label: string;
+  /** Called on click / keyboard activation. Does not dismiss the toast; the caller decides. */
+  onClick: () => void;
+}
+
+export interface ToastOptions {
+  signal: AbortSignal;
+  /**
+   * The calling feature's ledger, so the toast is tagged, budgeted and reverted as that feature's.
+   * Defaults to the session navigation ledger, which is attributed to anchorNav.
+   */
+  ledger?: FeatureLedger;
+  action?: ToastAction;
 }
 
 // ---------------------------------------------------------------------------
