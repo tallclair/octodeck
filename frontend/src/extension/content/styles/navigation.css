@@ -6,8 +6,9 @@
  * TOAST_ACTION_CLASS):
  * - scrollToAndHighlight() adds the ledger class `octodeck-gh-anchor-target` to the GitHub node
  *   and removes it after the highlight period (or on revert).
- * - showToast() renders an own node with class `octodeck-gh-toast` (role="status") holding a
- *   `octodeck-gh-toast-text` span and, optionally, a `octodeck-gh-toast-action` button.
+ * - showToast() renders an own node with class `octodeck-gh-toast` holding a
+ *   `octodeck-gh-toast-text` span (the role="status" live region) and, optionally, a
+ *   `octodeck-gh-toast-action` button outside that live region.
  * Everything is inert in safe mode (engine.css hides own nodes; the highlight is gated here).
  */
 

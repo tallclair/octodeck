@@ -1,6 +1,6 @@
 /*
- * OctoDeck feature styles (WP4): sidebar widget, Ack button, collapsed-noise boxes, timeline
- * markers and the Expand all control.
+ * OctoDeck feature styles (WP4): sidebar widget, Ack button, collapsed-noise boxes and timeline
+ * markers.
  *
  * Rules target only OctoDeck's own classes (octodeck-gh-*) and own attributes. GitHub's DOM is
  * never selected here; the safe-mode hiding rules live in engine.css. Layout tweaks for a specific
@@ -146,7 +146,7 @@
   pointer-events: none !important;
 }
 
-/* General buttons (notes Save/Cancel, Expand all) */
+/* General buttons (notes Save/Cancel) */
 .octodeck-gh-btn {
   display: inline-flex;
   align-items: center;

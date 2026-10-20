@@ -115,8 +115,9 @@ describe('capabilities: navigation', () => {
     const controller = new AbortController();
     const toast = nav.showToast('Loading…', { signal: controller.signal });
     const el = document.querySelector(`.${TOAST_CLASS}`)!;
-    expect(el.getAttribute('role')).toBe('status');
-    expect(el.getAttribute('aria-live')).toBe('polite');
+    const text = el.querySelector(`.${TOAST_TEXT_CLASS}`)!;
+    expect(text.getAttribute('role')).toBe('status');
+    expect(text.getAttribute('aria-live')).toBe('polite');
     expect(el.hasAttribute(OWN_ATTR)).toBe(true);
     toast.update('Still loading…');
     expect(el.textContent).toBe('Still loading…');
@@ -150,6 +151,11 @@ describe('capabilities: navigation', () => {
     expect(btn.textContent).toBe('Cancel');
     expect(btn.hasAttribute(OWN_ATTR)).toBe(true);
     expect(btn.tabIndex).toBe(0);
+    // The live region is the text only; the button sits outside it and the container is not live.
+    expect(el.hasAttribute('role')).toBe(false);
+    expect(el.hasAttribute('aria-live')).toBe(false);
+    expect(btn.closest('[role="status"], [aria-live]')).toBeNull();
+    expect(el.querySelector('[role="status"]')).toBe(el.querySelector(`.${TOAST_TEXT_CLASS}`));
 
     toast.update('Loading 2 of 3…');
     expect(el.querySelector(`.${TOAST_TEXT_CLASS}`)!.textContent).toBe('Loading 2 of 3…');

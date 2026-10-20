@@ -74,10 +74,12 @@ export function createNavigationCap(deps: NavigationCapDeps): NavigationCap {
       // ever assigned through textContent.
       const el = ledger.create('div', 'toast');
       el.className = TOAST_CLASS;
-      el.setAttribute('role', 'status');
-      el.setAttribute('aria-live', 'polite');
+      // Only the text is a live region: keeping the button outside it means update() announces just
+      // the new progress text, never the button label, and no interactive content sits in a status.
       const label = ledger.create('span');
       label.className = TOAST_TEXT_CLASS;
+      label.setAttribute('role', 'status');
+      label.setAttribute('aria-live', 'polite');
       label.textContent = text;
       el.appendChild(label);
 
