@@ -253,10 +253,14 @@ describe('expandAll feature', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(s.navigation.toasts[0].focused).toBe(true);
 
-    // The focused Cancel button goes away with the toast; focus lands on the restored inline button.
+    // The focused Cancel button goes away with the toast; focus lands on the restored inline button
+    // without scrolling the page back to it.
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus');
     s.navigation.toasts[0].action!.onClick();
     await vi.advanceTimersByTimeAsync(0);
     expect(document.activeElement).toBe(s.buttons()[0]);
+    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+    focusSpy.mockRestore();
     expect(calls).toHaveLength(1);
   });
 
@@ -267,9 +271,18 @@ describe('expandAll feature', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(s.navigation.toasts[0].focused).toBeUndefined();
 
+    // Focus resting on the body is not handed to the inline button by a run that never took it.
+    s.navigation.toasts[0].action!.onClick();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(document.activeElement).toBe(document.body);
+
+    // And a run that did take focus leaves it where the user moved it.
+    s.buttons()[0].focus();
+    s.click();
+    await vi.advanceTimersByTimeAsync(0);
     const input = document.body.appendChild(document.createElement('input'));
     input.focus();
-    s.navigation.toasts[0].action!.onClick();
+    s.navigation.toasts[1].action!.onClick();
     await vi.advanceTimersByTimeAsync(0);
     expect(document.activeElement).toBe(input);
   });

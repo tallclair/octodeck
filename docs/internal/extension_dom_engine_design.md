@@ -723,7 +723,7 @@ loop:
 - **Run:** `loadUntil(() => false, { kinds: ['range'], maxBatches: 25, batchTimeoutMs: 15000, interBatchDelayMs: 400, signal })`.
   - While it runs, the inline buttons are withdrawn and a banner toast (`navigation.showToast` with the feature's own ledger, §6.4) shows "Loading N hidden items…", then "… M remaining" from `onProgress`, with a **Cancel** button.
   - The toast follows the run's AbortSignal, so it disappears at once on Cancel, navigation, or `unmount`; every other ending dismisses it explicitly (including a thrown loader).
-  - Focus: activating a focused "Load all" moves focus to the toast's Cancel (`focusAction()`); when the run ends with focus still on our nodes (or fallen back to `<body>`), it moves to the re-rendered inline button. Focus the user moved elsewhere is never taken.
+  - Focus: activating a focused "Load all" moves focus to the toast's Cancel (`focusAction()`); when such a run ends with focus still on our nodes (or fallen back to `<body>`), it moves to the re-rendered inline button with `preventScroll`, so the page never jumps back. Runs that didn't take focus never move it, and focus the user moved elsewhere is never taken.
   - On `bounded` (batch cap reached) a short result toast says more remain and the inline button reads "Continue loading all". On `exhausted` the result toast reports how many items loaded. Result toasts disappear after 4 s; a cancelled run shows none.
   - Whether expand-all also opens `collapsedThread`s (resolved or outdated review threads that GitHub collapses on purpose) is decision 16.
 - **Interaction:**

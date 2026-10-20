@@ -88,17 +88,18 @@ function createExpandAll(): Feature {
       let keySeq = 0;
 
       // Keyboard users must not be dropped onto <body> when the inline button is withdrawn or the
-      // toast goes away. Focus counts as "ours" when it is on one of this feature's own nodes or
-      // has already fallen back to the body (a focused node was removed).
-      const ownSelector = `[${OWN_ATTR}="${ctx.id}"]`;
+      // toast goes away. Focus counts as "ours" when it is on a node this feature created through
+      // its ledger (inline buttons, the toast's Cancel) or has already fallen back to the body
+      // (a focused node was removed).
       const focusIsOurs = () => {
         const active = document.activeElement;
-        return !active || active === document.body || active.closest(ownSelector) !== null;
+        return !active || active === document.body || active.getAttribute(OWN_ATTR) === ctx.id;
       };
+      // preventScroll: the user may have scrolled into the loaded content; never jump back.
       const focusFirstButton = () => {
         for (const btn of Array.from(buttons.values())) {
           if (btn.isConnected) {
-            btn.focus();
+            btn.focus({ preventScroll: true });
             return;
           }
         }
@@ -186,7 +187,8 @@ function createExpandAll(): Feature {
         } finally {
           ctx.signal.removeEventListener('abort', onSessionAbort);
           run = null;
-          restoreFocus = focusIsOurs();
+          // Only a run that took focus gives it back.
+          restoreFocus = fromFocus && focusIsOurs();
           toast.dismiss();
           // On an exception (reported by the guard) still bring the inline control back.
           if (!result) {
