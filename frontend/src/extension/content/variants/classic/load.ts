@@ -264,4 +264,13 @@ export const classicLoadAdapter: TimelineLoadAdapter = {
     }
     return false;
   },
+
+  // The form stacks "N hidden items" over "Load more…" in one column; our control becomes the
+  // next row. It lives inside the form, so GitHub's in-place replacement of the form after a load
+  // takes it along (the feature re-renders next to the new form). Own buttons are type="button"
+  // and never match SUBMIT_BUTTON, so they neither submit the form nor confuse loadForm.
+  controlInsertionPoint(control) {
+    if (control.localName !== 'button' || !control.closest(RANGE_FORM) || isOwnNode(control)) return null;
+    return { after: control };
+  },
 };

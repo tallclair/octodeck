@@ -52,6 +52,7 @@ export const ANCHOR_IDS = [
   'timeline.hiddenRange',
   'timeline.collapsedThread',
   'timeline.hiddenComments',
+  'timeline.loadMoreControl',
 ] as const;
 export type AnchorId = (typeof ANCHOR_IDS)[number];
 

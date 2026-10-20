@@ -1,8 +1,11 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  EXPAND_ERROR_LOAD_FAILED,
+  EXPAND_BATCH_TIMEOUT_MS,
   EXPAND_INTER_BATCH_DELAY_MS,
   EXPAND_MAX_BATCHES,
+  EXPAND_RESULT_TOAST_MS,
+  EXPAND_TEXT,
+  LOAD_ALL_CLASS,
   expandAllFeature,
 } from '../content/features/expandAll';
 import {
@@ -13,7 +16,6 @@ import {
   anchorNavFeature,
 } from '../content/features/anchorNav';
 import type { HiddenItemsInfo, LoadResult, LoadUntilOptions } from '../content/capabilities/types';
-import type { BusEvents } from '../content/engine/types';
 import {
   createFakeCapabilities,
   createFakeNavigation,
@@ -25,63 +27,177 @@ import {
 } from './fakes/capabilities';
 import { createFakeBus, createFakeContext } from './fakes/context';
 
-const range = (count: number | null = 40): HiddenItemsInfo => ({ kind: 'range', segment: document.createElement('form'), count });
-const flush = () => new Promise((r) => setTimeout(r, 0));
+/** A hidden range whose segment is attached to the document (the inline button goes inside it). */
+const range = (count: number | null = 40): HiddenItemsInfo => ({
+  kind: 'range',
+  segment: document.body.appendChild(document.createElement('form')),
+  count,
+});
+const timelineChange = { scope: 'timeline' as const, addedElements: [], removedOwn: [], rootReplaced: false };
 
 describe('expandAll feature', () => {
-  const handles: Array<{ abort(): void }> = [];
+  const handles: Array<ReturnType<typeof createFakeContext>> = [];
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
   afterEach(() => {
     for (const h of handles.splice(0)) h.abort();
+    vi.useRealTimers();
     document.body.innerHTML = '';
   });
 
   function setup(timelineOpts: FakeTimelineOptions = {}) {
     const timeline = createFakeTimeline({ supportsLoadMore: true, hidden: [range()], ...timelineOpts });
-    const bus = createFakeBus();
-    const h = createFakeContext({ id: 'expandAll', bus, caps: createFakeCapabilities({ timeline }) });
+    const navigation = createFakeNavigation();
+    const h = createFakeContext({ id: 'expandAll', bus: createFakeBus(), caps: createFakeCapabilities({ timeline, navigation }) });
     handles.push(h);
-    const states: Array<BusEvents['expand:state']> = [];
-    h.ctx.bus.on('expand:state', (s) => states.push(s));
     expandAllFeature.create().mount(h.ctx);
-    return { h, timeline, states, command: (action: BusEvents['expand:command']['action']) => h.ctx.bus.emit('expand:command', { action }) };
+    const buttons = () => Array.from(document.querySelectorAll<HTMLButtonElement>(`button.${LOAD_ALL_CLASS}`));
+    return { h, timeline, navigation, buttons, click: () => buttons()[0].click() };
   }
 
-  it('fails closed for variants without a verified loader', () => {
-    const { states, h } = setup({ supportsLoadMore: false });
-    expect(states).toEqual([{ available: false, count: null, running: false, bounded: false }]);
-    expect(h.statuses.at(-1)).toEqual({ health: 'notApplicable', detail: 'unsupported-variant' });
+  /** A loadUntil that stays pending until its signal aborts, exposing the options it was given. */
+  function pendingLoad() {
+    const calls: LoadUntilOptions[] = [];
+    const loadUntil = vi.fn(
+      (_p: () => boolean, o: LoadUntilOptions) =>
+        new Promise<LoadResult>((resolve) => {
+          calls.push(o);
+          o.signal.addEventListener('abort', () => resolve({ status: 'aborted', added: 0, batches: 0 }));
+        })
+    );
+    return { loadUntil, calls };
+  }
+
+  it('fails closed for variants without a verified loader: no inline control', () => {
+    const s = setup({ supportsLoadMore: false });
+    expect(s.buttons()).toEqual([]);
+    expect(s.h.ledger.created).toEqual([]);
+    expect(s.h.statuses.at(-1)).toEqual({ health: 'notApplicable', detail: 'unsupported-variant' });
   });
 
-  it('publishes availability and the hidden count on mount', () => {
-    const { states } = setup();
-    expect(states.at(-1)).toEqual({ available: true, count: 40, running: false, bounded: false });
+  it('renders "Load all" at the insertion point of each native Load more control', () => {
+    const a = range(10);
+    const b = range(20);
+    const s = setup({ hidden: [a, b] });
+    expect(s.buttons().map((btn) => btn.parentElement)).toEqual([a.segment, b.segment]);
+    for (const btn of s.buttons()) {
+      expect(btn.type).toBe('button');
+      expect(btn.textContent).toBe(EXPAND_TEXT.start);
+      expect(btn.getAttribute('data-octodeck')).toBe('expandAll');
+    }
+    expect(s.h.statuses.at(-1)).toEqual({ health: 'ok' });
   });
 
-  it('reports unavailable when nothing is hidden', () => {
-    const { states } = setup({ hidden: [] });
-    expect(states.at(-1)).toMatchObject({ available: false, count: 0 });
+  it('renders nothing when ranges have no recognized control', () => {
+    const s = setup({ loadMoreControls: () => [] });
+    expect(s.buttons()).toEqual([]);
   });
 
-  it('runs a bounded, polite load on "start" and becomes unavailable when exhausted', async () => {
-    let seen: LoadUntilOptions | null = null;
+  it('follows hidden ranges as the timeline changes, and disappears when nothing is hidden', () => {
+    const first = range();
+    const s = setup({ hidden: [first] });
+    expect(s.buttons()).toHaveLength(1);
+
+    s.timeline.setHidden([]);
+    s.h.emitScopeChange(timelineChange);
+    expect(s.buttons()).toEqual([]);
+
+    const next = range(5);
+    s.timeline.setHidden([next]);
+    s.timeline.addItems([createFakeTimelineItem({ nodeId: 'IC_live' })]);
+    expect(s.buttons().map((btn) => btn.parentElement)).toEqual([next.segment]);
+  });
+
+  it('re-inserts a button removed from a still-present segment (budgeted); a replaced segment is not a re-insert', () => {
+    const first = range();
+    const s = setup({ hidden: [first] });
+    s.buttons()[0].remove(); // someone else detached it
+    s.h.emitScopeChange({ ...timelineChange, removedOwn: [] });
+    expect(s.buttons().map((btn) => btn.parentElement)).toEqual([first.segment]);
+    expect(s.h.ledger.reinserts).toBe(1);
+
+    // GitHub replaces the form (and our button with it) after a native Load more.
+    first.segment.remove();
+    s.timeline.setHidden([range()]);
+    s.h.emitScopeChange(timelineChange);
+    expect(s.buttons()).toHaveLength(1);
+    expect(s.h.ledger.reinserts).toBe(1);
+  });
+
+  it('starts a bounded, polite run with a progress toast and withdraws the inline control', async () => {
+    const { loadUntil, calls } = pendingLoad();
+    const s = setup({ hidden: [range(104)], loadUntil });
+    s.click();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(calls[0]).toMatchObject({
+      kinds: ['range'],
+      maxBatches: EXPAND_MAX_BATCHES,
+      batchTimeoutMs: EXPAND_BATCH_TIMEOUT_MS,
+      interBatchDelayMs: EXPAND_INTER_BATCH_DELAY_MS,
+    });
+    expect(s.buttons()).toEqual([]);
+    expect(s.navigation.toasts).toHaveLength(1);
+    expect(s.navigation.toasts[0]).toMatchObject({ text: EXPAND_TEXT.starting(104), dismissed: false });
+    expect(s.navigation.toasts[0].action?.label).toBe(EXPAND_TEXT.cancel);
+
+    calls[0].onProgress?.({ batches: 1, added: 30, remaining: 74 });
+    expect(s.navigation.toasts[0].text).toBe(EXPAND_TEXT.progress({ added: 30, remaining: 74 }));
+    expect(s.navigation.toasts[0].text).toContain('74 remaining');
+    calls[0].onProgress?.({ batches: 2, added: 60, remaining: null });
+    expect(s.navigation.toasts[0].text).toContain('60 items loaded');
+  });
+
+  it('reports completion briefly, then removes the toast; nothing left to load means no control', async () => {
     const ref = {} as { timeline: FakeTimeline };
     const s = setup({
-      loadUntil: async (_pred, o) => {
-        seen = o;
+      loadUntil: async (_p, o) => {
         o.onProgress?.({ batches: 1, added: 30, remaining: 10 });
         ref.timeline.setHidden([]);
         return { status: 'exhausted', added: 40, batches: 2 };
       },
     });
     ref.timeline = s.timeline;
-    s.command('start');
-    await flush();
-    expect(seen).toMatchObject({ kinds: ['range'], maxBatches: EXPAND_MAX_BATCHES, interBatchDelayMs: EXPAND_INTER_BATCH_DELAY_MS });
-    expect(s.states.some((st) => st.running && st.count === 10)).toBe(true);
-    expect(s.states.at(-1)).toEqual({ available: false, count: 0, running: false, bounded: false });
+    s.click();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(s.navigation.toasts.map((t) => t.dismissed)).toEqual([true, false]);
+    expect(s.navigation.toasts[1].text).toBe(EXPAND_TEXT.done(40));
+    expect(s.navigation.toasts[1].action).toBeUndefined();
+    expect(s.buttons()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(EXPAND_RESULT_TOAST_MS);
+    expect(s.navigation.toasts[1].dismissed).toBe(true);
+    expect(s.h.statuses.at(-1)).toEqual({ health: 'ok' });
   });
 
-  it('offers "Continue" when the batch cap is reached, and continues on command', async () => {
+  it('Cancel aborts the run, removes the toast at once and restores the inline control', async () => {
+    const { loadUntil, calls } = pendingLoad();
+    const s = setup({ loadUntil });
+    s.click();
+    await vi.advanceTimersByTimeAsync(0);
+    s.navigation.toasts[0].action!.onClick();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(calls[0].signal.aborted).toBe(true);
+    expect(s.navigation.toasts).toHaveLength(1);
+    expect(s.navigation.toasts[0].dismissed).toBe(true);
+    expect(s.buttons().map((btn) => btn.textContent)).toEqual([EXPAND_TEXT.start]);
+    expect(s.h.errors).toEqual([]);
+  });
+
+  it('ignores a second start while running', async () => {
+    const { loadUntil } = pendingLoad();
+    const s = setup({ loadUntil });
+    const btn = s.buttons()[0];
+    btn.click();
+    btn.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(loadUntil).toHaveBeenCalledTimes(1);
+    expect(s.navigation.toasts).toHaveLength(1);
+  });
+
+  it('offers to continue when the batch cap is reached, and continues on click', async () => {
     const results: LoadResult[] = [
       { status: 'loaded', added: 25, batches: 25 },
       { status: 'exhausted', added: 5, batches: 1 },
@@ -94,66 +210,51 @@ describe('expandAll feature', () => {
     });
     const s = setup({ loadUntil });
     ref.timeline = s.timeline;
-    s.command('start');
-    await flush();
-    expect(s.states.at(-1)).toMatchObject({ available: true, bounded: true, running: false });
-    s.command('continue');
-    await flush();
+    s.click();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(s.navigation.toasts.at(-1)!.text).toBe(EXPAND_TEXT.bounded(25));
+    expect(s.buttons().map((btn) => btn.textContent)).toEqual([EXPAND_TEXT.continue]);
+
+    s.click();
+    await vi.advanceTimersByTimeAsync(0);
     expect(loadUntil).toHaveBeenCalledTimes(2);
-    expect(s.states.at(-1)).toMatchObject({ available: false, bounded: false });
+    expect(s.buttons()).toEqual([]);
+    expect(s.navigation.toasts.at(-1)!.text).toBe(EXPAND_TEXT.done(5));
+    // Starting the second run replaced the first run's result toast.
+    expect(s.navigation.toasts.filter((t) => !t.dismissed)).toHaveLength(1);
   });
 
-  it('surfaces failures as degraded with an error code', async () => {
+  it('surfaces failures in the toast and as degraded health; the control stays for a retry', async () => {
     const s = setup({ loadUntil: async () => ({ status: 'timeout', added: 0, batches: 0 }) });
-    s.command('start');
-    await flush();
-    expect(s.states.at(-1)).toMatchObject({ available: true, running: false, error: EXPAND_ERROR_LOAD_FAILED });
+    s.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(s.navigation.toasts.at(-1)).toMatchObject({ text: EXPAND_TEXT.failed, dismissed: false });
     expect(s.h.statuses.at(-1)).toEqual({ health: 'degraded', detail: 'load-timeout' });
+    expect(s.buttons().map((btn) => btn.textContent)).toEqual([EXPAND_TEXT.start]);
+    await vi.advanceTimersByTimeAsync(EXPAND_RESULT_TOAST_MS);
+    expect(s.navigation.toasts.every((t) => t.dismissed)).toBe(true);
   });
 
-  it('"stop" aborts the running load; duplicate "start" is ignored', async () => {
-    let signal: AbortSignal | null = null;
-    const loadUntil = vi.fn(
-      (_p: () => boolean, o: LoadUntilOptions) =>
-        new Promise<LoadResult>((resolve) => {
-          signal = o.signal;
-          o.signal.addEventListener('abort', () => resolve({ status: 'aborted', added: 0, batches: 0 }));
-        })
-    );
+  it('removes the toast and restores the control even when the loader throws', async () => {
+    const s = setup({ loadUntil: async () => Promise.reject(new Error('boom')) });
+    s.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(s.navigation.toasts.map((t) => t.dismissed)).toEqual([true]);
+    expect(s.buttons()).toHaveLength(1);
+    expect(s.h.errors).toHaveLength(1);
+  });
+
+  it('session end aborts the run, removes the toast and leaves no own nodes', async () => {
+    const { loadUntil, calls } = pendingLoad();
     const s = setup({ loadUntil });
-    s.command('start');
-    s.command('start');
-    await flush();
-    expect(loadUntil).toHaveBeenCalledTimes(1);
-    s.command('stop');
-    await flush();
-    expect(signal!.aborted).toBe(true);
-    expect(s.states.at(-1)).toMatchObject({ running: false, available: true });
-  });
-
-  it('session end aborts the run and publishes nothing afterwards', async () => {
-    let signal: AbortSignal | null = null;
-    const s = setup({
-      loadUntil: (_p, o) =>
-        new Promise((resolve) => {
-          signal = o.signal;
-          o.signal.addEventListener('abort', () => resolve({ status: 'aborted', added: 0, batches: 0 }));
-        }),
-    });
-    s.command('start');
-    await flush();
-    const count = s.states.length;
+    s.click();
+    await vi.advanceTimersByTimeAsync(0);
     s.h.abort();
-    await flush();
-    expect(signal!.aborted).toBe(true);
-    expect(s.states.length).toBe(count);
-  });
-
-  it('refreshes availability when GitHub changes the timeline', () => {
-    const s = setup();
-    s.timeline.setHidden([]);
-    s.timeline.addItems([createFakeTimelineItem({ nodeId: 'IC_live' })]);
-    expect(s.states.at(-1)).toMatchObject({ available: false });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls[0].signal.aborted).toBe(true);
+    expect(s.navigation.toasts.map((t) => t.dismissed)).toEqual([true]);
+    expect(document.querySelector('[data-octodeck]')).toBeNull();
   });
 });
 

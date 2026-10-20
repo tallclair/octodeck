@@ -75,9 +75,6 @@ export interface BusEvents {
   'prefs:changed': PrefsSnapshot;
   'timeline:changed': { added: readonly TimelineItem[]; reason: 'mutation' | 'loadMore' | 'live' };
   'timeline:loading': { phase: 'start' | 'batch' | 'end'; loaded: number; remaining: number | null; error?: string };
-  /** Expand-all availability and progress (emitted by expandAll, rendered by sidebarWidget). */
-  'expand:state': { available: boolean; count: number | null; running: boolean; bounded: boolean; error?: string };
-  'expand:command': { action: 'start' | 'stop' | 'continue' };
   'nav:hash': { hash: string };
   /** Synchronous request to un-hide an element OctoDeck itself hid; handlers act before emit() returns. */
   'reveal:request': { target: Element };

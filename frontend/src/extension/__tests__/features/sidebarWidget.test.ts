@@ -232,10 +232,8 @@ describe('sidebarWidget', () => {
   });
 
   it('renders no Expand all control (it lives inline in the timeline)', async () => {
-    const bus = createFakeBus();
-    const { root, ctx } = setup({ bus });
+    const { root } = setup();
     await flush();
-    ctx.bus.emit('expand:state', { available: true, count: 104, running: false, bounded: false });
     expect(root()!.querySelector('.octodeck-gh-expand-row')).toBeNull();
     expect(root()!.textContent).not.toContain('Expand all');
   });

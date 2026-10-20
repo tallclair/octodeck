@@ -11,6 +11,7 @@ import type { TimelineAdapter, TimelineLoadAdapter, VariantModule } from '../var
 import { gidPrefix, kindFromGid } from './timelineKinds';
 import type {
   HiddenItemsInfo,
+  LoadMoreControl,
   LoadResult,
   TimelineAuthor,
   TimelineCap,
@@ -135,6 +136,45 @@ export function createTimelineCap(deps: TimelineCapDeps): TimelineCap {
     return r && load ? load.hidden(r) : [];
   };
 
+  // Each drift shape is reported once per session; the control is re-located on every render.
+  const reportedControlDrift = new Set<string>();
+  const reportControlDrift = (code: 'DOM_ANCHOR_MISSING' | 'DOM_ANCHOR_AMBIGUOUS', message: string, count?: number) => {
+    const key = `${code}|${message}`;
+    if (reportedControlDrift.has(key)) return;
+    reportedControlDrift.add(key);
+    deps.report?.({
+      code,
+      severity: 'warn',
+      scope: 'timeline',
+      anchor: 'timeline.loadMoreControl',
+      message,
+      ...(count !== undefined ? { count } : {}),
+    });
+  };
+
+  const loadMoreControls = (): readonly LoadMoreControl[] => {
+    if (!load?.supportsLoadMore()) return [];
+    const out: LoadMoreControl[] = [];
+    for (const range of hidden()) {
+      if (range.kind !== 'range') continue;
+      // Resolved inside the segment, so a range's control is never confused with another's.
+      const res = resolver.resolve('timeline.loadMoreControl', range.segment);
+      const controls = 'els' in res ? res.els.filter((el) => !isOwnNode(el)) : [];
+      if (controls.length !== 1) {
+        if (controls.length === 0) reportControlDrift('DOM_ANCHOR_MISSING', 'range-without-control');
+        else reportControlDrift('DOM_ANCHOR_AMBIGUOUS', 'range-with-several-controls', controls.length);
+        continue;
+      }
+      const insertionPoint = load.controlInsertionPoint?.(controls[0]) ?? null;
+      if (!insertionPoint) {
+        reportControlDrift('DOM_ANCHOR_MISSING', 'control-without-insertion-point');
+        continue;
+      }
+      out.push({ hidden: range, control: controls[0], insertionPoint });
+    }
+    return out;
+  };
+
   const loadUntil: TimelineCap['loadUntil'] =
     load && deps.createLoadUntil
       ? deps.createLoadUntil({ items, hidden, adapter: load, bus: deps.bus, doc, report: deps.report })
@@ -168,6 +208,7 @@ export function createTimelineCap(deps: TimelineCapDeps): TimelineCap {
     items,
     supportsLoadMore: () => Boolean(load?.supportsLoadMore()),
     hidden,
+    loadMoreControls,
     loadUntil,
     focusedLoad: (hash, opts) =>
       load?.focusedLoad ? load.focusedLoad(normalizeHash(hash), { signal: opts.signal, timeoutMs: FOCUSED_LOAD_TIMEOUT_MS }) : Promise.resolve(false),

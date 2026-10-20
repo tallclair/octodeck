@@ -111,4 +111,12 @@ export const ANCHORS: { readonly [K in AnchorId]: AnchorDef & { id: K } } = {
     cardinality: 'many',
     presence: { issue: 'optional', 'pr-conversation': 'optional', 'pr-subtab': 'absent' },
   },
+  // GitHub's own "Load more" button of a hidden range. Resolved inside each range segment, where
+  // the timeline capability requires exactly one match (and reports anything else as drift).
+  'timeline.loadMoreControl': {
+    id: 'timeline.loadMoreControl',
+    scope: 'timeline',
+    cardinality: 'many',
+    presence: { issue: 'optional', 'pr-conversation': 'optional', 'pr-subtab': 'absent' },
+  },
 };

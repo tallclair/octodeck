@@ -10,6 +10,7 @@ import type {
   ComposerCap,
   HiddenItemsInfo,
   InsertionPoint,
+  LoadMoreControl,
   LoadResult,
   LoadUntilOptions,
   NavigationCap,
@@ -120,6 +121,11 @@ export interface FakeTimelineOptions {
   root?: Element;
   hidden?: HiddenItemsInfo[];
   supportsLoadMore?: boolean;
+  /**
+   * Native load-more controls; default: one per 'range' in hidden() (when load-more is supported),
+   * with the segment itself as the control and appendTo the segment as the insertion point.
+   */
+  loadMoreControls?: () => LoadMoreControl[];
   /** Scripted loadUntil; default resolves 'exhausted' immediately. */
   loadUntil?: (pred: () => boolean, opts: LoadUntilOptions) => Promise<LoadResult>;
   focusedLoad?: (hash: string) => Promise<boolean>;
@@ -150,6 +156,13 @@ export function createFakeTimeline(opts: FakeTimelineOptions = {}): FakeTimeline
     items: () => items,
     supportsLoadMore: () => opts.supportsLoadMore ?? false,
     hidden: () => hidden,
+    loadMoreControls: () => {
+      if (opts.loadMoreControls) return opts.loadMoreControls();
+      if (!opts.supportsLoadMore) return [];
+      return hidden
+        .filter((h) => h.kind === 'range')
+        .map((h) => ({ hidden: h, control: h.segment, insertionPoint: { appendTo: h.segment } }));
+    },
     loadUntil: (pred, o) =>
       opts.loadUntil ? opts.loadUntil(pred, o) : Promise.resolve({ status: 'exhausted', added: 0, batches: 0 }),
     focusedLoad: (hash) => (opts.focusedLoad ? opts.focusedLoad(hash) : Promise.resolve(false)),

@@ -50,6 +50,11 @@ export interface TimelineLoadAdapter {
   focusedLoad?(hash: string, opts: { signal: AbortSignal; timeoutMs: number }): Promise<boolean>;
   /** Open a GitHub-collapsed container by clicking its toggle (never call custom-element methods). */
   reveal(target: Element | HiddenItemsInfo, opts: { signal: AbortSignal }): Promise<boolean>;
+  /**
+   * Where an adjacent OctoDeck control goes, given the range's resolved timeline.loadMoreControl,
+   * or null when the surrounding markup is not the verified shape (fail closed).
+   */
+  controlInsertionPoint?(control: Element): InsertionPoint | null;
 }
 
 export interface ComposerAdapter {

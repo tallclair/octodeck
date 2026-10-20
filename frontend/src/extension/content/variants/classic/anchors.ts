@@ -45,4 +45,7 @@ export const CLASSIC_ANCHORS = {
   'timeline.hiddenRange': { selectors: ['#js-progressive-timeline-item-container form.js-ajax-pagination'] },
   'timeline.collapsedThread': { selectors: ['review-thread-collapsible[data-hidden-comment-ids]'] },
   'timeline.hiddenComments': { selectors: ['.js-thread-hidden-comment-ids, .js-review-hidden-comment-ids'] },
+  // The range's "Load more…" button: of the pagination form's submit buttons, only the loader
+  // carries GitHub's in-flight label (data-disable-with); the "N hidden items" button does not.
+  'timeline.loadMoreControl': { selectors: ['form.js-ajax-pagination button[type="submit"][data-disable-with]'] },
 } satisfies Partial<Record<AnchorId, Locator>>;

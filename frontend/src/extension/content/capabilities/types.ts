@@ -112,12 +112,27 @@ export interface LoadUntilOptions {
   onProgress?: (p: { batches: number; added: number; remaining: number | null }) => void;
 }
 
+/** GitHub's own "Load more" control for one hidden range, and where OctoDeck UI goes next to it. */
+export interface LoadMoreControl {
+  /** The range this control loads (kind 'range'). */
+  readonly hidden: HiddenItemsInfo;
+  /** GitHub's control; read-only to features. */
+  readonly control: Element;
+  /** Insert own nodes here through the ledger. */
+  readonly insertionPoint: InsertionPoint;
+}
+
 export interface TimelineCap {
   /** Whole items in document order. */
   items(): readonly TimelineItem[];
   /** False for variants whose loader is not verified (fail closed). */
   supportsLoadMore(): boolean;
   hidden(): readonly HiddenItemsInfo[];
+  /**
+   * Native "Load more" controls of the hidden ranges, in document order. Empty when load-more is
+   * unsupported; ranges whose control markup is not recognized are skipped and reported as drift.
+   */
+  loadMoreControls(): readonly LoadMoreControl[];
   /** Bounded sequential loading through GitHub's own controls; serialized per session (section 9.3). */
   loadUntil(pred: () => boolean, opts: LoadUntilOptions): Promise<LoadResult>;
   /** Ask GitHub's own anchor loader for a focused item, when the variant has one. */

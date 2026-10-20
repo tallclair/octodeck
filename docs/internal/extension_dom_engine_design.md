@@ -390,8 +390,6 @@ export interface BusEvents {
   'prefs:changed': PrefsSnapshot;
   'timeline:changed': { added: TimelineItem[]; reason: 'mutation' | 'loadMore' | 'live' };
   'timeline:loading': { phase: 'start' | 'batch' | 'end'; loaded: number; remaining: number | null; error?: string };
-  'expand:state': { available: boolean; count: number | null; running: boolean; bounded: boolean; error?: string };
-  'expand:command': { action: 'start' | 'stop' | 'continue' };
   'nav:hash': { hash: string };
   /** Synchronous request to un-hide an element OctoDeck itself hid (collapsed noise run or hidden event row). Handlers act before emit() returns. */
   'reveal:request': { target: Element };
@@ -522,6 +520,7 @@ export interface TimelineCap {
   items(): readonly TimelineItem[];                    // whole items in document order
   supportsLoadMore(): boolean;                         // false for variants whose loader isn't verified (fail closed)
   hidden(): readonly HiddenItemsInfo[];                // section 9.1: ranges, collapsed threads, hidden-comment loaders
+  loadMoreControls(): readonly LoadMoreControl[];      // section 9.4: GitHub's own Load more button per range + where our UI goes
   loadUntil(pred: () => boolean, opts: LoadUntilOptions): Promise<LoadResult>;      // shared by expandAll + anchorNav (section 9.3)
   focusedLoad(hash: string, opts: { signal: AbortSignal }): Promise<boolean>;     // GitHub's own anchor loader, if the variant has one
   findByAnchor(hash: string): { item: TimelineItem; target: Element } | null;     // exact id, then suffix + numeric id
@@ -575,7 +574,10 @@ export interface NavigationCap {
   hash(): string;                                          // decoded, without '#'
   onHash(cb: (hash: string) => void): void;                // bus 'nav:hash'
   scrollToAndHighlight(target: Element, opts: { signal: AbortSignal }): void; // ledger class + scrollIntoView; respects prefers-reduced-motion
-  showToast(text: string, opts: { signal: AbortSignal }): { update(text: string): void; dismiss(): void }; // decision 4; anchor-nav only
+  // Polite banner toast at the top of the viewport (anchor repair, expand-all progress). Dismissed when `signal` aborts.
+  // `ledger` attributes the nodes to the calling feature (default: the engine's anchorNav ledger).
+  // `action` adds a native button (e.g. Cancel); clicking it does not dismiss the toast.
+  showToast(text: string, opts: { signal: AbortSignal; ledger?: FeatureLedger; action?: { label: string; onClick(): void } }): { update(text: string): void; dismiss(): void };
 }
 ```
 
@@ -666,6 +668,8 @@ export interface TimelineLoadAdapter {
   focusedLoad?(hash: string, opts: { signal: AbortSignal; timeoutMs: number }): Promise<boolean>;
   /** Open a collapsed container around a target (click the toggle button; never call custom-element methods). */
   reveal(target: Element, opts: { signal: AbortSignal }): Promise<boolean>;
+  /** Optional: where an adjacent OctoDeck control goes, given the range's resolved timeline.loadMoreControl (null = unverified markup). */
+  controlInsertionPoint?(control: Element): InsertionPoint | null;
 }
 ```
 
@@ -710,17 +714,22 @@ loop:
 
 ### 9.4 Expand all comments (`features/expandAll.ts`, mutator; requires `timeline`)
 
-- **Availability:** published on the bus as `expand:state { available, count, running, progress }`. `available` is `caps.timeline.supportsLoadMore() && hidden().some(kind=='range')`. Unsupported variants publish `available:false`, with the health `notApplicable` and detail `unsupported-variant`; it's never guessed.
-- **Trigger:** `sidebarWidget` renders the control from `expand:state` and sends `expand:command {start|stop|continue}` on the bus. `expandAll` never touches sidebar DOM. Placement and whether it runs automatically are decisions 1-2.
+- **Availability:** `caps.timeline.supportsLoadMore()` and a recognized native control per hidden range. Unsupported variants get the health `notApplicable` with detail `unsupported-variant` and render nothing; it's never guessed.
+- **Placement:** an inline **"Load all"** button next to each of GitHub's own "Load more" controls, located through `timeline.loadMoreControls()` (§6.2):
+  - The anchor `timeline.loadMoreControl` is resolved *inside* each `range` segment and must match exactly once. Classic: `form.js-ajax-pagination button[type="submit"][data-disable-with]` (only the "Load more…" button carries GitHub's in-flight label; the "N hidden items" button doesn't). React declares no locator (§9.2), so nothing renders there.
+  - The variant's `TimelineLoadAdapter.controlInsertionPoint(control)` picks the slot. Classic: right after the "Load more…" button, inside the form's button column. Our button is `type="button"`, so it never submits the form and never matches the adapter's submit-button reads.
+  - A range without exactly one control, or a control without a verified slot, is skipped (fail closed) and reported once per session as `DOM_ANCHOR_MISSING` / `DOM_ANCHOR_AMBIGUOUS` on `timeline.loadMoreControl`.
+  - The button follows the ranges: it re-renders on every timeline scope change and `onItemsAdded`, and is removed when its range is gone. Each segment element gets its own keyed button, so GitHub replacing the form after a load never counts against the ledger's re-inject budget, while re-inserting a button someone removed from a still-present segment does.
 - **Run:** `loadUntil(() => false, { kinds: ['range'], maxBatches: 25, batchTimeoutMs: 15000, interBatchDelayMs: 400, signal })`.
-  - It's cancelled by "Stop", by navigation, or by `unmount`.
-  - On `bounded`, the control offers "Continue".
+  - While it runs, the inline buttons are withdrawn and a banner toast (`navigation.showToast` with the feature's own ledger, §6.4) shows "Loading N hidden items…", then "… M remaining" from `onProgress`, with a **Cancel** button.
+  - The toast follows the run's AbortSignal, so it disappears at once on Cancel, navigation, or `unmount`; every other ending dismisses it explicitly (including a thrown loader).
+  - On `bounded` (batch cap reached) a short result toast says more remain and the inline button reads "Continue loading all". On `exhausted` the result toast reports how many items loaded. Result toasts disappear after 4 s; a cancelled run shows none.
   - Whether expand-all also opens `collapsedThread`s (resolved or outdated review threads that GitHub collapses on purpose) is decision 16.
 - **Interaction:**
   - `noiseCollapser` defers regrouping while `timeline:loading` is active and regroups once at `end`, processing only the new GIDs.
   - `timelineMarkers` recomputes after each batch, because the Last Viewed position may now fall in a newly loaded range.
-  - `actionTracker` already classifies these clicks as `null` (verified).
-- **Failure:** the control shows "Couldn't load more". A diagnostic is recorded with variant and phase. Nothing is mutated except by GitHub's own loader.
+  - `actionTracker` classifies these clicks as `null` (GitHub's control is on its ignore list; our button is an own node).
+- **Failure:** the result toast says "Couldn't load more hidden items", the health is `degraded` (`load-<status>`) and the inline button stays for a retry. A diagnostic is recorded with variant and phase. Nothing is mutated except by GitHub's own loader and our own nodes.
 - **To verify live:** whether loading the hidden range affects GitHub's unread or notification-read state (`js-timeline-marker`, `X-Timeline-Last-Modified`).
 
 ### 9.5 Anchor navigation repair (`features/anchorNav.ts`, mutator; requires `timeline`)
@@ -980,8 +989,9 @@ frontend/src/extension/
 │   │   └── viewTracker.ts  actionTracker.ts  expandAll.ts  anchorNav.ts            # WP2
 │   └── styles/                      # concatenated into content.css by the build (WP0 owns the vite step)
 │       ├── engine.css               # WP0: safe mode, own-node base rules
-│       ├── features.css             # WP4: sidebar widget, ack button, collapser, markers, expand control
-│       └── navigation.css           # WP2: anchor highlight, find-status
+│       ├── features.css             # WP4: sidebar widget, ack button, collapser, markers
+│       ├── expandAll.css            # inline "Load all" button next to GitHub's Load more
+│       └── navigation.css           # WP2: anchor highlight, banner toast
 ├── __fixtures__/*.html|*.meta.json, README.md              # injector (Phase 1); sanitizer: frontend/scripts/sanitize-github-fixture.mjs
 └── __tests__/ fixtureHarness.ts (injector), contract/invariants/chaos/layering (WP1/WP0), fakes/ (WP0), per-module tests (owners)
 frontend/src/logic/timelineClassify.ts                        # WP4 (pure helpers moved from noiseCollapser)
@@ -1024,10 +1034,10 @@ The old `content/{viewTracker,actionTracker,sidebarSection,noiseCollapser,timeli
 
 | # | Decision |
 |---|---|
-| 1 | (a) Manual "Expand all (N hidden)" button in the OctoDeck sidebar widget |
+| 1 | **Changed:** (d) Manual "Load all" button inline next to GitHub's own "Load more" control, with progress and Cancel in a banner toast (§9.4) |
 | 2 | (a) 25 batches per run, 400ms apart, then "Continue" |
 | 3 | (a) Anchor repair on by default; acts only when the target is missing |
-| 4 | **Changed:** a banner **toast** while loading ("Loading hidden comments to find the linked comment…"), then scroll and briefly highlight the target. The toast is for this flow only (§9.5). |
+| 4 | **Changed:** a banner **toast** while loading ("Loading hidden comments to find the linked comment…"), then scroll and briefly highlight the target. The same toast also shows expand-all progress with a Cancel button (§9.4, §9.5). |
 | 5 | (a) Amber badge, count kept, tooltip line, after ≥3 failures on ≥2 pages |
 | 6 | (a) "Limited" chip in the sidebar widget; no toast for drift |
 | 7 | (a) Options panel: health, drift records, Copy/Download/Clear, Safe mode switch. **No per-feature switches.** |

@@ -132,6 +132,10 @@
       "timeline.hiddenComments": {
         "status": "ok",
         "count": 0
+      },
+      "timeline.loadMoreControl": {
+        "status": "ok",
+        "count": 1
       }
     },
     "items": [

@@ -50,12 +50,12 @@ describe('engine fakes', () => {
     const a = createFakeContext({ id: 'sidebarWidget', bus });
     const b = createFakeContext({ id: 'expandAll', bus });
     const seen: string[] = [];
-    b.ctx.bus.on('expand:command', (v) => seen.push(v.action));
-    a.ctx.bus.emit('expand:command', { action: 'start' });
+    b.ctx.bus.on('nav:hash', (v) => seen.push(v.hash));
+    a.ctx.bus.emit('nav:hash', { hash: 'start' });
     b.abort();
-    a.ctx.bus.emit('expand:command', { action: 'stop' });
+    a.ctx.bus.emit('nav:hash', { hash: 'stop' });
     expect(seen).toEqual(['start']);
-    expect(a.ctx.bus.last('expand:command')).toEqual({ action: 'stop' });
+    expect(a.ctx.bus.last('nav:hash')).toEqual({ hash: 'stop' });
 
     let calls = 0;
     const guarded = b.ctx.guard(() => {

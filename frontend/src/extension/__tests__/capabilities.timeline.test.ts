@@ -1,5 +1,8 @@
 import type { TimelineLoadAdapter, VariantModule } from '../content/variants/types';
 import { VARIANTS } from '../content/variants';
+import { parseHiddenCount } from '../content/variants/classic/load';
+import { LOAD_ALL_CLASS, expandAllFeature } from '../content/features/expandAll';
+import { createFakeContext } from './fakes/context';
 import { openCapabilitySession } from './capabilitySession';
 import { loadFixture, resetFixture } from './fixtureHarness';
 
@@ -141,5 +144,95 @@ describe('capabilities: timeline', () => {
     await expect(timeline.loadUntil(() => false, { signal, maxBatches: 1, batchTimeoutMs: 1, interBatchDelayMs: 0 })).resolves.toMatchObject({ added: 3 });
     await expect(timeline.focusedLoad('#issuecomment-9', { signal })).resolves.toBe(true);
     await expect(timeline.reveal(document.body, { signal })).resolves.toBe(true);
+  });
+});
+
+describe('capabilities: timeline.loadMoreControls (native Load more anchors)', () => {
+  afterEach(() => resetFixture());
+
+  const loaderButton = () => document.querySelector('form.js-ajax-pagination button[data-disable-with]') as HTMLButtonElement;
+  const controlReports = (s: ReturnType<typeof openCapabilitySession>) => s.reports.filter((d) => d.anchor === 'timeline.loadMoreControl');
+
+  it('classic: locates the range\'s "Load more…" button and offers the slot right after it', async () => {
+    const meta = await loadFixture(CLASSIC);
+    const s = openCapabilitySession(meta.url);
+    const controls = s.caps.timeline!.loadMoreControls();
+    expect(controls).toHaveLength(1);
+    const [c] = controls;
+    expect(c.control).toBe(loaderButton());
+    expect(c.control.textContent?.trim()).toBe('Load more…');
+    expect(c.hidden).toMatchObject({ kind: 'range', count: 104, segment: c.control.closest('form') });
+    expect(c.insertionPoint).toEqual({ after: c.control });
+    expect(controlReports(s)).toEqual([]);
+  });
+
+  it('react: unsupported loader, so no controls and no drift', async () => {
+    const meta = await loadFixture(REACT);
+    const s = openCapabilitySession(meta.url);
+    expect(s.caps.timeline!.loadMoreControls()).toEqual([]);
+    expect(controlReports(s)).toEqual([]);
+  });
+
+  it('fails closed and reports drift once when the range has no recognizable loader button', async () => {
+    const meta = await loadFixture(CLASSIC);
+    loaderButton().removeAttribute('data-disable-with');
+    const s = openCapabilitySession(meta.url);
+    expect(s.caps.timeline!.hidden().some((h) => h.kind === 'range')).toBe(true);
+    expect(s.caps.timeline!.loadMoreControls()).toEqual([]);
+    expect(s.caps.timeline!.loadMoreControls()).toEqual([]);
+    expect(controlReports(s)).toEqual([
+      expect.objectContaining({ code: 'DOM_ANCHOR_MISSING', scope: 'timeline', message: 'range-without-control' }),
+    ]);
+  });
+
+  it('fails closed and reports ambiguity when a range has several loader buttons', async () => {
+    const meta = await loadFixture(CLASSIC);
+    const button = loaderButton();
+    button.after(button.cloneNode(true));
+    const s = openCapabilitySession(meta.url);
+    expect(s.caps.timeline!.loadMoreControls()).toEqual([]);
+    expect(controlReports(s)).toEqual([expect.objectContaining({ code: 'DOM_ANCHOR_AMBIGUOUS', count: 2 })]);
+  });
+
+  it('follows GitHub replacing the pagination form', async () => {
+    const meta = await loadFixture(CLASSIC);
+    const s = openCapabilitySession(meta.url);
+    const before = s.caps.timeline!.loadMoreControls()[0];
+    const form = before.hidden.segment;
+    const next = form.cloneNode(true) as Element;
+    form.replaceWith(next);
+    const after = s.caps.timeline!.loadMoreControls();
+    expect(after).toHaveLength(1);
+    expect(after[0].hidden.segment).toBe(next);
+    expect(next.contains(after[0].control)).toBe(true);
+    next.remove();
+    expect(s.caps.timeline!.loadMoreControls()).toEqual([]);
+  });
+
+  it('expandAll on the real classic capability: "Load all" sits after GitHub\'s button and is invisible to the loader', async () => {
+    const meta = await loadFixture(CLASSIC);
+    const s = openCapabilitySession(meta.url);
+    const h = createFakeContext({ id: 'expandAll', caps: s.caps });
+    expandAllFeature.create().mount(h.ctx);
+    const own = document.querySelector(`button.${LOAD_ALL_CLASS}`) as HTMLButtonElement;
+    expect(own).not.toBeNull();
+    expect(own.previousElementSibling).toBe(loaderButton());
+    expect(own.type).toBe('button');
+    // GitHub's own reads are unchanged by our node: same count, same control, nothing new hidden.
+    expect(parseHiddenCount(own.closest('form')!)).toBe(104);
+    expect(s.caps.timeline!.loadMoreControls().map((c) => c.control)).toEqual([loaderButton()]);
+    expect(h.errors).toEqual([]);
+    h.abort();
+    expect(document.querySelector(`button.${LOAD_ALL_CLASS}`)).toBeNull();
+  });
+
+  it('expandAll on the real react capability renders nothing (unsupported variant)', async () => {
+    const meta = await loadFixture(REACT);
+    const s = openCapabilitySession(meta.url);
+    const h = createFakeContext({ id: 'expandAll', caps: s.caps });
+    expandAllFeature.create().mount(h.ctx);
+    expect(document.querySelector(`button.${LOAD_ALL_CLASS}`)).toBeNull();
+    expect(h.statuses.at(-1)).toEqual({ health: 'notApplicable', detail: 'unsupported-variant' });
+    h.abort();
   });
 });
