@@ -10,7 +10,7 @@ Engineering rules for agents working in `frontend/src/extension/`. For details, 
 ## Layering (enforced by `__tests__/layering.test.ts`)
 - `content/features/` → `content/capabilities/` → `content/variants/` + `content/dom/resolver.ts`.
 - Features never use selectors, `variants/` or the resolver. Capabilities contain no GitHub selector literals.
-- Selectors live only in `variants/<id>/anchors.ts` and `detect.ts`. Each anchor is declared once in `dom/anchors.ts` with a cardinality, presence per page kind and `absentWhen`.
+- Selectors live only under `content/variants/**`. Anchor locators go in `variants/<id>/anchors.ts` and `detect.ts`. Behavioral selectors (load controls, badge icons, the action classifier) go in that variant's adapters or `variants/shared.ts`. Each anchor is declared once in `dom/anchors.ts` with a cardinality, presence per page kind and an optional `absentWhen`.
 - Primary selectors use stable hooks: ids, `data-testid`, ARIA, `data-*`, Rails `js-*`, Primer CSS, and GraphQL node-id typename prefixes (`IC_`, `PRR_`, ...). Never hashed classes (`prc-*-abc12`, `name__hash`). `[class*=]` is allowed only as a fallback, marked `// fragile`. English text matching must be marked `// i18n-fragile`.
 
 ## Markup variants
