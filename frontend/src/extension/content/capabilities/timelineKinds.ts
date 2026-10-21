@@ -34,6 +34,14 @@ export const GID_PREFIX_KINDS: Readonly<Record<string, TimelineItemKind>> = {
   UAE: 'event', // UnassignedEvent
   RTE: 'event', // RenamedTitleEvent
   RFRE: 'event', // ReadyForReviewEvent
+  // Added from users' drift records (TIMELINE_UNKNOWN_KIND, 2026-10-21); all bodiless and
+  // on the user-approved Hide events list (board #57/#58).
+  RRE: 'event', // ReviewRequestedEvent
+  HRFPE: 'event', // HeadRefForcePushedEvent
+  CTDE: 'event', // ConvertToDraftEvent
+  MIE: 'event', // MilestonedEvent
+  ATPVTE: 'event', // AddedToProjectV2Event
+  PVTISC: 'event', // ProjectV2ItemStatusChangedEvent
   PR: 'description', // PullRequest
   I: 'description', // Issue
 };

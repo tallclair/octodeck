@@ -152,6 +152,13 @@ export interface TimelineCap {
 export type InsertionPoint = { before: Element } | { after: Element } | { appendTo: Element };
 
 export interface ComposerCap {
+  /**
+   * True while GitHub renders the new-comment composer collapsed (e.g. the React compact one-line
+   * input, or a lazily rendered editor). While collapsed the submit button legitimately doesn't
+   * exist: submitButton()/insertionPoint() return null without reporting drift, and features
+   * re-place on the composer ScopeChange when it expands.
+   */
+  collapsed(): boolean;
   /** The single primary submit button of the new-comment composer. */
   submitButton(): Element | null;
   /** Where an adjacent OctoDeck control goes (the variant decides the wrapper). */

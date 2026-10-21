@@ -54,6 +54,47 @@ describe('capabilities: composer and sidebar', () => {
     expect(s.caps.composer!.submitButton()).not.toBeNull();
   });
 
+  it('treats a collapsed React composer as a legitimate state, not drift', async () => {
+    const meta = await loadFixture('react-issue-142957');
+    const root = document.querySelector('#react-issue-comment-composer')!;
+    const original = Array.from(root.childNodes);
+    const s = openCapabilitySession(meta.url);
+    expect(s.caps.composer!.collapsed()).toBe(false);
+
+    // Compact composer, as fingerprinted on PR pages: only a one-line expander button.
+    const compact = document.createElement('button');
+    compact.type = 'button';
+    root.replaceChildren(compact);
+    s.resolver.invalidate('composer');
+    expect(s.caps.composer!.collapsed()).toBe(true);
+    expect(s.caps.composer!.submitButton()).toBeNull();
+    expect(s.caps.composer!.insertionPoint()).toBeNull();
+
+    // Not-yet-rendered editor body, as fingerprinted on issue pages: heading row only.
+    root.replaceChildren(...original.map((n) => n.cloneNode(true)));
+    root.querySelector('[data-testid="markdown-editor-footer"]')!.closest('fieldset')!.remove();
+    root.querySelectorAll('textarea').forEach((t) => t.remove());
+    s.resolver.invalidate('composer');
+    expect(s.caps.composer!.collapsed()).toBe(true);
+    expect(s.caps.composer!.submitButton()).toBeNull();
+    expect(s.events.filter((e) => e.anchor === 'composer.submit')).toEqual([]);
+
+    // Expanded again: the submit button resolves normally.
+    root.replaceChildren(...original);
+    s.resolver.invalidate('composer');
+    expect(s.caps.composer!.collapsed()).toBe(false);
+    expect(s.caps.composer!.submitButton()?.textContent?.trim()).toBe('Comment');
+  });
+
+  it('still reports a missing submit button on an expanded composer', async () => {
+    const meta = await loadFixture('react-issue-142957');
+    document.querySelector('#react-issue-comment-composer button[data-variant="primary"]')!.removeAttribute('data-variant');
+    const s = openCapabilitySession(meta.url);
+    expect(s.caps.composer!.collapsed()).toBe(false);
+    expect(s.caps.composer!.submitButton()).toBeNull();
+    expect(s.events.some((e) => e.anchor === 'composer.submit' && e.resolution.status === 'missing')).toBe(true);
+  });
+
   it('marks the scope unrecognized when its root disappears', async () => {
     const meta = await loadFixture('classic-pr-141014');
     document.querySelector('.js-discussion')!.classList.remove('js-discussion');

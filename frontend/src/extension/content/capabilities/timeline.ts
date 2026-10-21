@@ -81,11 +81,18 @@ export function createTimelineCap(deps: TimelineCapDeps): TimelineCap {
     return det?.status === 'recognized' && det.root?.isConnected ? det.root : null;
   };
 
-  const reportUnknown = (nodeId: string | null) => {
+  const reportUnknown = (nodeId: string | null, el: Element) => {
     const prefix = gidPrefix(nodeId) ?? '(none)';
     if (reportedPrefixes.has(prefix)) return;
     reportedPrefixes.add(prefix);
-    deps.report?.({ code: 'TIMELINE_UNKNOWN_KIND', severity: 'info', scope: 'timeline', anchor: 'timeline.item', message: `prefix ${prefix}` });
+    // Say what the structural fallback made of it, so a developer can tell whether hiding still works.
+    const structural = new Set<string>();
+    for (const row of adapter ? adapter.rows(el) : []) {
+      const k = adapter?.rowKind(row);
+      if (k && k.source !== 'gid') structural.add(k.kind);
+    }
+    const fallback = structural.size > 0 ? `structure -> ${[...structural].sort().join(',')}` : 'no structural match';
+    deps.report?.({ code: 'TIMELINE_UNKNOWN_KIND', severity: 'info', scope: 'timeline', anchor: 'timeline.item', message: `prefix ${prefix}; ${fallback}` });
   };
 
   const makeRow = (el: Element, item: Element, itemKind: TimelineItemKind): TimelineRow => {
@@ -108,7 +115,7 @@ export function createTimelineCap(deps: TimelineCapDeps): TimelineCap {
     const nodeId = adapter?.itemNodeId(el) ?? null;
     const gidKind = kindFromGid(nodeId);
     const kind: TimelineItemKind = gidKind ?? 'unknown';
-    if (kind === 'unknown') reportUnknown(nodeId);
+    if (kind === 'unknown') reportUnknown(nodeId, el);
     const item: TimelineItem = {
       el,
       nodeId,

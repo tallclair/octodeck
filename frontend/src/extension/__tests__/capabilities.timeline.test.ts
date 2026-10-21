@@ -55,12 +55,13 @@ describe('capabilities: timeline', () => {
     expect(unknown[0].rows()[0]).toMatchObject({ kind: 'event', kindSource: 'structure' });
     expect(unknown[1].rows()[0].kind).toBe('unknown');
     expect(s.reports.filter((d) => d.code === 'TIMELINE_UNKNOWN_KIND')).toHaveLength(1);
+    expect(s.reports.find((d) => d.code === 'TIMELINE_UNKNOWN_KIND')?.message).toBe('prefix ZZZ; structure -> event');
   });
 
   it('falls back to the badge icon when a classic single-event item has an unmapped prefix', async () => {
     const meta = await loadFixture(CLASSIC);
     const ae = document.querySelector('[data-gid^="AE_"]')!;
-    ae.setAttribute('data-gid', 'MIE_kwDOmilestoned');
+    ae.setAttribute('data-gid', 'ZZZE_kwDOnewevent');
     const item = openCapabilitySession(meta.url).caps.timeline!.items().find((it) => it.el === ae)!;
     expect(item.kind).toBe('unknown');
     expect(item.rows()[0]).toMatchObject({ kind: 'event', kindSource: 'structure' });

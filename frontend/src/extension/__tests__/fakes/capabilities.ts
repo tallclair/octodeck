@@ -198,10 +198,17 @@ export function createFakeTimeline(opts: FakeTimelineOptions = {}): FakeTimeline
 }
 
 /** Composer/sidebar fakes return whatever insertion point the test supplies. */
-export function createFakeComposer(submit: Element | null, point?: InsertionPoint | null): ComposerCap {
+export function createFakeComposer(
+  submit: Element | null,
+  point?: InsertionPoint | null,
+  opts: { collapsed?: boolean | (() => boolean) } = {}
+): ComposerCap {
+  const collapsed = () => (typeof opts.collapsed === 'function' ? opts.collapsed() : Boolean(opts.collapsed));
   return {
-    submitButton: () => submit,
-    insertionPoint: () => (point !== undefined ? point : submit ? { before: submit } : null),
+    collapsed,
+    // A collapsed composer has no submit button and no insertion point (and reports nothing).
+    submitButton: () => (collapsed() ? null : submit),
+    insertionPoint: () => (collapsed() ? null : point !== undefined ? point : submit ? { before: submit } : null),
   };
 }
 

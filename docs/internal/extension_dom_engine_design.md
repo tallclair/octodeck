@@ -559,6 +559,7 @@ These prefixes are GitHub's structured global-ID type tags, not opaque per-item 
 
 ```ts
 export interface ComposerCap {
+  collapsed(): boolean;                          // composer rendered collapsed (compact input / lazy editor): no submit yet, not drift
   submitButton(): Element | null;                // the single primary submit of the new-comment composer
   insertionPoint(): { before: Element } | null;  // where an adjacent OctoDeck control goes (variant decides wrapper)
 }

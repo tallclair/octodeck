@@ -57,6 +57,14 @@ describe('capabilities: page', () => {
     expect(s.reports.map((d) => d.code)).toContain('DOM_IDENTITY_MISMATCH');
   });
 
+  it('accepts a PR node id on /issues/N (GitHub serves PRs there before redirecting)', async () => {
+    const meta = await loadFixture('classic-pr-141014');
+    const s = openCapabilitySession(meta.url.replace('/pull/', '/issues/'));
+    expect(s.caps.page.facts().kind).toBe('issue');
+    expect(s.caps.page.facts().item?.nodeId).toBe('PR_kwDOAToIks73sk7P');
+    expect(s.reports.map((d) => d.code)).not.toContain('DOM_IDENTITY_MISMATCH');
+  });
+
   it('treats a page without a viewer meta tag as signed out', async () => {
     const meta = await loadFixture('react-issue-142957');
     document.querySelector('meta[name="user-login"]')!.setAttribute('content', '');
@@ -82,6 +90,8 @@ describe('capabilities: timelineKinds', () => {
     expect(kindFromGid('LE_x')).toBe('event');
     expect(kindFromGid('RFRE_x')).toBe('event');
     expect(kindFromGid('C_x')).toBe('commit');
+    // Prefixes added from real drift records.
+    for (const p of ['RRE', 'HRFPE', 'CTDE', 'MIE', 'ATPVTE', 'PVTISC']) expect(kindFromGid(`${p}_x`)).toBe('event');
     expect(kindFromGid('ZZZ_x')).toBe('unknown');
     expect(kindFromGid('')).toBeNull();
   });

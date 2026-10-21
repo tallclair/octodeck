@@ -58,6 +58,12 @@ export interface TimelineLoadAdapter {
 }
 
 export interface ComposerAdapter {
+  /**
+   * Whether the composer under `root` is currently collapsed (no editor/submit rendered yet).
+   * Must be structural (e.g. no textarea or contenteditable editor inside root). Omit when the
+   * variant never collapses its composer.
+   */
+  collapsed?(root: Element): boolean;
   /** Where an adjacent OctoDeck control goes, given the resolved submit button. */
   insertionPoint(submit: Element): InsertionPoint | null;
 }

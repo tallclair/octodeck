@@ -86,9 +86,10 @@ export function computePageFacts(url: URL, doc: Document, variants: readonly Var
   if ((identity.status === 'ok' || identity.status === 'fallback') && valueOf && item) {
     const candidate = valueOf(identity.els[0]);
     const urlNwo = `${item.owner}/${item.repo}`.toLowerCase();
-    // The node's typename must match the URL type: PR_ on /pull/N, I_ on /issues/N.
-    const expectedPrefix = base.kind === 'issue' ? 'I_' : 'PR_';
-    if (candidate && candidate.startsWith(expectedPrefix) && nwo && nwo.toLowerCase() === urlNwo) {
+    // The node's typename must match the URL type: PR_ on /pull/N. /issues/N accepts I_ or PR_,
+    // because GitHub serves (and then redirects) PRs at /issues/N; numbers share one space.
+    const allowedPrefixes = base.kind === 'issue' ? ['I_', 'PR_'] : ['PR_'];
+    if (candidate && allowedPrefixes.some((p) => candidate.startsWith(p)) && nwo && nwo.toLowerCase() === urlNwo) {
       nodeId = candidate;
     } else if (candidate) {
       opts.report?.({ code: 'DOM_IDENTITY_MISMATCH', severity: 'warn', scope: 'page', anchor: 'page.repo' });
