@@ -140,6 +140,33 @@ describe('ackButton', () => {
     expect(document.body.innerHTML).toBe(COMPOSER_HTML);
   });
 
+  it('waits without reporting drift while the composer is collapsed, then places on expand', () => {
+    document.body.innerHTML = COMPOSER_HTML;
+    const submit = document.getElementById('submit')!;
+    let collapsed = true;
+    const handle = createFakeContext({
+      id: 'ackButton',
+      caps: capsWith({ composer: createFakeComposer(submit, undefined, { collapsed: () => collapsed }) }),
+    });
+    ackButton.create().mount(handle.ctx);
+    expect(document.querySelector('.octodeck-gh-comment-ack-btn')).toBeNull();
+    expect(handle.statuses).toEqual([{ health: 'notApplicable', detail: 'composer-collapsed' }]);
+    expect(handle.reports).toEqual([]);
+
+    // The user clicks into the compact input; GitHub renders the full composer.
+    collapsed = false;
+    handle.emitScopeChange({ scope: 'composer', addedElements: [submit], removedOwn: [], rootReplaced: false });
+    const btn = document.querySelector('.octodeck-gh-comment-ack-btn')!;
+    expect(btn.nextElementSibling).toBe(submit);
+    expect(handle.statuses.at(-1)).toEqual({ health: 'ok' });
+
+    // Collapsing again drops our button with GitHub's footer: back to waiting, still not drift.
+    collapsed = true;
+    btn.remove();
+    handle.emitScopeChange({ scope: 'composer', addedElements: [], removedOwn: [btn], rootReplaced: false });
+    expect(handle.statuses.at(-1)).toEqual({ health: 'notApplicable', detail: 'composer-collapsed' });
+  });
+
   it('reports unrecognized when the composer has no insertion point', () => {
     document.body.innerHTML = '';
     const handle = createFakeContext({ id: 'ackButton', caps: capsWith({ composer: createFakeComposer(null, null) }) });

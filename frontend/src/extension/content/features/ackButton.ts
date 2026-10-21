@@ -39,6 +39,8 @@ class AckButton implements Feature {
   private snapshot: ItemSnapshot | null = null;
   private emitting = false;
   private ownSyncStarted = false;
+  /** True while the button couldn't be placed (status reported); cleared once it is placed. */
+  private waiting = false;
 
   mount(ctx: FeatureContext): void {
     this.ctx = ctx;
@@ -63,12 +65,12 @@ class AckButton implements Feature {
       })
     );
     this.render();
-    if (!this.place()) {
-      ctx.setStatus({ health: 'unrecognized', detail: 'composer-insertion-point' });
-    }
+    this.placeOrWait();
 
+    // Re-place when the composer re-renders and drops the button, or when a collapsed composer
+    // expands and its submit button appears.
     ctx.onScopeChange('composer', () => {
-      if (!this.btn.isConnected) this.place();
+      if (!this.btn.isConnected) this.placeOrWait();
     });
 
     const last = ctx.bus.last('item:updated');
@@ -81,6 +83,25 @@ class AckButton implements Feature {
         if (!this.snapshot) this.startOwnSync();
       }, ACK_FALLBACK_FETCH_MS);
     }
+  }
+
+  /**
+   * Places the button, or records why it can't be placed yet. A collapsed composer (e.g. React's
+   * compact one-line input) legitimately has no submit button until the user clicks into it, so
+   * that's notApplicable, not drift; any other missing insertion point is unrecognized.
+   */
+  private placeOrWait(): void {
+    if (this.place()) {
+      if (this.waiting) this.ctx.setStatus({ health: 'ok' });
+      this.waiting = false;
+      return;
+    }
+    this.waiting = true;
+    this.ctx.setStatus(
+      this.ctx.caps.composer?.collapsed()
+        ? { health: 'notApplicable', detail: 'composer-collapsed' }
+        : { health: 'unrecognized', detail: 'composer-insertion-point' }
+    );
   }
 
   private place(): boolean {
