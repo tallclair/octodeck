@@ -50,6 +50,9 @@ interface FeatureReport {
   path: string;                  // owner/repo/(pull|issues)/N, or ''
   ghRelease?: string;            // <meta name="release"> (GitHub deploy SHA)
   diagnostics: Diagnostic[];     // <= 10
+  context?: {                    // page state at send time: lazy rendering vs drift
+    elapsedMs: number; visibleAtStart: boolean; visible: boolean; focused: boolean;
+  };
 }
 ```
 
@@ -63,6 +66,7 @@ The engine calls `createDiagnosticsClient({send, setTimer, clearTimer})`. That r
 - **Follow-ups go out immediately**, using the same `navId`. That covers an outcome change (e.g. `ok` → `disabled` after a breaker trip) and any diagnostic added after the first report.
 - **Deduplication:** diagnostics are deduplicated per session by `code|scope|anchor`.
 - **Message scrubbing:** exception messages have URLs and `owner/repo#N` tokens replaced.
+- **Context:** every report carries `context`: time since the session started, plus tab visibility and window focus at session start and at send time.
 - **Lifecycle:** nothing is sent after `endSession`, and the client never throws.
 
 ## Fingerprint
@@ -86,6 +90,7 @@ div[data-testid=issue-viewer-metadata-pane].prc-PageLayout-Pane-*
 - **ids are shown only if the contract references them.** That means `knownIds`, typically `idsFromSelectors()` over the active variant's locators, or a numbered id whose prefix is listed (e.g. `issuecomment-` → `issuecomment-#`). The fixtures showed why this restriction is needed: GitHub ids embed user data (`awaiting-review-<login>`, `user-content-<heading>`).
 - Digit runs become `#`. GraphQL ids keep only their typename prefix (`timeline-row-border-IC_*`). Generated CSS-module suffixes collapse to `*` (`prc-Button-ButtonBase-*`, `PageHeader_Title__*`).
 - OctoDeck-owned subtrees are skipped.
+- **Deeper controls:** after the tree, up to 8 interactive descendants that the depth limit hid (`button`, `[role=button]`, `textarea`, `[contenteditable]`, `input`, `summary`) are listed flat as `> …` lines. That shows where a missing control may have moved. Controls inside user content and OctoDeck-owned nodes are skipped.
 - **Background check:** the background re-validates the charset and length. If the check fails, it drops the fingerprint, not the report.
 
 A test runs the fingerprint over every element of both captured fixtures. It asserts there are no repo names, no viewer login and no numbers in ids or attribute values.
@@ -109,7 +114,7 @@ Senders are classified as follows:
 - **`REPORT_DIAGNOSTIC` validation:**
   - enum membership for feature, outcome, page kind, scope, anchor, code and severity
   - regexes for `variant`, `path`, `ghRelease` and `navId`
-  - `path` must belong to the sending tab's URL; otherwise it's cleared
+  - a well-formed reported `path` is kept even when the tab URL differs: the tab may have navigated since, or GitHub may have redirected `/issues/N` to `/pull/N`. The tab's item path is then recorded too, and it fills in when no path was reported
   - rate limit of 30 reports per minute per tab (an in-memory token bucket)
 - **Responses:** every message gets exactly one response. Rejected or malformed messages get `{ok:false, error:'Message rejected'}`. Handler errors become `{ok:false, error}`.
 - **Daemon calls:** all daemon fetches (`callDaemonRpc`, `checkDaemonStatus`, pairing) time out after 10 s. A hung daemon then surfaces as "OctoDeck daemon is not responding" instead of leaving callers waiting forever.
@@ -132,13 +137,16 @@ Senders are classified as follows:
 
 ## Drift records (`chrome.storage.local`)
 
-- **One record per distinct drift**, keyed by a 64-bit FNV-1a hash of `code|feature|scope|anchor|variant|pageKind|resolution|fingerprint|message|extVersion`.
+- **One record per distinct drift**, keyed by a 64-bit FNV-1a hash of `code|scope|anchor|variant|pageKind|resolution|fingerprint|message|extVersion`.
+  - Scoped diagnostics come from capabilities and are shared by every feature that uses the scope, so they produce one record with a `features` list. Only unscoped, feature-level codes (exceptions, breaker trips) include the feature in the key.
+  - `count` is the number of page sessions, so several features reporting the same session count once.
 - **Fields:**
   - `resolution`: `fallback:i` / `missing` / `ambiguous:n` / `exception` / `disabled` / `anomaly` / `other`
   - `fingerprint`, `message`
   - `ghReleaseFirst`/`ghReleaseLast`
   - `firstSeen`/`lastSeen`, `count`
   - up to 5 `samplePaths`
+  - `lastContext`: the page state of the latest occurrence
 - **Paths:** records keep sample page paths, and exports include them (decision 10), because the repo/URL is what makes a report reproducible. Page text is never recorded.
 - **Retention:** 100 records and 30 days (§14.1). Fallback (`info`) records are capped at 40, so drift noise can't evict breakage.
 - **Schema versioning:** the stored object carries `schema: 1`. Data from another schema is ignored.

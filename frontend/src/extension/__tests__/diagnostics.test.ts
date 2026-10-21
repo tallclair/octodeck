@@ -91,10 +91,24 @@ describe('parseFeatureReport', () => {
     expect(parsed?.diagnostics[0].message).toHaveLength(200);
   });
 
-  it('clears a path that does not belong to the sending tab', () => {
-    expect(parseFeatureReport(report(), 'https://github.com/o/r/pull/2')?.path).toBe('');
-    expect(parseFeatureReport(report(), 'https://github.com/o/r/pull/1/files')?.path).toBe('o/r/pull/1');
-    expect(parseFeatureReport(report(), undefined)?.path).toBe('');
+  it('keeps the reported path, adding the tab path when they differ', () => {
+    // GitHub redirected /issues/1 to /pull/1, or the tab navigated after the session started.
+    const moved = parseFeatureReport(report({ path: 'o/r/issues/1' }), 'https://github.com/o/r/pull/1/files');
+    expect(moved).toMatchObject({ path: 'o/r/issues/1', senderPath: 'o/r/pull/1' });
+    expect(parseFeatureReport(report(), 'https://github.com/o/r/pull/1/files')).not.toHaveProperty('senderPath');
+    expect(parseFeatureReport(report({ path: '' }), 'https://github.com/o/r/pull/9')?.path).toBe('o/r/pull/9');
+    expect(parseFeatureReport(report({ path: '' }), 'https://github.com/o/r')?.path).toBe('');
+    expect(parseFeatureReport(report(), undefined)?.path).toBe('o/r/pull/1');
+  });
+
+  it('ignores a forged senderPath and validates context', () => {
+    const parsed = parseFeatureReport(
+      { ...report(), senderPath: 'evil/x/pull/1', context: { elapsedMs: 8123.4, visibleAtStart: false, visible: true, focused: false } },
+      URL_A
+    );
+    expect(parsed).not.toHaveProperty('senderPath');
+    expect(parsed?.context).toEqual({ elapsedMs: 8123, visibleAtStart: false, visible: true, focused: false });
+    expect(parseFeatureReport({ ...report(), context: { elapsedMs: -1 } }, URL_A)).not.toHaveProperty('context');
   });
 });
 
@@ -137,7 +151,12 @@ describe('applyOutcome (degraded rule)', () => {
 describe('drift records', () => {
   it('upserts by key, counting repeats and keeping sample paths', () => {
     let records = upsertRecords([], report({ outcome: 'unrecognized', diagnostics: [missing], ghRelease: 'aaaaaaa' }), 'v1', 1);
-    records = upsertRecords(records, report({ outcome: 'unrecognized', diagnostics: [missing], path: 'o/r/pull/2', ghRelease: 'bbbbbbb' }), 'v1', 2);
+    records = upsertRecords(
+      records,
+      report({ navId: 'nav-00000002', outcome: 'unrecognized', diagnostics: [missing], path: 'o/r/pull/2', ghRelease: 'bbbbbbb' }),
+      'v1',
+      2
+    );
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({
       code: 'DOM_ANCHOR_MISSING',
@@ -154,6 +173,36 @@ describe('drift records', () => {
       samplePaths: ['o/r/pull/1', 'o/r/pull/2'],
       fingerprint: missing.fingerprint,
     });
+  });
+
+  it('merges a scoped diagnostic reported by several features into one record, counting sessions', () => {
+    const scoped: Diagnostic = { code: 'TIMELINE_UNKNOWN_KIND', severity: 'info', scope: 'timeline', anchor: 'timeline.item', message: 'prefix RRE' };
+    const ctx = { elapsedMs: 9000, visibleAtStart: true, visible: true, focused: true };
+    let records: DriftRecord[] = [];
+    for (const feature of ['noiseCollapser', 'anchorNav', 'expandAll', 'timelineMarkers'] as const) {
+      records = upsertRecords(records, report({ feature, diagnostics: [scoped], context: ctx }), 'v1', 1);
+    }
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      count: 1,
+      feature: 'noiseCollapser',
+      features: ['noiseCollapser', 'anchorNav', 'expandAll', 'timelineMarkers'],
+      lastContext: ctx,
+    });
+    records = upsertRecords(records, report({ navId: 'nav-00000002', feature: 'anchorNav', diagnostics: [scoped] }), 'v1', 2);
+    expect(records[0].count).toBe(2);
+  });
+
+  it('keeps feature-level codes per feature', () => {
+    const exception: Diagnostic = { code: 'FEATURE_EXCEPTION', severity: 'error', message: 'boom' };
+    let records = upsertRecords([], report({ feature: 'ackButton', diagnostics: [exception] }), 'v1', 1);
+    records = upsertRecords(records, report({ feature: 'sidebarWidget', diagnostics: [exception] }), 'v1', 1);
+    expect(records.map((r) => r.feature)).toEqual(['ackButton', 'sidebarWidget']);
+  });
+
+  it('records both the reported and the tab path', () => {
+    const records = upsertRecords([], { ...report({ path: 'o/r/issues/1', diagnostics: [missing] }), senderPath: 'o/r/pull/1' }, 'v1', 1);
+    expect(records[0].samplePaths).toEqual(['o/r/issues/1', 'o/r/pull/1']);
   });
 
   it('keys separately per extension version, variant, resolution and fingerprint', () => {
@@ -183,6 +232,7 @@ describe('drift records', () => {
       code: severity === 'info' ? 'DOM_ANCHOR_FALLBACK' : 'DOM_ANCHOR_MISSING',
       severity,
       feature: 'sidebarWidget',
+      features: ['sidebarWidget'],
       variant: 'classic',
       pageKind: 'issue',
       resolution: 'missing',

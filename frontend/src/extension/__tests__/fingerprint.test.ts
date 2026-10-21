@@ -102,6 +102,26 @@ describe('fingerprint', () => {
     );
   });
 
+  it('lists deeper controls after the tree, skipping user content and own nodes', () => {
+    document.body.innerHTML = `
+      <div id="composer" class="wrap">
+        <div class="a"><div class="b"><div class="c"><div class="d">
+          <button class="CompactInput__Ab12c" type="button">Add a comment</button>
+          <div contenteditable="true" class="editor"></div>
+        </div></div></div></div>
+        <div class="markdown-body"><input type="checkbox" class="task"></div>
+        <div data-octodeck="ackButton"><button class="mine"></button></div>
+      </div>`;
+    const lines = fingerprint(document.getElementById('composer')!, { depth: 1 }).split('\n');
+    expect(lines).toEqual([
+      'div[id?].wrap',
+      '  div.a',
+      '  div.markdown-body [content]',
+      '> button.CompactInput__*[type=button]',
+      '> div.editor',
+    ]);
+  });
+
   it('joins multiple roots within the budget', () => {
     document.body.innerHTML = `<p class="one"></p><p class="two"></p><p class="three"></p>`;
     expect(fingerprintAll(Array.from(document.body.children))).toBe('p.one\n--\np.two');
@@ -118,19 +138,23 @@ describe('fingerprint on captured GitHub pages', () => {
       const meta = await loadFixture(name);
       const [owner, repo] = new URL(meta.url).pathname.split('/').filter(Boolean);
       const forbidden = [owner, repo, meta.viewerPlaceholder].filter((s): s is string => Boolean(s));
+      const violations: string[] = [];
       for (const el of Array.from(document.body.querySelectorAll('*'))) {
         const fp = fingerprint(el, { depth: 1, maxNodes: 20 });
-        expect(fp).toMatch(ALLOWED);
+        if (!ALLOWED.test(fp)) violations.push(`charset: ${fp}`);
         // Ids and attribute values never carry numbers (item, comment or user ids). Digits may
         // only appear in tag names (h1) and component class stems (prc-TooltipV2-*).
         const values = [...fp.matchAll(/#([\w-]+)|=([^\]]*)\]/g)].map((m) => m[1] ?? m[2]);
-        expect(values.filter((v) => /\d/.test(v))).toEqual([]);
+        for (const v of values) if (/\d/.test(v)) violations.push(`number: ${v}`);
+        const lower = fp.toLowerCase();
         for (const word of forbidden) {
-          const leak = fp.split('\n').find((line) => line.toLowerCase().includes(word.toLowerCase()));
-          expect(leak).toBeUndefined();
+          if (lower.includes(word.toLowerCase())) {
+            violations.push(`leak: ${fp.split('\n').find((line) => line.toLowerCase().includes(word.toLowerCase()))}`);
+          }
         }
       }
-    });
+      expect(violations).toEqual([]);
+    }, 20_000);
   });
 
   it('shows the stable anchors around the classic sidebar', async () => {

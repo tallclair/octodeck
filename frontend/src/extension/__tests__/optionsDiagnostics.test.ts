@@ -29,6 +29,7 @@ const snapshot: DiagnosticsSnapshot = {
       code: 'DOM_ANCHOR_MISSING',
       severity: 'warn',
       feature: 'sidebarWidget',
+      features: ['sidebarWidget', 'ackButton'],
       scope: 'sidebar',
       anchor: 'sidebar.insertBefore',
       variant: 'react',
@@ -41,6 +42,7 @@ const snapshot: DiagnosticsSnapshot = {
       lastSeen: 2,
       count: 3,
       samplePaths: ['o/r/issues/1'],
+      lastContext: { elapsedMs: 8200, visibleAtStart: false, visible: true, focused: true },
     },
   ],
 };
@@ -94,8 +96,9 @@ describe('GitHub compatibility panel', () => {
 
     const record = document.querySelector('#compat-records details')!;
     expect(record.querySelector('summary')?.textContent).toBe(
-      'Sidebar widget: DOM_ANCHOR_MISSING (sidebar / sidebar.insertBefore), 3×'
+      'Sidebar widget, Ack button: DOM_ANCHOR_MISSING (sidebar / sidebar.insertBefore), 3×'
     );
+    expect(record.textContent).toContain('Last seen 8.2 s after navigation; tab visible and focused (hidden at start).');
     expect(record.textContent).toContain('Pages: o/r/issues/1');
     expect(record.querySelector('img')).toBeNull();
     expect(record.querySelector('pre')?.textContent).toContain('<img src=x onerror=alert(1)>');

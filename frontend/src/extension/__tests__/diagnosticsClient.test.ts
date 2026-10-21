@@ -38,7 +38,8 @@ describe('diagnosticsClient', () => {
     expect(sent).toHaveLength(0);
 
     vi.advanceTimersByTime(REPORT_BATCH_MS);
-    expect(sent).toEqual([
+    expect(sent[0].context).toMatchObject({ elapsedMs: expect.any(Number), visible: expect.any(Boolean) });
+    expect(sent.map((r) => ({ ...r, context: undefined }))).toEqual([
       {
         navId: 'nav-1',
         feature: 'sidebarWidget',
@@ -120,6 +121,27 @@ describe('diagnosticsClient', () => {
     client.setOutcome('sidebarWidget', 'disabled', 'react');
     vi.advanceTimersByTime(REPORT_BATCH_MS);
     expect(sent).toHaveLength(0);
+  });
+
+  it('attaches page state and time since the session started', () => {
+    let t = 1000;
+    let state = { visible: false, focused: false };
+    const withContext = createDiagnosticsClient({
+      send: async (msg: ExtensionMessage) => {
+        if (msg.type === 'REPORT_DIAGNOSTIC') sent.push(msg.report);
+        return { ok: true, data: true };
+      },
+      setTimer: (fn, ms) => setTimeout(fn, ms),
+      clearTimer: (h) => clearTimeout(h),
+      now: () => t,
+      pageState: () => state,
+    });
+    withContext.beginSession(session);
+    t = 9200;
+    state = { visible: true, focused: true };
+    withContext.setOutcome('ackButton', 'unrecognized', 'react');
+    vi.advanceTimersByTime(REPORT_BATCH_MS);
+    expect(sent[0].context).toEqual({ elapsedMs: 8200, visibleAtStart: false, visible: true, focused: true });
   });
 
   it('scrubs exception messages', () => {

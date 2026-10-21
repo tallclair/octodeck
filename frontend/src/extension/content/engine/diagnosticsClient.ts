@@ -15,6 +15,7 @@ import type {
   FeatureOutcome,
   FeatureReport,
   PageKind,
+  ReportContext,
   VariantId,
 } from '../../types';
 
@@ -37,6 +38,15 @@ export interface DiagnosticsClientDeps {
   send(msg: ExtensionMessage): Promise<ExtensionResponse>;
   setTimer(fn: () => void, ms: number): ReturnType<typeof setTimeout>;
   clearTimer(handle: ReturnType<typeof setTimeout>): void;
+  /** Clock for ReportContext.elapsedMs (default Date.now). */
+  now?: () => number;
+  /** Tab visibility and window focus (default: the current document). */
+  pageState?: () => { visible: boolean; focused: boolean };
+}
+
+function documentPageState(): { visible: boolean; focused: boolean } {
+  if (typeof document === 'undefined') return { visible: true, focused: true };
+  return { visible: document.visibilityState === 'visible', focused: document.hasFocus() };
 }
 
 export interface DiagnosticsClient {
@@ -82,8 +92,25 @@ function dedupeKey(d: Diagnostic): string {
 }
 
 export function createDiagnosticsClient(deps: DiagnosticsClientDeps): DiagnosticsClient {
-  let session: DiagnosticsSessionInfo | null = null;
+  const now = deps.now ?? Date.now;
+  const pageState = deps.pageState ?? documentPageState;
+  let session: (DiagnosticsSessionInfo & { startedAt: number; visibleAtStart: boolean }) | null = null;
   let features = new Map<FeatureId, FeatureState>();
+
+  const context = (): ReportContext | undefined => {
+    if (!session) return undefined;
+    try {
+      const state = pageState();
+      return {
+        elapsedMs: Math.max(0, Math.round(now() - session.startedAt)),
+        visibleAtStart: session.visibleAtStart,
+        visible: state.visible,
+        focused: state.focused,
+      };
+    } catch {
+      return undefined;
+    }
+  };
 
   const stateFor = (feature: FeatureId): FeatureState => {
     let s = features.get(feature);
@@ -116,6 +143,8 @@ export function createDiagnosticsClient(deps: DiagnosticsClientDeps): Diagnostic
       ...(session.ghRelease ? { ghRelease: session.ghRelease } : {}),
       diagnostics: s.pending.splice(0, MAX_DIAGNOSTICS_PER_REPORT),
     };
+    const ctx = context();
+    if (ctx) report.context = ctx;
     s.sentOutcome = s.outcome;
     void deps.send({ type: 'REPORT_DIAGNOSTIC', report }).catch(() => {
       // Diagnostics are best effort; the messaging layer already handles orphaning.
@@ -147,7 +176,13 @@ export function createDiagnosticsClient(deps: DiagnosticsClientDeps): Diagnostic
 
     beginSession(info) {
       endSession();
-      session = { ...info };
+      let visibleAtStart = true;
+      try {
+        visibleAtStart = pageState().visible;
+      } catch {
+        // Keep the default.
+      }
+      session = { ...info, startedAt: now(), visibleAtStart };
     },
 
     add(feature, diagnostic) {

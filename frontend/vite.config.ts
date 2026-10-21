@@ -91,6 +91,9 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
+    // Fixture-based extension suites (whole-engine invariants, chaos, adapter sweeps over real
+    // GitHub pages) take a few seconds each and exceed the 5s default under full parallel load.
+    testTimeout: 20000,
   },
   build: isContent
     ? {

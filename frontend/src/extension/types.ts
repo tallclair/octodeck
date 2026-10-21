@@ -93,6 +93,23 @@ export interface FeatureReport {
   ghRelease?: string;
   /** At most 10. */
   diagnostics: Diagnostic[];
+  /** Page state when the report was sent, to tell lazy rendering apart from drift. */
+  context?: ReportContext;
+  /**
+   * Set by the background only (never taken from content): the sending tab's item path when it
+   * differs from `path`, e.g. after GitHub redirected /issues/N to /pull/N.
+   */
+  senderPath?: string;
+}
+
+export interface ReportContext {
+  /** Milliseconds since the page session started. */
+  elapsedMs: number;
+  /** Whether the tab was visible when the session started. */
+  visibleAtStart: boolean;
+  /** Whether the tab was visible / the window focused when the report was sent. */
+  visible: boolean;
+  focused: boolean;
 }
 
 /**
@@ -129,11 +146,18 @@ export type DriftResolution =
  * developer to update the DOM contract.
  */
 export interface DriftRecord {
-  /** Hash of code|feature|scope|anchor|variant|pageKind|resolution|fingerprint|extVersion. */
+  /**
+   * Hash of code|scope|anchor|variant|pageKind|resolution|fingerprint|message|extVersion, plus the
+   * feature for unscoped (feature-level) diagnostics. Scoped diagnostics are shared by every
+   * feature that uses the scope, so they produce one record listing all of them.
+   */
   key: string;
   code: DiagnosticCode;
   severity: Severity;
+  /** First feature that reported it. */
   feature: FeatureId;
+  /** Every feature that reported it. */
+  features: FeatureId[];
   scope?: ScopeId;
   anchor?: AnchorId;
   variant: VariantId | 'unknown';
@@ -146,9 +170,14 @@ export interface DriftRecord {
   ghReleaseLast?: string;
   firstSeen: number;
   lastSeen: number;
+  /** Number of page sessions it was seen in. */
   count: number;
+  /** Page session that last counted (several features report the same session). */
+  lastNavId?: string;
   /** Distinct sample page paths (owner/repo/kind/N), newest last, capped. */
   samplePaths: string[];
+  /** Page state of the most recent occurrence. */
+  lastContext?: ReportContext;
 }
 
 /** Extension-side connection state of the daemon notification stream. */

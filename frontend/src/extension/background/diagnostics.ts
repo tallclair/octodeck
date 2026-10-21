@@ -24,6 +24,7 @@ import {
   type FeatureId,
   type FeatureOutcome,
   type FeatureReport,
+  type ReportContext,
   type SessionExtensionData,
   type StoredExtensionData,
 } from '../types';
@@ -145,18 +146,41 @@ export function parseFeatureReport(raw: unknown, senderUrl: string | undefined):
   } catch {
     senderPath = '';
   }
-  const pathMatchesSender = path !== '' && (senderPath === `/${path}` || senderPath.startsWith(`/${path}/`));
+  // The tab's own item path, if it is on one (sub-routes such as /files are cut off).
+  const senderItem = /^\/([\w.-]+\/[\w.-]+\/(?:pull|issues)\/\d+)(?:\/|$)/.exec(senderPath)?.[1] ?? '';
 
-  return {
+  const report: FeatureReport = {
     navId,
     feature,
     outcome,
     pageKind,
     variant,
-    path: pathMatchesSender ? path : '',
+    // The reported path wins: the tab may have navigated (or GitHub redirected /issues/N to
+    // /pull/N) since the session started. The tab's path fills in when none was reported.
+    path: path || senderItem,
     ...(ghRelease ? { ghRelease } : {}),
     diagnostics: parsed,
   };
+  if (senderItem && path && senderItem !== path) report.senderPath = senderItem;
+  const context = parseContext(raw.context);
+  if (context) report.context = context;
+  return report;
+}
+
+function parseContext(raw: unknown): ReportContext | undefined {
+  if (!isObject(raw)) return undefined;
+  const { elapsedMs, visibleAtStart, visible, focused } = raw;
+  if (
+    typeof elapsedMs !== 'number' ||
+    !Number.isFinite(elapsedMs) ||
+    elapsedMs < 0 ||
+    typeof visibleAtStart !== 'boolean' ||
+    typeof visible !== 'boolean' ||
+    typeof focused !== 'boolean'
+  ) {
+    return undefined;
+  }
+  return { elapsedMs: Math.round(Math.min(elapsedMs, 7 * 24 * 3600 * 1000)), visibleAtStart, visible, focused };
 }
 
 // ---------------------------------------------------------------------------
@@ -258,9 +282,25 @@ export function stableHash(s: string): string {
   return h.toString(16).padStart(16, '0');
 }
 
+/**
+ * Record key. Scoped diagnostics (scope/anchor problems from capabilities) are the same drift no
+ * matter which feature tripped over them, so the feature is only part of the key for unscoped,
+ * feature-level codes (exceptions, breaker trips).
+ */
 export function recordKey(report: FeatureReport, d: Diagnostic, extVersion: string): string {
   return stableHash(
-    [d.code, report.feature, d.scope ?? '', d.anchor ?? '', report.variant, report.pageKind, resolutionOf(d), d.fingerprint ?? '', d.message ?? '', extVersion].join('|')
+    [
+      d.code,
+      d.scope ? '' : report.feature,
+      d.scope ?? '',
+      d.anchor ?? '',
+      report.variant,
+      report.pageKind,
+      resolutionOf(d),
+      d.fingerprint ?? '',
+      d.message ?? '',
+      extVersion,
+    ].join('|')
   );
 }
 
@@ -269,6 +309,14 @@ export function recordKey(report: FeatureReport, d: Diagnostic, extVersion: stri
  * no longer exists). They still reach health via the outcome, but aren't recorded as drift.
  */
 const NON_DRIFT_CODES: ReadonlySet<DiagnosticCode> = new Set(['ANCHOR_NOT_FOUND']);
+
+function addPaths(existing: readonly string[], report: FeatureReport): string[] {
+  let paths = [...existing];
+  for (const p of [report.path, report.senderPath]) {
+    if (p && !paths.includes(p)) paths = [...paths, p];
+  }
+  return paths.slice(-MAX_SAMPLE_PATHS);
+}
 
 /** Upserts one record per drift diagnostic in the report. Returns a new array (newest last). */
 export function upsertRecords(records: readonly DriftRecord[], report: FeatureReport, extVersion: string, now: number): DriftRecord[] {
@@ -281,13 +329,14 @@ export function upsertRecords(records: readonly DriftRecord[], report: FeatureRe
       byKey.delete(key); // re-insert so the map stays ordered by lastSeen
       byKey.set(key, {
         ...existing,
-        count: existing.count + 1,
+        features: existing.features.includes(report.feature) ? existing.features : [...existing.features, report.feature],
+        // Several features report the same page session; count sessions, not reports.
+        count: existing.lastNavId === report.navId ? existing.count : existing.count + 1,
+        lastNavId: report.navId,
         lastSeen: now,
         ghReleaseLast: report.ghRelease ?? existing.ghReleaseLast,
-        samplePaths:
-          report.path && !existing.samplePaths.includes(report.path)
-            ? [...existing.samplePaths, report.path].slice(-MAX_SAMPLE_PATHS)
-            : existing.samplePaths,
+        samplePaths: addPaths(existing.samplePaths, report),
+        ...(report.context ? { lastContext: report.context } : {}),
       });
       continue;
     }
@@ -296,6 +345,7 @@ export function upsertRecords(records: readonly DriftRecord[], report: FeatureRe
       code: d.code,
       severity: d.severity,
       feature: report.feature,
+      features: [report.feature],
       ...(d.scope ? { scope: d.scope } : {}),
       ...(d.anchor ? { anchor: d.anchor } : {}),
       variant: report.variant,
@@ -308,7 +358,9 @@ export function upsertRecords(records: readonly DriftRecord[], report: FeatureRe
       firstSeen: now,
       lastSeen: now,
       count: 1,
-      samplePaths: report.path ? [report.path] : [],
+      lastNavId: report.navId,
+      samplePaths: addPaths([], report),
+      ...(report.context ? { lastContext: report.context } : {}),
     });
   }
   return [...byKey.values()];
@@ -369,6 +421,17 @@ function iso(ms: number | undefined): string {
   return ms === undefined ? '' : new Date(ms).toISOString().replace(/\.\d+Z$/, 'Z');
 }
 
+/** User-facing names of every feature a record was reported by. */
+export function featureNames(r: Pick<DriftRecord, 'feature' | 'features'>): string {
+  return (r.features?.length ? r.features : [r.feature]).map((f) => FEATURE_LABELS[f]).join(', ');
+}
+
+/** e.g. '8.2 s after navigation; tab visible and focused (hidden at start)'. */
+export function describeContext(c: ReportContext): string {
+  const tab = c.visible ? (c.focused ? 'tab visible and focused' : 'tab visible, window not focused') : 'tab hidden';
+  return `${(c.elapsedMs / 1000).toFixed(1)} s after navigation; ${tab}${c.visibleAtStart ? '' : ' (hidden at start)'}`;
+}
+
 /** Escapes a table cell (pipes and newlines would break the Markdown table). */
 function cell(s: string): string {
   return s.replace(/\|/g, '\\|').replace(/\n/g, ' ');
@@ -406,17 +469,18 @@ export function formatDiagnosticsMarkdown(snapshot: DiagnosticsSnapshot, env: Re
   lines.push('|---|---|---|---|---|---|---|---|---|');
   for (const r of snapshot.records) {
     lines.push(
-      `| ${r.code} | ${FEATURE_LABELS[r.feature]} | ${[r.scope, r.anchor].filter(Boolean).join(' / ')} | ${cell(r.variant)} | ${r.pageKind} | ${r.resolution} | ${r.count} | ${iso(r.firstSeen)} | ${iso(r.lastSeen)} |`
+      `| ${r.code} | ${featureNames(r)} | ${[r.scope, r.anchor].filter(Boolean).join(' / ')} | ${cell(r.variant)} | ${r.pageKind} | ${r.resolution} | ${r.count} | ${iso(r.firstSeen)} | ${iso(r.lastSeen)} |`
     );
   }
   lines.push('');
   for (const r of snapshot.records) {
-    if (!r.fingerprint && !r.message && r.samplePaths.length === 0) continue;
+    if (!r.fingerprint && !r.message && r.samplePaths.length === 0 && !r.lastContext) continue;
     lines.push(`<details><summary>${r.code} ${[r.scope, r.anchor].filter(Boolean).join(' / ')} (${cell(r.variant)}, ${r.resolution})</summary>`, '');
     if (r.samplePaths.length > 0) {
       lines.push('Pages:', ...r.samplePaths.map((p) => `- https://github.com/${p}`), '');
     }
     if (r.message) lines.push(`Message: \`${r.message.replace(/`/g, "'")}\``, '');
+    if (r.lastContext) lines.push(`Last seen: ${describeContext(r.lastContext)}`, '');
     if (r.fingerprint) lines.push('```', r.fingerprint, '```', '');
     lines.push('</details>', '');
   }
@@ -472,7 +536,9 @@ export function createDiagnosticsStore(
 
   const loadRecords = async (): Promise<DriftRecord[]> => {
     const { diag_records } = (await storage.local.get(['diag_records'])) as StoredExtensionData;
-    return diag_records?.schema === RECORDS_SCHEMA ? diag_records.records : [];
+    if (diag_records?.schema !== RECORDS_SCHEMA) return [];
+    // Records written before features[] existed list only their first feature.
+    return diag_records.records.map((r) => (Array.isArray(r.features) ? r : { ...r, features: [r.feature] }));
   };
 
   return {

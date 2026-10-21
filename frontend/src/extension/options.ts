@@ -13,7 +13,13 @@ import type {
   NotificationSettingsJson,
   StoredExtensionData,
 } from './types';
-import { FEATURE_LABELS, buildDiagnosticsExport, formatDiagnosticsMarkdown } from './background/diagnostics';
+import {
+  FEATURE_LABELS,
+  buildDiagnosticsExport,
+  describeContext,
+  featureNames,
+  formatDiagnosticsMarkdown,
+} from './background/diagnostics';
 import { parseFilterPatterns, serializeFilterPatterns, validateBasePattern, validateFilterPatterns } from '../utils/patterns';
 import { validateRepoFilterPatterns } from '../utils/repos';
 import { validateLabelFilterPatterns } from '../utils/labels';
@@ -385,7 +391,7 @@ export function renderDiagnostics(snapshot: DiagnosticsSnapshot): void {
         const details = el('details');
         const where = [r.scope, r.anchor].filter(Boolean).join(' / ');
         details.append(
-          el('summary', `${FEATURE_LABELS[r.feature]}: ${r.code}${where ? ` (${where})` : ''}, ${r.count}×`),
+          el('summary', `${featureNames(r)}: ${r.code}${where ? ` (${where})` : ''}, ${r.count}×`),
           el(
             'div',
             `Layout ${r.variant}, ${r.pageKind}, ${r.resolution}. Seen ${formatTime(r.firstSeen)} to ${formatTime(r.lastSeen)}. Extension ${r.extVersion}.`,
@@ -394,6 +400,7 @@ export function renderDiagnostics(snapshot: DiagnosticsSnapshot): void {
         );
         if (r.samplePaths.length > 0) details.append(el('div', `Pages: ${r.samplePaths.join(', ')}`, 'record-meta'));
         if (r.message) details.append(el('div', `Message: ${r.message}`, 'record-meta'));
+        if (r.lastContext) details.append(el('div', `Last seen ${describeContext(r.lastContext)}.`, 'record-meta'));
         if (r.fingerprint) details.append(el('pre', r.fingerprint));
         return details;
       })

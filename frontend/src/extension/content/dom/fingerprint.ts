@@ -29,7 +29,13 @@ export interface FingerprintOptions {
    * contract's own locators.
    */
   knownIds?: ReadonlySet<string>;
+  /** Interactive descendants listed after the tree when deeper than `depth` (default 8). */
+  maxInteractive?: number;
 }
+
+/** Controls listed after the tree (see fingerprint()). */
+const INTERACTIVE_SELECTOR = 'button, [role="button"], textarea, [contenteditable="true"], [contenteditable=""], input, summary';
+const DEFAULT_MAX_INTERACTIVE = 8;
 
 /** Hard cap on the fingerprint length; the background rejects anything longer. */
 export const FINGERPRINT_MAX_CHARS = 2048;
@@ -131,6 +137,7 @@ export function fingerprint(root: Element, opts: FingerprintOptions = {}): strin
   if (root.closest(OWN_SELECTOR)) return '';
 
   const lines: string[] = [];
+  const printed = new Set<Element>();
   let length = 0;
   let truncated = false;
 
@@ -147,6 +154,7 @@ export function fingerprint(root: Element, opts: FingerprintOptions = {}): strin
       return;
     }
     lines.push(line);
+    printed.add(el);
     length += line.length + 1;
     if (userContent || depth >= maxDepth) return;
     for (const child of Array.from(el.children)) {
@@ -156,7 +164,28 @@ export function fingerprint(root: Element, opts: FingerprintOptions = {}): strin
   };
 
   visit(root, 0);
-  if (truncated) lines.push('...');
+  if (truncated) {
+    lines.push('...');
+    length += 4;
+  }
+
+  // Controls deeper than the tree shows are where a missing anchor (e.g. a submit button) would
+  // most likely have moved; list a few of them, flat, marked with '> '. One lazy walk that skips
+  // user-content and own subtrees wholesale and stops as soon as enough controls are found.
+  const maxInteractive = root.closest(USER_CONTENT_SELECTOR) ? 0 : (opts.maxInteractive ?? DEFAULT_MAX_INTERACTIVE);
+  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
+    acceptNode: (node) => {
+      const el = node as Element;
+      if (el.matches(OWN_SELECTOR) || el.matches(USER_CONTENT_SELECTOR)) return NodeFilter.FILTER_REJECT;
+      return el.matches(INTERACTIVE_SELECTOR) && !printed.has(el) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+    },
+  });
+  for (let found = 0, node = walker.nextNode(); node && found < maxInteractive; node = walker.nextNode(), found++) {
+    const line = `> ${describe(node as Element, opts.knownIds)}`;
+    if (length + line.length + 1 > FINGERPRINT_MAX_CHARS) break;
+    lines.push(line);
+    length += line.length + 1;
+  }
   return lines.join('\n');
 }
 
