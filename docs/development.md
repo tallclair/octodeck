@@ -17,8 +17,9 @@ OctoDeck is organized as a Monorepo:
 
 ### Prerequisites
 
-* **Node.js** (LTS recommended, v20+)
+* **Node.js & npm** (LTS recommended, v20+)
 * **Go** (1.24+)
+* **C compiler (`gcc` or `clang`)** (Required for CGO to compile `github.com/mattn/go-sqlite3`)
 * **GitHub CLI (`gh`)** with active authentication:
   ```bash
   gh auth login -s read:org,notifications,repo
@@ -36,13 +37,14 @@ OctoDeck is organized as a Monorepo:
    ```bash
    npm install
    ```
+   *(Installs workspace runtime dependencies and local build tools—including `tsc`, `vite`, `eslint`, `vitest`, and `buf`—into `node_modules/.bin/`. Do not use `--omit=dev`, as `tsc` and `vite` are required to build.)*
 
-3. **Enable Git Pre-Commit Hook (Optional):**
+3. **Configure Git Hooks:**
    ```bash
-   ln -s ../../.githooks/pre-commit .git/hooks/pre-commit
+   git config core.hooksPath .githooks
    ```
 
-4. **Generate API Code:**
+4. **Generate API Code (when `.proto` schemas change):**
    ```bash
    npm run generate
    ```
@@ -91,9 +93,15 @@ To compile all monorepo components (Web App static bundle, Chrome Extension, and
 npm run build
 ```
 
-* The Web App static bundle is built to `backend/frontend_dist/` and embedded directly into the Go binary via `//go:embed`.
-* The Chrome Extension is built to `extension_dist/`.
-* The `octodeck` binary is compiled to the project root.
+This executes two build stages in sequence:
+
+1. **Frontend (`npm run build:frontend`)**:
+   * **Web App (`npm run build:webapp --workspace=frontend`)**: Runs TypeScript (`tsc -b`) and Vite (`BUILD_TARGET=webapp`) to output the static React Web App bundle into `backend/frontend_dist/`.
+   * **Chrome Extension (`npm run build:extension --workspace=frontend`)**: Runs Vite in two passes (`BUILD_TARGET=extension` for background service worker, options page, and Manifest V3 version injection, followed by `BUILD_TARGET=extension-content` for content scripts) into `extension_dist/`.
+2. **Backend (`npm run build:backend` / `./scripts/build-backend.sh`)**:
+   * Ensures `backend/frontend_dist/index.html` exists (creating a minimal placeholder if the backend is built standalone before the frontend) so Go's `//go:embed frontend_dist` directive succeeds.
+   * Derives the build version from `OCTODECK_VERSION` or `git describe --tags --match "v*" --always --dirty` (falling back to `"dev"`).
+   * Compiles `./backend` via `go build` with `-ldflags` version injection into `server.Version`, producing the `./octodeck` binary in the project root.
 
 ## Loading the Chrome Extension
 

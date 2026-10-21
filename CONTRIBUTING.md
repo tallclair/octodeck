@@ -15,11 +15,12 @@ To ensure reliability, reproducible releases, and high code quality, all contrib
 
 ### Prerequisites
 - **Go:** 1.24+
-- **Node.js:** LTS (v20+)
+- **C compiler (`gcc` or `clang`):** Required for CGO (`github.com/mattn/go-sqlite3`)
+- **Node.js & npm:** LTS (v20+)
 - **GitHub CLI (`gh`):** Authenticated with `gh auth login -s read:org,notifications,repo`
 
 ### Initial Repository Setup
-1. Clone the repository and install root dependencies:
+1. Clone the repository and install workspace dependencies (including local build tools like `tsc`, `vite`, and `buf`):
    ```bash
    git clone <repository-url>
    cd octodeck
