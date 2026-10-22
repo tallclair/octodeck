@@ -2276,7 +2276,7 @@ func TestRunDiscovery_DoesNotBlockGetStatus(t *testing.T) {
 
 	mockGQL := &mockGraphQLClient{
 		queryFunc: func(ctx context.Context, name string, q any, vars map[string]any) error {
-			if name == "SearchCandidateIDs" {
+			if name == "SearchCandidates" {
 				select {
 				case <-searchStarted:
 				default:
@@ -2617,7 +2617,7 @@ func TestStress_CalculateItemState_CurrentUser_Race(t *testing.T) {
 
 	mockGQL := &mockGraphQLClient{
 		queryFunc: func(_ context.Context, name string, q any, _ map[string]any) error {
-			if name == "SearchCandidateIDs" {
+			if name == "SearchCandidates" {
 				data, _ := json.Marshal(map[string]any{
 					"search": map[string]any{
 						"nodes": []map[string]any{

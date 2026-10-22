@@ -2085,87 +2085,122 @@ func (c *Client) UpdateSubscription(ctx context.Context, id string, state octode
 	return nil
 }
 
-const (
-	// defaultSearchCandidateLimit is the default maximum number of candidate IDs
-	// to retrieve in a single ID-only discovery search.
-	defaultSearchCandidateLimit = 100
-	// maxSearchCandidateLimit is the GitHub API hard maximum per page for search queries.
-	maxSearchCandidateLimit = 100
-)
+// searchCandidatePageSize is the page size of candidate searches: GitHub's maximum per page.
+const searchCandidatePageSize = 100
 
-// gqlSearchCandidateIDNode extracts only the GraphQL Node ID for Issue and PullRequest nodes
-// returned by a GitHub search query.
-type gqlSearchCandidateIDNode struct {
+// gqlSearchCandidateNode extracts the GraphQL Node ID and update time of Issue and PullRequest
+// nodes returned by a GitHub search query.
+type gqlSearchCandidateNode struct {
 	Typename string `graphql:"__typename" json:"__typename"`
 	Issue    struct {
-		ID string `graphql:"id" json:"id"`
+		ID        string `graphql:"id" json:"id"`
+		UpdatedAt string `graphql:"updatedAt" json:"updatedAt"`
 	} `graphql:"... on Issue" json:"issue"`
 	PullRequest struct {
-		ID string `graphql:"id" json:"id"`
+		ID        string `graphql:"id" json:"id"`
+		UpdatedAt string `graphql:"updatedAt" json:"updatedAt"`
 	} `graphql:"... on PullRequest" json:"pullRequest"`
 }
 
-func (n gqlSearchCandidateIDNode) id() string {
+// candidate returns the node as a SearchCandidate, and false for nodes that are not issues or
+// pull requests. An unparseable update time is left zero.
+func (n gqlSearchCandidateNode) candidate() (SearchCandidate, bool) {
+	var id, updatedAt string
 	switch n.Typename {
 	case typePullRequest:
-		return n.PullRequest.ID
+		id, updatedAt = n.PullRequest.ID, n.PullRequest.UpdatedAt
 	case typeIssue:
-		return n.Issue.ID
-	default:
-		return ""
+		id, updatedAt = n.Issue.ID, n.Issue.UpdatedAt
 	}
+	if id == "" {
+		return SearchCandidate{}, false
+	}
+	c := SearchCandidate{ID: id}
+	if ts, err := time.Parse(time.RFC3339, updatedAt); err == nil {
+		c.UpdatedAt = ts
+	}
+	return c, true
 }
 
-// SearchCandidateIDs executes a lightweight, ID-only GraphQL search query against GitHub
-// for issues and pull requests matching the given search query string.
-// It returns a deduplicated list of GraphQL Node IDs. Non-issue/PR nodes are ignored.
-func (c *Client) SearchCandidateIDs(ctx context.Context, searchQuery string, limit int) ([]string, error) {
+// SearchCandidate is an issue or pull request matched by a candidate search.
+type SearchCandidate struct {
+	// ID is the GraphQL node ID.
+	ID string
+	// UpdatedAt is the item's last update time, or zero if GitHub didn't report a valid one.
+	UpdatedAt time.Time
+}
+
+// SearchCandidatesResult is the outcome of a SearchCandidates call.
+type SearchCandidatesResult struct {
+	// Candidates are the matched issues and pull requests in search order, deduplicated.
+	Candidates []SearchCandidate
+	// Truncated reports that the page cap stopped the search while more results remained.
+	Truncated bool
+}
+
+// SearchCandidates executes a lightweight GraphQL search for issues and pull requests matching
+// searchQuery, returning only their node IDs and update times. It follows the search cursor for
+// up to maxPages pages of 100 results (at least one page). Nodes that are not issues or pull
+// requests are ignored. The search order is whatever searchQuery asks for (e.g. a sort:
+// qualifier).
+func (c *Client) SearchCandidates(
+	ctx context.Context,
+	searchQuery string,
+	maxPages int,
+) (SearchCandidatesResult, error) {
 	gqlClient := c.getGraphQLClient()
 	if c == nil || gqlClient == nil {
-		return nil, errors.New("github graphql client is not initialized")
+		return SearchCandidatesResult{}, errors.New("github graphql client is not initialized")
 	}
 
 	trimmedQuery := strings.TrimSpace(searchQuery)
 	if trimmedQuery == "" {
-		return nil, nil
+		return SearchCandidatesResult{}, nil
 	}
+	maxPages = max(maxPages, 1)
 
-	if limit <= 0 {
-		limit = defaultSearchCandidateLimit
-	} else if limit > maxSearchCandidateLimit {
-		limit = maxSearchCandidateLimit
-	}
-
-	var query struct {
-		Search struct {
-			Nodes []gqlSearchCandidateIDNode `graphql:"nodes" json:"nodes"`
-		} `graphql:"search(query: $query, type: ISSUE, first: $limit)" json:"search"`
-	}
-
-	vars := map[string]any{
-		"query": graphql.String(trimmedQuery),
-		"limit": graphql.Int(limit),
-	}
-
-	if err := gqlClient.QueryWithContext(ctx, "SearchCandidateIDs", &query, vars); err != nil {
-		return nil, fmt.Errorf("failed to search candidate IDs: %w", err)
-	}
-
-	seen := make(map[string]struct{}, len(query.Search.Nodes))
-	var ids []string
-	for _, node := range query.Search.Nodes {
-		nodeID := node.id()
-		if nodeID == "" {
-			continue
+	var res SearchCandidatesResult
+	seen := make(map[string]struct{})
+	var cursor *graphql.String
+	for page := 1; ; page++ {
+		var query struct {
+			Search struct {
+				Nodes    []gqlSearchCandidateNode `graphql:"nodes" json:"nodes"`
+				PageInfo pageInfo                 `json:"pageInfo"`
+			} `graphql:"search(query: $query, type: ISSUE, first: $limit, after: $cursor)" json:"search"`
 		}
-		if _, exists := seen[nodeID]; exists {
-			continue
+		vars := map[string]any{
+			"query":  graphql.String(trimmedQuery),
+			"limit":  graphql.Int(searchCandidatePageSize),
+			"cursor": cursor,
 		}
-		seen[nodeID] = struct{}{}
-		ids = append(ids, nodeID)
-	}
+		if err := gqlClient.QueryWithContext(ctx, "SearchCandidates", &query, vars); err != nil {
+			return SearchCandidatesResult{}, fmt.Errorf("failed to search candidates: %w", err)
+		}
 
-	return ids, nil
+		for _, node := range query.Search.Nodes {
+			cand, ok := node.candidate()
+			if !ok {
+				continue
+			}
+			if _, dup := seen[cand.ID]; dup {
+				continue
+			}
+			seen[cand.ID] = struct{}{}
+			res.Candidates = append(res.Candidates, cand)
+		}
+
+		info := query.Search.PageInfo
+		if !info.HasNextPage || info.EndCursor == "" || len(query.Search.Nodes) == 0 {
+			return res, nil
+		}
+		if page >= maxPages {
+			res.Truncated = true
+			return res, nil
+		}
+		next := graphql.String(info.EndCursor)
+		cursor = &next
+	}
 }
 
 // CountSearchIssues executes a lightweight GraphQL search query against GitHub

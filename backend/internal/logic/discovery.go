@@ -6,16 +6,21 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
 	octodeckv1 "github.com/tallclair/octodeck/backend/internal/api/octodeck/v1"
 	"github.com/tallclair/octodeck/backend/internal/database"
+	"github.com/tallclair/octodeck/backend/internal/github"
 )
 
 const (
-	// DefaultCandidateSearchLimit is the maximum candidate IDs retrieved per tracked query.
-	DefaultCandidateSearchLimit = 100
+	// DiscoveryMaxSearchPages caps the candidate search pages (100 results each) fetched per
+	// tracked query in one discovery run. A query with more matches resumes from the newest
+	// update it reached on the next run, which also keeps each search under GitHub's limit of
+	// 1000 results per query.
+	DiscoveryMaxSearchPages = 5
 
 	// DiscoveryIndexingBuffer is the safety buffer subtracted from the discovery cursor time
 	// when injecting the updated:> filter to account for GitHub search indexing latency.
@@ -37,9 +42,15 @@ const (
 	triggerSourceDiscoveryTicker = "discovery_ticker"
 )
 
-// BuildDiscoverySearchQuery injects an updated:> timestamp filter into baseQuery.
+// sortQualifierRegex matches sort: qualifiers, which BuildDiscoverySearchQuery replaces.
+var sortQualifierRegex = regexp.MustCompile(`(?i)(?:^|\s)-?sort:\S*`)
+
+// BuildDiscoverySearchQuery injects an updated:> timestamp filter into baseQuery and orders the
+// results oldest update first (replacing any sort: qualifier in baseQuery), so a search that
+// stops at the page cap has covered a contiguous range of update times.
 func BuildDiscoverySearchQuery(baseQuery string, since time.Time) string {
-	return fmt.Sprintf("%s updated:>%s", strings.TrimSpace(baseQuery), since.UTC().Format("2006-01-02T15:04:05Z"))
+	base := strings.TrimSpace(sortQualifierRegex.ReplaceAllString(baseQuery, " "))
+	return fmt.Sprintf("%s updated:>%s sort:updated-asc", base, since.UTC().Format("2006-01-02T15:04:05Z"))
 }
 
 // BuildDiscoveryPreFlightQuery injects a created:> timestamp filter into baseQuery
@@ -61,7 +72,20 @@ type DiscoverySyncPayload struct {
 	AutoSubscribedIDs   []string          `json:"auto_subscribed_ids,omitempty"`
 	AutoSubscribeErrors map[string]string `json:"auto_subscribe_errors,omitempty"`
 	QueryErrors         map[string]string `json:"query_errors,omitempty"`
-	Error               *string           `json:"error,omitempty"`
+	// TruncatedQueries are the queries whose search stopped at the page cap; they resume from
+	// the newest update reached on the next run.
+	TruncatedQueries []string `json:"truncated_queries,omitempty"`
+	Error            *string  `json:"error,omitempty"`
+}
+
+// discoveryQueryProgress is the outcome of one tracked query's search, applied (cursor advanced
+// and yield recorded) only once the run's candidates are stored.
+type discoveryQueryProgress struct {
+	query      string
+	searchedAt time.Time
+	newCount   int
+	// cursor is the next discovery cursor for the query.
+	cursor time.Time
 }
 
 type candidateCollectionResult struct {
@@ -70,6 +94,8 @@ type candidateCollectionResult struct {
 	autoSubscribeIDs map[string]struct{}
 	queryErrors      map[string]string
 	queryErrList     []error
+	progress         []discoveryQueryProgress
+	truncatedQueries []string
 }
 
 // RunDiscovery executes the discovery engine pipeline across all configured tracked_queries.
@@ -139,6 +165,7 @@ func (s *SyncEngine) runDiscovery(ctx context.Context, triggerSource string) err
 		HydratedIDs:       make([]string, 0),
 		MissingIDs:        make([]string, 0),
 		QueryErrors:       candidates.queryErrors,
+		TruncatedQueries:  candidates.truncatedQueries,
 	}
 
 	defer func() {
@@ -150,11 +177,6 @@ func (s *SyncEngine) runDiscovery(ctx context.Context, triggerSource string) err
 			payloadBytes, _ = database.CompressPayload(pb)
 		}
 	}()
-
-	if len(candidates.queryErrList) > 0 && candidates.candidatesFound == 0 && uniqueNewCount == 0 {
-		runErr = errors.Join(candidates.queryErrList...)
-		return runErr
-	}
 
 	if err := ctx.Err(); err != nil {
 		runErr = err
@@ -169,6 +191,8 @@ func (s *SyncEngine) runDiscovery(ctx context.Context, triggerSource string) err
 			&payload,
 		)
 		if runErr != nil {
+			// Nothing found this run was stored, so no query's cursor moves: the next run
+			// searches the same range again.
 			return runErr
 		}
 	} else {
@@ -176,11 +200,59 @@ func (s *SyncEngine) runDiscovery(ctx context.Context, triggerSource string) err
 			"candidates_found", candidates.candidatesFound, "known_skipped", knownSkipped)
 	}
 
+	// Every candidate is stored (or was already known), so each successful query can move past
+	// what it found.
+	s.applyDiscoveryProgress(ctx, candidates.progress)
+
 	if len(candidates.queryErrList) > 0 {
 		runErr = errors.Join(candidates.queryErrList...)
 	}
 
 	return runErr
+}
+
+// applyDiscoveryProgress advances each searched query's discovery cursor and records its yield.
+func (s *SyncEngine) applyDiscoveryProgress(ctx context.Context, progress []discoveryQueryProgress) {
+	for _, p := range progress {
+		s.advanceDiscoveryCursor(ctx, p.query, p.cursor)
+		s.recordDiscoveryQueryYield(ctx, p.query, p.searchedAt, p.newCount)
+	}
+}
+
+// nextDiscoveryCursor returns the cursor a query moves to after a search that started at
+// searchedAt from cursor. A complete search moves it to searchedAt. A search stopped at the page
+// cap (results oldest update first) moves it to the newest update reached, so the next run
+// resumes there; it always moves forward, past the indexing buffer if need be, so a query whose
+// capped results all fall inside the buffer can't stall.
+func nextDiscoveryCursor(
+	ctx context.Context,
+	q string,
+	cursor, searchedAt time.Time,
+	res github.SearchCandidatesResult,
+) time.Time {
+	if !res.Truncated {
+		return searchedAt
+	}
+	var newest time.Time
+	for _, c := range res.Candidates {
+		if c.UpdatedAt.After(newest) {
+			newest = c.UpdatedAt
+		}
+	}
+	if newest.IsZero() {
+		slog.WarnContext(ctx, "Capped discovery search returned no update times; resuming from the search time",
+			"query", q)
+		return searchedAt
+	}
+	if !newest.After(cursor) {
+		slog.WarnContext(ctx, "Capped discovery search made no progress past the cursor; skipping the indexing buffer",
+			"query", q, "cursor", cursor, "newest", newest)
+		newest = newest.Add(DiscoveryIndexingBuffer)
+	}
+	if newest.After(searchedAt) {
+		return searchedAt
+	}
+	return newest
 }
 
 func (s *SyncEngine) getOrSeedDiscoveryCursor(ctx context.Context, q string, now time.Time) time.Time {
@@ -249,7 +321,7 @@ func (s *SyncEngine) collectDiscoveryCandidates(
 		since := cursor.Add(-DiscoveryIndexingBuffer)
 		effectiveQuery := BuildDiscoverySearchQuery(q, since)
 
-		ids, searchErr := s.gh.SearchCandidateIDs(ctx, effectiveQuery, DefaultCandidateSearchLimit)
+		found, searchErr := s.gh.SearchCandidates(ctx, effectiveQuery, DiscoveryMaxSearchPages)
 		if searchErr != nil {
 			slog.WarnContext(
 				ctx,
@@ -262,25 +334,41 @@ func (s *SyncEngine) collectDiscoveryCandidates(
 			res.queryErrList = append(res.queryErrList, fmt.Errorf("query %q: %w", q, searchErr))
 			continue
 		}
+		if found.Truncated {
+			res.truncatedQueries = append(res.truncatedQueries, q)
+		}
 
-		s.advanceDiscoveryCursor(ctx, q, searchStartTime)
+		ids := make([]string, 0, len(found.Candidates))
+		for _, c := range found.Candidates {
+			ids = append(ids, c.ID)
+		}
 		res.candidatesFound += len(ids)
 		if s.cfg != nil && s.cfg.IsQueryAutoSubscribe(q) {
-			for _, id := range ids {
-				if id == "" {
-					continue
-				}
-				if _, isKnown := knownIDs[id]; !isKnown {
-					res.autoSubscribeIDs[id] = struct{}{}
-				}
-			}
+			addUnknownIDs(res.autoSubscribeIDs, ids, knownIDs)
 		}
 		newIDs := filterNewCandidateIDs(ids, knownIDs, seenInRun)
-		s.recordDiscoveryQueryYield(ctx, q, searchStartTime, len(newIDs))
+		res.progress = append(res.progress, discoveryQueryProgress{
+			query:      q,
+			searchedAt: searchStartTime,
+			newCount:   len(newIDs),
+			cursor:     nextDiscoveryCursor(ctx, q, cursor, searchStartTime, found),
+		})
 		res.toHydrate = append(res.toHydrate, newIDs...)
 	}
 
 	return res, nil
+}
+
+// addUnknownIDs adds the non-empty IDs in ids that are not in knownIDs to set.
+func addUnknownIDs(set map[string]struct{}, ids []string, knownIDs map[string]struct{}) {
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, isKnown := knownIDs[id]; !isKnown {
+			set[id] = struct{}{}
+		}
+	}
 }
 
 func (s *SyncEngine) recordDiscoveryQueryYield(ctx context.Context, q string, t time.Time, count int) {

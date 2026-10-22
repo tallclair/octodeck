@@ -1761,7 +1761,7 @@ func TestUpdateSubscription_ContextCanceled(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestSearchCandidateIDs_QueryConstructionAndExtraction(t *testing.T) {
+func TestSearchCandidates_QueryConstructionAndExtraction(t *testing.T) {
 	type recordedRequest struct {
 		Query     string         `json:"query"`
 		Variables map[string]any `json:"variables"`
@@ -1782,23 +1782,12 @@ func TestSearchCandidateIDs_QueryConstructionAndExtraction(t *testing.T) {
 			"data": {
 				"search": {
 					"nodes": [
-						{
-							"__typename": "Issue",
-							"id": "I_kwDOAToIks7gNKvx"
-						},
-						{
-							"__typename": "PullRequest",
-							"id": "PR_kwDOAToIks6zimkN"
-						},
-						{
-							"__typename": "Issue",
-							"id": "I_kwDOAToIks7gNKvx"
-						},
-						{
-							"__typename": "Repository",
-							"id": "R_kwDOAToIks4"
-						}
-					]
+						{"__typename": "Issue", "id": "I_kwDOAToIks7gNKvx", "updatedAt": "2026-09-01T10:00:00Z"},
+						{"__typename": "PullRequest", "id": "PR_kwDOAToIks6zimkN", "updatedAt": "2026-09-01T11:00:00Z"},
+						{"__typename": "Issue", "id": "I_kwDOAToIks7gNKvx", "updatedAt": "2026-09-01T10:00:00Z"},
+						{"__typename": "Repository", "id": "R_kwDOAToIks4"}
+					],
+					"pageInfo": {"hasNextPage": false, "endCursor": "c1"}
 				}
 			}
 		}`))
@@ -1809,91 +1798,81 @@ func TestSearchCandidateIDs_QueryConstructionAndExtraction(t *testing.T) {
 	client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
 
 	testQuery := "repo:kubernetes/kubernetes is:open label:sig/node"
-	ids, err := client.SearchCandidateIDs(t.Context(), testQuery, 50)
+	res, err := client.SearchCandidates(t.Context(), testQuery, 5)
 	require.NoError(t, err)
 
 	// 1. Verify GraphQL query syntax construction
-	assert.Contains(t, recorded.Query, "search(query: $query, type: ISSUE, first: $limit)")
+	assert.Contains(t, recorded.Query, "search(query: $query, type: ISSUE, first: $limit, after: $cursor)")
 	assert.Contains(t, recorded.Query, "... on Issue")
 	assert.Contains(t, recorded.Query, "... on PullRequest")
-	assert.Contains(t, recorded.Query, "id")
+	assert.Contains(t, recorded.Query, "updatedAt")
 	assert.Contains(t, recorded.Query, "__typename")
 	assert.NotContains(t, recorded.Query, "nodes{id", "Direct selection on union SearchResultItem is invalid")
 
 	// 2. Verify variables passed
 	assert.Equal(t, testQuery, recorded.Variables["query"])
-	assert.InDelta(t, float64(50), recorded.Variables["limit"], 0.001)
+	assert.InDelta(t, float64(100), recorded.Variables["limit"], 0.001)
+	assert.Nil(t, recorded.Variables["cursor"], "the first page starts without a cursor")
 
-	// 3. Verify response extraction and deduplication:
-	// - Extracts Issue ID
-	// - Extracts PR ID
-	// - Deduplicates repeated Issue ID
-	// - Discards Repository node
-	expectedIDs := []string{"I_kwDOAToIks7gNKvx", "PR_kwDOAToIks6zimkN"}
-	assert.Equal(t, expectedIDs, ids)
+	// 3. Verify extraction: issue and PR IDs with update times, deduplicated, non-issue nodes dropped.
+	assert.Equal(t, []SearchCandidate{
+		{ID: "I_kwDOAToIks7gNKvx", UpdatedAt: time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)},
+		{ID: "PR_kwDOAToIks6zimkN", UpdatedAt: time.Date(2026, 9, 1, 11, 0, 0, 0, time.UTC)},
+	}, res.Candidates)
+	assert.False(t, res.Truncated)
 }
 
-func TestSearchCandidateIDs_LimitHandling(t *testing.T) {
-	testCases := []struct {
+func TestSearchCandidates_Paging(t *testing.T) {
+	tests := []struct {
 		name          string
-		inputLimit    int
-		expectedLimit float64
+		serverPages   int
+		maxPages      int
+		wantRequests  int
+		wantTruncated bool
 	}{
-		{
-			name:          "Zero defaults to 100",
-			inputLimit:    0,
-			expectedLimit: 100,
-		},
-		{
-			name:          "Negative defaults to 100",
-			inputLimit:    -10,
-			expectedLimit: 100,
-		},
-		{
-			name:          "Over 100 capped at 100",
-			inputLimit:    150,
-			expectedLimit: 100,
-		},
-		{
-			name:          "Valid intermediate limit preserved",
-			inputLimit:    25,
-			expectedLimit: 25,
-		},
+		{name: "all pages within the cap", serverPages: 3, maxPages: 5, wantRequests: 3},
+		{name: "exactly the cap", serverPages: 2, maxPages: 2, wantRequests: 2},
+		{name: "more pages than the cap", serverPages: 4, maxPages: 2, wantRequests: 2, wantTruncated: true},
+		{name: "a non-positive cap fetches one page", serverPages: 2, maxPages: 0, wantRequests: 1,
+			wantTruncated: true},
 	}
-
-	for _, tc := range testCases {
+	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var recordedLimit float64
+			var cursors []any
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				body, err := io.ReadAll(r.Body)
-				if err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
 				var req struct {
 					Variables map[string]any `json:"variables"`
 				}
+				body, _ := io.ReadAll(r.Body)
 				_ = json.Unmarshal(body, &req)
-				if l, ok := req.Variables["limit"].(float64); ok {
-					recordedLimit = l
-				}
-
+				cursors = append(cursors, req.Variables["cursor"])
+				page := len(cursors)
 				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"data":{"search":{"nodes":[]}}}`))
+				_, _ = fmt.Fprintf(w, `{"data":{"search":{
+					"nodes":[{"__typename":"Issue","id":"I_%d","updatedAt":"2026-09-01T10:00:0%dZ"}],
+					"pageInfo":{"hasNextPage":%t,"endCursor":"cursor-%d"}}}}`,
+					page, page, page < tc.serverPages, page)
 			}))
 			defer server.Close()
 
 			gqlClient := graphql.NewClient(server.URL, server.Client())
 			client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
 
-			_, err := client.SearchCandidateIDs(t.Context(), "is:open", tc.inputLimit)
+			res, err := client.SearchCandidates(t.Context(), "is:open sort:updated-asc", tc.maxPages)
 			require.NoError(t, err)
-			assert.InDelta(t, tc.expectedLimit, recordedLimit, 0.001)
+
+			require.Len(t, cursors, tc.wantRequests)
+			assert.Nil(t, cursors[0])
+			for i := 1; i < len(cursors); i++ {
+				assert.Equal(t, fmt.Sprintf("cursor-%d", i), cursors[i], "page %d continues from page %d", i+1, i)
+			}
+			assert.Len(t, res.Candidates, tc.wantRequests)
+			assert.Equal(t, tc.wantTruncated, res.Truncated)
 		})
 	}
 }
 
-func TestSearchCandidateIDs_EmptyQuery(t *testing.T) {
+func TestSearchCandidates_EmptyQuery(t *testing.T) {
 	serverCalled := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		serverCalled = true
@@ -1906,38 +1885,39 @@ func TestSearchCandidateIDs_EmptyQuery(t *testing.T) {
 	client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
 
 	// Test with empty string and whitespace-only
-	ids, err := client.SearchCandidateIDs(t.Context(), "", 10)
+	res, err := client.SearchCandidates(t.Context(), "", 1)
 	require.NoError(t, err)
-	assert.Nil(t, ids)
+	assert.Empty(t, res.Candidates)
 	assert.False(t, serverCalled, "Server should not be called for empty query")
 
-	ids, err = client.SearchCandidateIDs(t.Context(), "   ", 10)
+	res, err = client.SearchCandidates(t.Context(), "   ", 1)
 	require.NoError(t, err)
-	assert.Nil(t, ids)
+	assert.Empty(t, res.Candidates)
 	assert.False(t, serverCalled, "Server should not be called for whitespace query")
 }
 
-func TestSearchCandidateIDs_EmptyResults(t *testing.T) {
+func TestSearchCandidates_EmptyResults(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":{"search":{"nodes":[]}}}`))
+		_, _ = w.Write([]byte(`{"data":{"search":{"nodes":[],"pageInfo":{"hasNextPage":true,"endCursor":"c"}}}}`))
 	}))
 	defer server.Close()
 
 	gqlClient := graphql.NewClient(server.URL, server.Client())
 	client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
 
-	ids, err := client.SearchCandidateIDs(t.Context(), "repo:kubernetes/kubernetes is:open", 100)
+	res, err := client.SearchCandidates(t.Context(), "repo:kubernetes/kubernetes is:open", 5)
 	require.NoError(t, err)
-	assert.Empty(t, ids)
+	assert.Empty(t, res.Candidates)
+	assert.False(t, res.Truncated, "an empty page ends the search")
 }
 
-func TestSearchCandidateIDs_Errors(t *testing.T) {
+func TestSearchCandidates_Errors(t *testing.T) {
 	t.Run("UninitializedClient", func(t *testing.T) {
 		client := &Client{}
-		ids, err := client.SearchCandidateIDs(t.Context(), "repo:foo/bar", 10)
+		res, err := client.SearchCandidates(t.Context(), "repo:foo/bar", 1)
 		require.Error(t, err)
-		assert.Nil(t, ids)
+		assert.Empty(t, res.Candidates)
 		assert.Contains(t, err.Error(), "github graphql client is not initialized")
 	})
 
@@ -1959,10 +1939,32 @@ func TestSearchCandidateIDs_Errors(t *testing.T) {
 		gqlClient := graphql.NewClient(server.URL, server.Client())
 		client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
 
-		ids, err := client.SearchCandidateIDs(t.Context(), "invalid:query", 10)
+		res, err := client.SearchCandidates(t.Context(), "invalid:query", 1)
 		require.Error(t, err)
-		assert.Nil(t, ids)
-		assert.Contains(t, err.Error(), "failed to search candidate IDs")
+		assert.Empty(t, res.Candidates)
+		assert.Contains(t, err.Error(), "failed to search candidates")
+	})
+
+	t.Run("LaterPageErrorFailsTheSearch", func(t *testing.T) {
+		requests := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			requests++
+			if requests > 1 {
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"search":{"nodes":[{"__typename":"Issue","id":"I_1"}],` +
+				`"pageInfo":{"hasNextPage":true,"endCursor":"c1"}}}}`))
+		}))
+		defer server.Close()
+
+		gqlClient := graphql.NewClient(server.URL, server.Client())
+		client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
+
+		res, err := client.SearchCandidates(t.Context(), "is:open", 5)
+		require.Error(t, err)
+		assert.Empty(t, res.Candidates, "a partial search is not returned")
 	})
 
 	t.Run("HttpServerError", func(t *testing.T) {
@@ -1974,9 +1976,9 @@ func TestSearchCandidateIDs_Errors(t *testing.T) {
 		gqlClient := graphql.NewClient(server.URL, server.Client())
 		client := &Client{GraphQLClient: &testGQLAdapter{client: gqlClient}}
 
-		ids, err := client.SearchCandidateIDs(t.Context(), "is:open", 10)
+		res, err := client.SearchCandidates(t.Context(), "is:open", 1)
 		require.Error(t, err)
-		assert.Nil(t, ids)
+		assert.Empty(t, res.Candidates)
 	})
 
 	t.Run("ContextCanceled", func(t *testing.T) {
@@ -1992,9 +1994,9 @@ func TestSearchCandidateIDs_Errors(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 
-		ids, err := client.SearchCandidateIDs(ctx, "is:open", 10)
+		res, err := client.SearchCandidates(ctx, "is:open", 1)
 		require.Error(t, err)
-		assert.Nil(t, ids)
+		assert.Empty(t, res.Candidates)
 	})
 }
 

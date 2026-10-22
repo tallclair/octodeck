@@ -118,7 +118,7 @@ func setupMockDiscoveryEngine(
 	mockGQL := &mockGraphQLClient{
 		queryFunc: func(_ context.Context, name string, q any, vars map[string]any) error {
 			switch name {
-			case "SearchCandidateIDs":
+			case "SearchCandidates":
 				return mockHandleCandidateSearch(tracker, candidateMap, vars, q)
 			case "ItemsFetch":
 				return mockHandleItemsFetch(tracker, nodeMap, vars, q)
@@ -446,7 +446,7 @@ func TestRunDiscovery_InjectsUpdatedFilterWithBuffer(t *testing.T) {
 
 	require.Len(t, tracker.searchedQueries, 1)
 	expectedSince := pastTime.Add(-DiscoveryIndexingBuffer).UTC().Format("2006-01-02T15:04:05Z")
-	expectedQuery := fmt.Sprintf("%s updated:>%s", baseQuery, expectedSince)
+	expectedQuery := fmt.Sprintf("%s updated:>%s sort:updated-asc", baseQuery, expectedSince)
 	assert.Equal(t, expectedQuery, tracker.searchedQueries[0])
 
 	// Cursor should have advanced to a recent time
