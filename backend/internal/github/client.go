@@ -36,9 +36,9 @@ const (
 	nodeBatchSize = 50
 
 	// maxNotificationPages is the safety cap on pagination when querying GET /notifications.
-	maxNotificationPages = 5
+	maxNotificationPages = 20
 	// maxNotificationThreads is the safety limit on total notification threads ingested in one run.
-	maxNotificationThreads = 250
+	maxNotificationThreads = 1000
 	// notificationsPerPage is the per_page query param for GET /notifications.
 	notificationsPerPage = 50
 	// defaultGitHubAPIBase is the default base URL for GitHub REST API calls.
@@ -688,57 +688,125 @@ func (c *Client) fetchNotificationPage(
 	}, nil
 }
 
+// NotificationFetchOptions selects the notification threads to fetch from GET /notifications.
+type NotificationFetchOptions struct {
+	// Since, if non-zero, restricts the results to threads updated after it.
+	Since time.Time
+	// Before, if non-zero, restricts the results to threads updated before it.
+	Before time.Time
+	// LastModified, if set, is sent as If-Modified-Since on the first page so an unchanged
+	// inbox is answered with 304 Not Modified.
+	LastModified string
+}
+
+// NotificationFetchResult is the outcome of a FetchNotificationThreads call.
+type NotificationFetchResult struct {
+	// Threads are the fetched threads, newest first (GitHub's order).
+	Threads []NotificationThread
+	// LastModified is the Last-Modified header of the first page (or the request's
+	// LastModified when the response did not carry one).
+	LastModified string
+	// StatusCode is the HTTP status of the first page (200 or 304).
+	StatusCode int
+	// Truncated reports that the safety cap stopped pagination while more pages remained, so
+	// threads updated before the oldest fetched thread (and after Since) were not fetched.
+	Truncated bool
+}
+
+// OldestUpdatedAt returns the earliest parseable updated_at among the fetched threads, and false
+// if no thread has one.
+func (r *NotificationFetchResult) OldestUpdatedAt() (time.Time, bool) {
+	var oldest time.Time
+	found := false
+	for _, t := range r.Threads {
+		ts, err := time.Parse(time.RFC3339, t.UpdatedAt)
+		if err != nil {
+			continue
+		}
+		if !found || ts.Before(oldest) {
+			oldest = ts
+			found = true
+		}
+	}
+	return oldest, found
+}
+
 // FetchNotifications queries the GitHub Notifications API (GET /notifications)
 // supporting conditional HTTP 304 caching (If-Modified-Since), sliding window (since),
-// and Link header pagination up to a safety threshold (max 5 pages / 250 threads).
-// The Last-Modified header returned on Page 1 is preserved across pagination runs.
+// and Link header pagination up to a safety threshold (see maxNotificationPages and
+// maxNotificationThreads). The Last-Modified header returned on Page 1 is preserved across
+// pagination runs. Use FetchNotificationThreads to learn whether the cap truncated the results.
 func (c *Client) FetchNotifications(
 	ctx context.Context,
 	since time.Time,
 	lastModified string,
 ) ([]NotificationThread, string, int, error) {
+	res, err := c.FetchNotificationThreads(ctx, NotificationFetchOptions{Since: since, LastModified: lastModified})
+	if err != nil {
+		return nil, "", res.StatusCode, err
+	}
+	return res.Threads, res.LastModified, res.StatusCode, nil
+}
+
+// FetchNotificationThreads fetches the notification threads selected by opts (all threads,
+// read or unread), following Link pagination up to the safety cap. On error the returned result
+// carries only the HTTP status code of the failing page (0 if the request itself failed).
+func (c *Client) FetchNotificationThreads(
+	ctx context.Context,
+	opts NotificationFetchOptions,
+) (NotificationFetchResult, error) {
 	if c == nil || c.getHTTPClient() == nil {
-		return nil, "", 0, errors.New("github http client is not initialized")
+		return NotificationFetchResult{}, errors.New("github http client is not initialized")
 	}
 
 	reqURL := fmt.Sprintf("%s/notifications?all=true&per_page=%d",
 		defaultGitHubAPIBase, notificationsPerPage)
-	if !since.IsZero() {
-		reqURL += fmt.Sprintf("&since=%s", url.QueryEscape(since.Format(time.RFC3339)))
+	if !opts.Since.IsZero() {
+		reqURL += fmt.Sprintf("&since=%s", url.QueryEscape(opts.Since.UTC().Format(time.RFC3339)))
+	}
+	if !opts.Before.IsZero() {
+		reqURL += fmt.Sprintf("&before=%s", url.QueryEscape(opts.Before.UTC().Format(time.RFC3339)))
 	}
 
-	var allThreads []NotificationThread
-	var page1LastModified string
+	res := NotificationFetchResult{StatusCode: http.StatusOK}
 	currentURL := reqURL
 	pageCount := 0
 
-	for currentURL != "" && pageCount < maxNotificationPages && len(allThreads) < maxNotificationThreads {
+	for currentURL != "" {
+		if pageCount >= maxNotificationPages || len(res.Threads) >= maxNotificationThreads {
+			res.Truncated = true
+			break
+		}
 		pageCount++
-		pageRes, err := c.fetchNotificationPage(ctx, currentURL, pageCount, lastModified)
+		pageRes, err := c.fetchNotificationPage(ctx, currentURL, pageCount, opts.LastModified)
 		if err != nil {
 			statusCode := 0
 			if pageRes != nil {
 				statusCode = pageRes.statusCode
 			}
-			return nil, "", statusCode, err
+			return NotificationFetchResult{StatusCode: statusCode}, err
 		}
 
 		if pageRes.statusCode == http.StatusNotModified {
-			return []NotificationThread{}, lastModified, http.StatusNotModified, nil
+			return NotificationFetchResult{
+				Threads:      []NotificationThread{},
+				LastModified: opts.LastModified,
+				StatusCode:   http.StatusNotModified,
+			}, nil
 		}
 
 		if pageCount == 1 {
-			page1LastModified = pageRes.lastModified
-			if page1LastModified == "" {
-				page1LastModified = lastModified
+			res.LastModified = pageRes.lastModified
+			if res.LastModified == "" {
+				res.LastModified = opts.LastModified
 			}
 		}
 
-		allThreads = append(allThreads, pageRes.threads...)
+		res.Threads = append(res.Threads, pageRes.threads...)
 		currentURL = pageRes.nextURL
 	}
 
-	return allThreads, page1LastModified, http.StatusOK, nil
+	return res, nil
 }
 
 // --- GraphQL Structures ---

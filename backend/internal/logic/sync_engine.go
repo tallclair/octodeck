@@ -58,6 +58,15 @@ type NotificationSyncPayload struct {
 	HydratedItems       []string          `json:"hydrated_items"`
 	HydrationErrors     map[string]string `json:"hydration_errors"`
 	Error               *string           `json:"error"`
+	// Truncated reports that the safety cap stopped the fetch before every thread since the
+	// cursor was fetched; the unfetched range was recorded as a backfill window.
+	Truncated bool `json:"truncated,omitempty"`
+	// BackfillThreads is the number of threads fetched while draining the backfill window.
+	BackfillThreads int `json:"backfill_threads,omitempty"`
+	// BackfillRemaining is the backfill window still pending after this run, if any.
+	BackfillRemaining *NotificationBackfillWindow `json:"backfill_remaining,omitempty"`
+	// BackfillError is the error that interrupted draining the backfill window, if any.
+	BackfillError string `json:"backfill_error,omitempty"`
 }
 
 // SyncEngine manages the synchronization of data from GitHub to the local database.
@@ -717,7 +726,14 @@ func (s *SyncEngine) calculateIncrementalSyncSince(
 	lastModified, _ := s.db.GetMetadata(ctx, KeyLastNotificationModified)
 
 	if triggerSource == "force_sync" {
-		return startTime.Add(-15 * time.Minute), "", false
+		// A forced sync skips the conditional request and always re-reads the last 15 minutes,
+		// but it also advances the cursor, so it must reach back to the previous cursor too:
+		// otherwise threads between the last sync and the forced window would be skipped.
+		since := startTime.Add(-notificationCursorOverlap)
+		if !lastSync.IsZero() {
+			since = minTime(since, lastSync.Add(-notificationCursorOverlap))
+		}
+		return since, "", false
 	}
 	if !lastSync.IsZero() && time.Since(lastSync) < config.MinSyncInterval && triggerSource == triggerSourceTicker {
 		slog.InfoContext(ctx, "Sync requested too soon after last sync, skipping", "last_sync", lastSync)
@@ -726,20 +742,34 @@ func (s *SyncEngine) calculateIncrementalSyncSince(
 	if lastSync.IsZero() {
 		lastSync = startTime.Add(-incrementalSyncLookback)
 	}
-	return lastSync.Add(-15 * time.Minute), lastModified, false
+	return lastSync.Add(-notificationCursorOverlap), lastModified, false
 }
 
+// notificationCursorOverlap is how far before the notification cursor each incremental fetch
+// starts, to tolerate clock skew between the daemon and GitHub.
+const notificationCursorOverlap = 15 * time.Minute
+
+func minTime(a, b time.Time) time.Time {
+	if b.Before(a) {
+		return b
+	}
+	return a
+}
+
+// handleIncrementalSyncResult processes the threads of an incremental notification fetch and
+// then advances the notification cursor. If the fetch was capped, the range it left unfetched
+// (from since up to the oldest fetched thread) is recorded as a backfill window first, so moving
+// the cursor never skips threads: they are either fetched or tracked in the window.
 func (s *SyncEngine) handleIncrementalSyncResult(
 	ctx context.Context,
-	threads []github.NotificationThread,
-	statusCode int,
-	newLastModified string,
+	res *github.NotificationFetchResult,
+	since time.Time,
 	oldLastModified string,
 	startTime time.Time,
 	budget *reviewBackfillBudget,
-) (int, *NotificationSyncPayload, []byte, error) {
+) (int, *NotificationSyncPayload, error) {
 	nowStr := startTime.UTC().Format(time.RFC3339)
-	if statusCode == http.StatusNotModified {
+	if res.StatusCode == http.StatusNotModified {
 		slog.InfoContext(ctx, "Notifications not modified (304), sync complete")
 		_ = s.db.SetMetadata(ctx, KeyLastNotificationSync, nowStr)
 		_ = s.db.SetMetadata(ctx, KeyLastIncSync, nowStr)
@@ -754,23 +784,23 @@ func (s *SyncEngine) handleIncrementalSyncResult(
 			HydratedItems:       make([]string, 0),
 			HydrationErrors:     make(map[string]string),
 		}
-		pb, _ := json.Marshal(p)
-		compressed, _ := database.CompressPayload(pb)
-		return 0, &p, compressed, nil
+		return 0, &p, nil
 	}
 
+	threads := res.Threads
 	if len(threads) > 0 && s.db != nil {
 		_ = s.db.RecordNotificationCount(ctx, startTime, len(threads))
 	}
 
 	fetchedItems, paging, payload, err := s.processNotificationThreads(ctx, threads)
 	if err != nil {
-		return 0, nil, nil, err
+		return 0, nil, err
 	}
 
-	payload.HTTPStatus = statusCode
-	if newLastModified != "" {
-		payload.LastModified = newLastModified
+	payload.HTTPStatus = res.StatusCode
+	payload.Truncated = res.Truncated
+	if res.LastModified != "" {
+		payload.LastModified = res.LastModified
 	} else {
 		payload.LastModified = oldLastModified
 	}
@@ -778,20 +808,33 @@ func (s *SyncEngine) handleIncrementalSyncResult(
 	var itemsProcessed int
 	if len(fetchedItems) > 0 {
 		if err := s.processItemsWithBudget(ctx, fetchedItems, paging, true, budget); err != nil {
-			return 0, nil, nil, err
+			return 0, nil, err
 		}
 		itemsProcessed = len(fetchedItems)
 	}
 
-	if newLastModified != "" {
-		_ = s.db.SetMetadata(ctx, KeyLastNotificationModified, newLastModified)
+	if res.Truncated {
+		before, ok := gapUpperBound(res)
+		if !ok {
+			// Without a timestamp the gap can't be bounded; keep the cursor so the next run
+			// fetches the same range again rather than skipping it.
+			return itemsProcessed, payload, errors.New(
+				"notification fetch was truncated but no thread had a valid updated_at")
+		}
+		if err := s.recordNotificationGap(ctx, since, before); err != nil {
+			return itemsProcessed, payload, err
+		}
+	}
+
+	// Last-Modified describes the newest page, which was fetched, so it stays valid when the
+	// fetch was capped: the unfetched older threads are tracked by the backfill window instead.
+	if res.LastModified != "" {
+		_ = s.db.SetMetadata(ctx, KeyLastNotificationModified, res.LastModified)
 	}
 	_ = s.db.SetMetadata(ctx, KeyLastNotificationSync, nowStr)
 	_ = s.db.SetMetadata(ctx, KeyLastIncSync, nowStr)
 
-	pb, _ := json.Marshal(payload)
-	compressed, _ := database.CompressPayload(pb)
-	return itemsProcessed, payload, compressed, nil
+	return itemsProcessed, payload, nil
 }
 
 func (s *SyncEngine) runIncrementalSync(ctx context.Context, triggerSource string) error {
@@ -801,9 +844,15 @@ func (s *SyncEngine) runIncrementalSync(ctx context.Context, triggerSource strin
 	var itemsProcessed int
 	startTime := time.Now()
 	var since time.Time
-	var payloadBytes []byte
+	var payload *NotificationSyncPayload
 
 	defer func() {
+		var payloadBytes []byte
+		if payload != nil {
+			if pb, mErr := json.Marshal(payload); mErr == nil {
+				payloadBytes, _ = database.CompressPayload(pb)
+			}
+		}
 		s.recordSyncFinish(ctx, err, itemsProcessed)
 		s.saveTrace(ctx, traceParams{
 			traceType:            traceTypeNotificationSync,
@@ -829,7 +878,10 @@ func (s *SyncEngine) runIncrementalSync(ctx context.Context, triggerSource strin
 		return nil
 	}
 
-	threads, newLastModified, statusCode, fetchErr := s.gh.FetchNotifications(ctx, since, lastModified)
+	res, fetchErr := s.gh.FetchNotificationThreads(ctx, github.NotificationFetchOptions{
+		Since:        since,
+		LastModified: lastModified,
+	})
 	if fetchErr != nil {
 		err = fmt.Errorf("failed to fetch notifications: %w", fetchErr)
 		return err
@@ -837,12 +889,22 @@ func (s *SyncEngine) runIncrementalSync(ctx context.Context, triggerSource strin
 
 	budget := newReviewBackfillBudget(maxReviewBackfillsPerSync)
 	defer budget.logSummary(ctx)
-	itemsProcessed, _, payloadBytes, err = s.handleIncrementalSyncResult(
-		ctx, threads, statusCode, newLastModified, lastModified, startTime, budget,
-	)
+	itemsProcessed, payload, err = s.handleIncrementalSyncResult(ctx, &res, since, lastModified, startTime, budget)
 	if err != nil {
 		return err
 	}
+
+	// Drain any gap left by an earlier (or this) capped fetch. A failure is reported in the trace
+	// and retried on the next run; it doesn't fail this sync, whose own range was stored.
+	backfill, backfillErr := s.drainNotificationBackfill(ctx, budget)
+	itemsProcessed += backfill.itemsProcessed
+	payload.BackfillThreads = backfill.threads
+	payload.BackfillRemaining = backfill.remaining
+	if backfillErr != nil {
+		slog.WarnContext(ctx, "Notification backfill failed; will retry on the next sync", "error", backfillErr)
+		payload.BackfillError = backfillErr.Error()
+	}
+
 	itemsProcessed += s.resumePendingReviewBackfills(ctx, budget)
 	return nil
 }

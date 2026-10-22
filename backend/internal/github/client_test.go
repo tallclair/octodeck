@@ -544,6 +544,63 @@ func TestFetchNotifications_PaginationSafetyCap(t *testing.T) {
 	assert.Len(t, threads, maxNotificationPages)
 }
 
+func TestFetchNotificationThreads_Truncation(t *testing.T) {
+	thread := func(updatedAt string) string {
+		return `{"id": "t", "unread": true, "reason": "mention", "updated_at": "` + updatedAt + `", ` +
+			`"subject": {"title": "T", "type": "Issue", "url": "https://api.github.com/repos/o/r/issues/1"}, ` +
+			`"repository": {"full_name": "o/r"}}`
+	}
+	tests := []struct {
+		name          string
+		pages         int // total pages the server has
+		wantRequests  int
+		wantTruncated bool
+	}{
+		{name: "fewer pages than the cap", pages: 3, wantRequests: 3},
+		{name: "exactly the cap", pages: maxNotificationPages, wantRequests: maxNotificationPages},
+		{name: "more pages than the cap", pages: maxNotificationPages + 1, wantRequests: maxNotificationPages,
+			wantTruncated: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var urls []string
+			mock := &mockHTTPClient{doFunc: func(req *http.Request) (*http.Response, error) {
+				urls = append(urls, req.URL.String())
+				page := len(urls)
+				// Page p holds one thread updated p seconds before 12:00.
+				updated := time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC).Add(-time.Duration(page) * time.Second)
+				resp := &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(bytes.NewBufferString("[" + thread(updated.Format(time.RFC3339)) + "]")),
+				}
+				if page < tc.pages {
+					next := fmt.Sprintf("https://api.github.com/notifications?page=%d", page+1)
+					resp.Header.Set("Link", fmt.Sprintf(`<%s>; rel="next"`, next))
+				}
+				return resp, nil
+			}}
+
+			client := &Client{HTTPClient: mock}
+			since := time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC)
+			before := time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)
+			opts := NotificationFetchOptions{Since: since, Before: before}
+			res, err := client.FetchNotificationThreads(t.Context(), opts)
+			require.NoError(t, err)
+
+			assert.Len(t, urls, tc.wantRequests)
+			assert.Equal(t, tc.wantTruncated, res.Truncated)
+			require.NotEmpty(t, urls)
+			assert.Contains(t, urls[0], "since=2026-08-13T00%3A00%3A00Z")
+			assert.Contains(t, urls[0], "before=2026-08-14T12%3A00%3A00Z")
+
+			oldest, ok := res.OldestUpdatedAt()
+			require.True(t, ok)
+			assert.Equal(t, before.Add(-time.Duration(tc.wantRequests)*time.Second), oldest)
+		})
+	}
+}
+
 func TestFetchNotifications_HTTPError(t *testing.T) {
 	mock := &mockHTTPClient{
 		doFunc: func(_ *http.Request) (*http.Response, error) {
