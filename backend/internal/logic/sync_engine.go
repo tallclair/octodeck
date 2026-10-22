@@ -593,6 +593,9 @@ func (s *SyncEngine) fetchInventoryNotifications(
 	ctx context.Context,
 	startTime time.Time,
 ) ([]*octodeckv1.Item, github.HydrationPagingByID, string) {
+	// The cold-start import is intentionally bounded: it seeds the working set from the most
+	// recent notifications (up to the fetch's safety cap) and records no backfill window for
+	// older ones, since there is no earlier cursor whose range could have been skipped.
 	threads, nLastMod, _, notifErr := s.gh.FetchNotifications(ctx, time.Time{}, "")
 	if notifErr != nil {
 		slog.WarnContext(ctx, "Failed to fetch notifications during inventory sync", "error", notifErr)

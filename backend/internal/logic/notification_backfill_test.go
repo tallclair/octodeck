@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -379,6 +380,126 @@ func TestDrainNotificationBackfill_NoProgress(t *testing.T) {
 			assert.True(t, tc.wantBefore.Equal(w.Before), "got %v", w.Before)
 		})
 	}
+}
+
+func TestIncrementalSync_BackfillProcessingFailureKeepsWindow(t *testing.T) {
+	windowSince := backfillTestNow().Add(-48 * time.Hour)
+	windowBefore := backfillTestNow().Add(-24 * time.Hour)
+
+	api := &fakeNotificationsAPI{}
+	api.respond = func(r notificationRequest) *http.Response {
+		if r.before == "" {
+			return statusResponse(http.StatusNotModified)
+		}
+		thread := github.NotificationThread{
+			ID: "gap-thread", Unread: true, Reason: "mention",
+			UpdatedAt: windowBefore.Add(-time.Hour).Format(time.RFC3339),
+			Subject: github.NotificationSubject{
+				Title: "Issue in the gap", Type: "Issue", URL: "https://api.github.com/repos/o/r/issues/7",
+			},
+			Repository: github.NotificationRepo{FullName: "o/r"},
+		}
+		return notificationsPage(r, []github.NotificationThread{thread}, false)
+	}
+	gql := &mockGraphQLClient{queryFunc: func(_ context.Context, name string, _ any, _ map[string]any) error {
+		if name == "ItemsFetch" {
+			return errors.New("hydration unavailable")
+		}
+		return nil
+	}}
+	engine, db := newBackfillTestEngine(t, api, gql)
+	ctx := t.Context()
+	require.NoError(t, db.SaveItems(ctx, []*octodeckv1.Item{octodeckv1.Item_builder{
+		Id: config.Ptr("ISSUE_7"), Repo: config.Ptr("o/r"), Number: config.Ptr(int32(7)),
+		Type:  config.Ptr(octodeckv1.ItemType_ITEM_TYPE_ISSUE),
+		State: config.Ptr(octodeckv1.ItemState_ITEM_STATE_OPEN),
+	}.Build()}))
+	setNotificationCursor(t, db, backfillTestNow().Add(-time.Hour))
+	window := NotificationBackfillWindow{Since: windowSince, Before: windowBefore}
+	require.NoError(t, engine.storeNotificationBackfillWindow(ctx, &window))
+
+	require.NoError(t, engine.RunIncrementalSync(ctx), "a failed drain must not fail the sync")
+
+	w := requireBackfillWindow(t, engine)
+	assert.True(t, window.Since.Equal(w.Since) && window.Before.Equal(w.Before),
+		"the window is unchanged when its threads couldn't be stored: %+v", w)
+	p := latestNotificationPayload(t, db)
+	assert.Contains(t, p.BackfillError, "hydration unavailable")
+	require.NotNil(t, p.BackfillRemaining)
+	assert.True(t, windowBefore.Equal(p.BackfillRemaining.Before))
+}
+
+func TestIncrementalSync_GapRecordingFailureKeepsCursor(t *testing.T) {
+	lastSync := backfillTestNow().Add(-6 * time.Hour)
+	api := &fakeNotificationsAPI{}
+	api.respond = func(r notificationRequest) *http.Response {
+		return cappedPages(r, backfillTestNow().Add(-time.Minute))
+	}
+	engine, db := newBackfillTestEngine(t, api, nil)
+	ctx := t.Context()
+	setNotificationCursor(t, db, lastSync)
+	require.NoError(t, db.SetMetadata(ctx, KeyLastNotificationModified, "Thu, 13 Aug 2026 00:00:00 GMT"))
+	// Make storing the backfill window fail.
+	_, err := db.ExecContext(ctx, `CREATE TRIGGER fail_backfill_window BEFORE INSERT ON metadata
+		WHEN NEW.key = '`+KeyNotificationBackfillWindow+`' BEGIN SELECT RAISE(ABORT, 'disk full'); END`)
+	require.NoError(t, err)
+
+	err = engine.RunIncrementalSync(ctx)
+	require.ErrorContains(t, err, "disk full")
+
+	cursor, err := db.GetMetadata(ctx, KeyLastNotificationSync)
+	require.NoError(t, err)
+	assert.Equal(t, lastSync.Format(time.RFC3339), cursor, "the cursor must not move past an unrecorded gap")
+	lastMod, err := db.GetMetadata(ctx, KeyLastNotificationModified)
+	require.NoError(t, err)
+	assert.Equal(t, "Thu, 13 Aug 2026 00:00:00 GMT", lastMod, "Last-Modified must not move either")
+}
+
+func TestIncrementalSync_CorruptBackfillWindowIsReplaced(t *testing.T) {
+	lastSync := backfillTestNow().Add(-6 * time.Hour)
+	newest := backfillTestNow().Add(-time.Minute)
+	api := &fakeNotificationsAPI{}
+	api.respond = func(r notificationRequest) *http.Response {
+		if r.before != "" {
+			return statusResponse(http.StatusBadGateway)
+		}
+		return cappedPages(r, newest)
+	}
+	engine, db := newBackfillTestEngine(t, api, nil)
+	ctx := t.Context()
+	setNotificationCursor(t, db, lastSync)
+	require.NoError(t, db.SetMetadata(ctx, KeyNotificationBackfillWindow, "{not json"))
+
+	require.NoError(t, engine.RunIncrementalSync(ctx))
+
+	// The unknown range is replaced by everything before the new gap's upper bound.
+	w := requireBackfillWindow(t, engine)
+	assert.True(t, w.Since.IsZero(), "got since %v", w.Since)
+	assert.True(t, newest.Add(-999*time.Second).Add(time.Second).Equal(w.Before), "got before %v", w.Before)
+	reqs := api.recorded()
+	drain := reqs[len(reqs)-1]
+	assert.Empty(t, drain.since, "draining from the beginning omits since")
+	assert.NotEmpty(t, drain.before)
+}
+
+func TestDrainNotificationBackfill_CorruptWindowDrainsEverything(t *testing.T) {
+	api := &fakeNotificationsAPI{}
+	api.respond = func(r notificationRequest) *http.Response {
+		return notificationsPage(r, releaseThreads(2, backfillTestNow().Add(-48*time.Hour), "old"), false)
+	}
+	engine, db := newBackfillTestEngine(t, api, nil)
+	ctx := t.Context()
+	require.NoError(t, db.SetMetadata(ctx, KeyNotificationBackfillWindow, "{not json"))
+
+	res, err := engine.drainNotificationBackfill(ctx, newReviewBackfillBudget(0))
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, res.threads)
+	reqs := api.recorded()
+	require.Len(t, reqs, 1)
+	assert.Empty(t, reqs[0].since)
+	assert.NotEmpty(t, reqs[0].before)
+	requireNoBackfillWindow(t, engine)
 }
 
 func TestRecordNotificationGap_MergesWithPendingWindow(t *testing.T) {

@@ -32,7 +32,11 @@ type NotificationBackfillWindow struct {
 	Before time.Time `json:"before"`
 }
 
+// errCorruptBackfillWindow marks a stored backfill window that can't be parsed.
+var errCorruptBackfillWindow = errors.New("corrupt notification backfill window")
+
 // loadNotificationBackfillWindow returns the pending backfill window, and false if there is none.
+// An unparseable window is reported as an error wrapping errCorruptBackfillWindow.
 func (s *SyncEngine) loadNotificationBackfillWindow(ctx context.Context) (NotificationBackfillWindow, bool, error) {
 	raw, err := s.db.GetMetadata(ctx, KeyNotificationBackfillWindow)
 	if errors.Is(err, sql.ErrNoRows) || (err == nil && raw == "") {
@@ -43,8 +47,7 @@ func (s *SyncEngine) loadNotificationBackfillWindow(ctx context.Context) (Notifi
 	}
 	var w NotificationBackfillWindow
 	if err := json.Unmarshal([]byte(raw), &w); err != nil {
-		return NotificationBackfillWindow{}, false,
-			fmt.Errorf("failed to parse notification backfill window %q: %w", raw, err)
+		return NotificationBackfillWindow{}, false, fmt.Errorf("%w %q: %w", errCorruptBackfillWindow, raw, err)
 	}
 	return w, true, nil
 }
@@ -67,16 +70,21 @@ func (s *SyncEngine) storeNotificationBackfillWindow(ctx context.Context, w *Not
 
 // recordNotificationGap adds the range a capped fetch left unfetched, [since, before), to the
 // pending backfill window. An existing window is widened to cover both ranges, which may
-// re-fetch threads in between; that is redundant but never loses any.
+// re-fetch threads in between; that is redundant but never loses any. An unreadable existing
+// window's range is unknown, so it is replaced by everything before before: every run fetched
+// all threads newer than its own gap, so nothing newer can be missing.
 func (s *SyncEngine) recordNotificationGap(ctx context.Context, since, before time.Time) error {
 	gap := NotificationBackfillWindow{Since: since.UTC(), Before: before.UTC()}
 	existing, ok, err := s.loadNotificationBackfillWindow(ctx)
-	if err != nil {
-		// An unreadable window can't be merged; replacing it would drop its range, so fail and
-		// let the caller keep its cursor where it is.
+	switch {
+	case errors.Is(err, errCorruptBackfillWindow):
+		slog.ErrorContext(ctx, "Replacing an unreadable notification backfill window", "error", err)
+		gap.Since = time.Time{}
+	case err != nil:
+		// The window can't be read, so it can't be merged; fail and let the caller keep its
+		// cursor where it is.
 		return err
-	}
-	if ok {
+	case ok:
 		if existing.Since.Before(gap.Since) {
 			gap.Since = existing.Since
 		}
@@ -116,6 +124,12 @@ func (s *SyncEngine) drainNotificationBackfill(
 	budget *reviewBackfillBudget,
 ) (notificationBackfillResult, error) {
 	stored, ok, err := s.loadNotificationBackfillWindow(ctx)
+	if errors.Is(err, errCorruptBackfillWindow) {
+		// The unreadable window's range is unknown, but the main fetch has just covered
+		// everything newer than the cursor, so draining everything before now recovers it.
+		slog.ErrorContext(ctx, "Replacing an unreadable notification backfill window", "error", err)
+		stored, ok, err = NotificationBackfillWindow{Before: time.Now().UTC()}, true, nil
+	}
 	if err != nil || !ok {
 		return notificationBackfillResult{}, err
 	}
