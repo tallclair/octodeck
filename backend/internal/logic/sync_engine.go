@@ -1090,6 +1090,35 @@ func (s *SyncEngine) processNotificationThreads(
 	return fetchedItems, paging, payload, nil
 }
 
+// staleItemsToRefresh returns the open items garbage collection re-hydrates: those not synced
+// for config.DefaultStaleItemAge, and, sooner, those not synced for
+// config.DefaultUntrackedStaleItemAge that the user isn't subscribed to. Unsubscribed items
+// (typically found by discovery queries) get no notifications, so without this tier their
+// state and activity would only be refreshed by the slower stale refresh. Items with an unknown
+// subscription state count as unsubscribed; a refresh records their actual state.
+func (s *SyncEngine) staleItemsToRefresh(ctx context.Context, now time.Time) ([]*octodeckv1.Item, error) {
+	staleCutoff := now.Add(-config.DefaultStaleItemAge)
+	untrackedCutoff := now.Add(-config.DefaultUntrackedStaleItemAge)
+	// Load every open item past either cutoff, i.e. synced before the later of the two.
+	loadCutoff := staleCutoff
+	if untrackedCutoff.After(loadCutoff) {
+		loadCutoff = untrackedCutoff
+	}
+	candidates, err := s.db.GetStaleItems(ctx, loadCutoff)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get stale items: %w", err)
+	}
+	var stale []*octodeckv1.Item
+	for _, item := range candidates {
+		lastSynced := item.GetLastSyncedAt().AsTime()
+		subscribed := item.GetViewerSubscription() == octodeckv1.SubscriptionState_SUBSCRIPTION_STATE_SUBSCRIBED
+		if lastSynced.Before(staleCutoff) || (!subscribed && lastSynced.Before(untrackedCutoff)) {
+			stale = append(stale, item)
+		}
+	}
+	return stale, nil
+}
+
 // RunGarbageCollection removes old or stale items from the database.
 func (s *SyncEngine) RunGarbageCollection(ctx context.Context) error {
 	s.mu.Lock()
@@ -1146,10 +1175,9 @@ func (s *SyncEngine) RunGarbageCollection(ctx context.Context) error {
 		slog.InfoContext(ctx, "Pruned old items", "count", prunedCount)
 	}
 
-	staleCutoff := time.Now().Add(-config.DefaultStaleItemAge)
-	staleItems, err := s.db.GetStaleItems(ctx, staleCutoff)
+	staleItems, err := s.staleItemsToRefresh(ctx, time.Now())
 	if err != nil {
-		gcErr = fmt.Errorf("failed to get stale items: %w", err)
+		gcErr = err
 		return gcErr
 	}
 

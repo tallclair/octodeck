@@ -159,6 +159,10 @@ const (
 
 	// DefaultStaleItemAge is the age at which an item is considered stale.
 	DefaultStaleItemAge = 30 * 24 * time.Hour // 30 days
+	// DefaultUntrackedStaleItemAge is the age at which an open item the user is not subscribed to
+	// (e.g. one found by a discovery query) is considered stale. Such items get no notifications,
+	// so garbage collection refreshes them more often than subscribed items.
+	DefaultUntrackedStaleItemAge = 7 * 24 * time.Hour // 7 days
 	// DefaultPruneItemAge is the age at which an item is pruned from the database.
 	DefaultPruneItemAge = 90 * 24 * time.Hour // 90 days
 
