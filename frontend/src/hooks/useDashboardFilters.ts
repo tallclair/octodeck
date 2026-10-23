@@ -24,7 +24,7 @@ import {
 } from '../logic/query/textEdit';
 import {
   isActive,
-  openSavedSearchText,
+  reapplySavedSearchText,
   tabClauses,
   type SavedSearchView,
 } from '../logic/savedSearches';
@@ -275,7 +275,7 @@ export function useDashboardFilters(): UseDashboardFilters {
         }
         return {
           ...prev,
-          text: openSavedSearchText(currentParsed, view),
+          text: view.text,
           sort: view.sort,
           order: view.order,
         };
@@ -290,7 +290,7 @@ export function useDashboardFilters(): UseDashboardFilters {
         const currentParsed = parseQuery(prev.text);
         return {
           ...prev,
-          text: openSavedSearchText(currentParsed, view),
+          text: reapplySavedSearchText(currentParsed, view),
           sort: view.sort,
           order: view.order,
         };

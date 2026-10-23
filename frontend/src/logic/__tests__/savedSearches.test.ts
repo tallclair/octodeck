@@ -5,7 +5,7 @@ import {
   buildCountRequest,
   isActive,
   moveItem,
-  openSavedSearchText,
+  reapplySavedSearchText,
   resolveSavedSearchBadge,
   stripTabClauses,
   suggestName,
@@ -278,7 +278,7 @@ describe('savedSearches logic', () => {
     });
   });
 
-  describe('openSavedSearchText (§7 example table)', () => {
+  describe('reapplySavedSearchText (§7 re-apply in place)', () => {
     const unscoped = toView({ id: '1', name: 'Unscoped', query: 'repo:k/k' });
     const scopedNew = toView({ id: '2', name: 'Scoped New', query: 'new:any repo:k/k' });
     const scopedAcked = toView({ id: '3', name: 'Scoped Acked', query: 'triage:acked type:pr' });
@@ -293,9 +293,9 @@ describe('savedSearches logic', () => {
       ['triage:acked type:pr (scoped)', scopedAcked, '', 'triage:acked type:pr'],
       ['triage:acked type:pr (scoped)', scopedAcked, 'new:any', 'triage:acked type:pr'],
       ['triage:acked type:pr (scoped)', scopedAcked, 'triage:acked', 'triage:acked type:pr'],
-    ])('opening %s on "%s" results in "%s"', (_name, view, currentQuery, expected) => {
+    ])('re-applying %s on "%s" results in "%s"', (_name, view, currentQuery, expected) => {
       const currentParsed = parseQuery(currentQuery);
-      expect(openSavedSearchText(currentParsed, view)).toBe(expected);
+      expect(reapplySavedSearchText(currentParsed, view)).toBe(expected);
     });
   });
 

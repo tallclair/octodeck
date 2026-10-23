@@ -28,7 +28,7 @@ import {
   attachCounts,
   findActiveSearch,
   isActive,
-  openSavedSearchText,
+  reapplySavedSearchText,
   toView,
   type SavedSearchView,
 } from '../logic/savedSearches';
@@ -574,7 +574,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
           onSave={async (input) => {
             const created = await savedSearches.create(input);
             setOriginSearchId(created.id);
-            const nextDashboardText = openSavedSearchText(parsed, created);
+            const nextDashboardText = reapplySavedSearchText(parsed, created);
             if (
               nextDashboardText !== state.text ||
               created.sort !== state.sort ||
@@ -602,7 +602,7 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                 sort: toSort(nextSort, nextOrder),
               });
               setOriginSearchId(id);
-              const nextDashboardText = openSavedSearchText(parsed, updatedView);
+              const nextDashboardText = reapplySavedSearchText(parsed, updatedView);
               if (
                 nextDashboardText !== state.text ||
                 updatedView.sort !== state.sort ||

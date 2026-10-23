@@ -1,7 +1,7 @@
 // Pure client-side logic for saved searches (Phase 3 §6.3, §7, §9.1):
 // view projection from config.json entries, triage-scope badge classification,
 // sidebar GetFacets count request building/attachment, active-row matching,
-// tab-aware query opening, suggested naming, and list reordering.
+// suggested naming, and list reordering.
 import { Field, SortKey, SortOrder as ProtoSortOrder } from '../api/octodeck/v1/query_pb';
 import {
   DEFAULT_QUERY_STATE,
@@ -385,11 +385,16 @@ export function findActiveSearch(
 }
 
 /**
- * Computes the new query text when opening `view` from `currentParsed` (§7):
+ * Computes the new query text when re-applying an edited `view` in place from
+ * `currentParsed` (§7), e.g. after updating the active saved search:
  * - Scoped search: replaces the whole text with `view.text`.
- * - Unscoped search: keeps `currentParsed`'s tab clauses and inserts them at rank 0 into `view.text`.
+ * - Unscoped search: keeps `currentParsed`'s tab clauses and inserts them at rank 0 into
+ *   `view.text`, so editing a search does not move the user off their current triage tab.
+ *
+ * Opening a saved search from the sidebar does not use this: it always replaces the whole
+ * text with `view.text`, so an unscoped search opens on the implicit Inbox tab.
  */
-export function openSavedSearchText(
+export function reapplySavedSearchText(
   currentParsed: ParsedQuery,
   view: SavedSearchView
 ): string {

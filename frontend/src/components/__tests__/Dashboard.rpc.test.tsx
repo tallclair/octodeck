@@ -1787,7 +1787,7 @@ describe('Dashboard (RPC-level)', () => {
       expect(screen.getByTestId('saved-search-count-Inbox Repo').textContent).toBe('3');
     });
 
-    it('clicking an unscoped search on Acked tab sends triage:acked and applies saved sort', async () => {
+    it('clicking an unscoped search on Acked tab switches to the implicit Inbox tab and applies saved sort', async () => {
       window.history.pushState(null, '', '/?q=triage:acked');
       const savedSearches = [
         {
@@ -1804,7 +1804,7 @@ describe('Dashboard (RPC-level)', () => {
         }),
         getItems: itemsByQuery({
           'triage:acked': [],
-          'triage:acked repo:kubernetes/kubernetes': [],
+          'repo:kubernetes/kubernetes': [],
         }),
       });
 
@@ -1812,8 +1812,10 @@ describe('Dashboard (RPC-level)', () => {
       fireEvent.click(row);
 
       await waitFor(() => {
-        expect(lastItemsQuery(daemon)).toBe('triage:acked repo:kubernetes/kubernetes');
+        expect(lastItemsQuery(daemon)).toBe('repo:kubernetes/kubernetes');
       });
+      expect(window.location.search).toContain('q=repo:kubernetes/kubernetes');
+      expect(window.location.search).not.toContain('triage');
       const lastReq = daemon.lastRequest<GetItemsRequest>('GetItems');
       expect(lastReq?.sort?.key).toBe(SortKey.CREATED);
       expect(lastReq?.sort?.order).toBe(SortOrder.ASC);
@@ -1902,7 +1904,8 @@ describe('Dashboard (RPC-level)', () => {
       await waitFor(() => expect(window.location.search).toBe(''));
       expect(screen.getByTestId('saved-search-row-K8s').getAttribute('aria-current')).toBeNull();
 
-      // 2. Test on New Activity tab
+      // 2. Test on New Activity tab: opening the unscoped search switches to the implicit
+      // Inbox tab; once the user re-selects New, clicking the active row keeps the tab.
       fireEvent.click(screen.getByLabelText(/Select triage status/i));
       fireEvent.click(
         within(screen.getByRole('dialog', { name: 'Triage status' })).getByRole('button', {
@@ -1912,6 +1915,16 @@ describe('Dashboard (RPC-level)', () => {
       await waitFor(() => expect(window.location.search).toBe('?q=new:any'));
 
       fireEvent.click(screen.getByTestId('saved-search-row-K8s'));
+      await waitFor(() => expect(window.location.search).toContain('q=repo:kubernetes/kubernetes'));
+      expect(window.location.search).not.toContain('new:any');
+      expect(screen.getByTestId('saved-search-row-K8s').getAttribute('aria-current')).toBe('true');
+
+      fireEvent.click(screen.getByLabelText(/Select triage status/i));
+      fireEvent.click(
+        within(screen.getByRole('dialog', { name: 'Triage status' })).getByRole('button', {
+          name: /New Activity/i,
+        })
+      );
       await waitFor(() => expect(window.location.search).toContain('q=new:any+repo:kubernetes/kubernetes'));
       expect(screen.getByTestId('saved-search-row-K8s').getAttribute('aria-current')).toBe('true');
 

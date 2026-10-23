@@ -375,25 +375,27 @@ Each badge has an `aria-label`: "N items" (with ", some with new activity" for a
 
 ## 7. Opening a saved search and the triage tabs (P16)
 
-Parent §4.6: "A saved search that omits `triage:` runs within whichever triage tab is active."
+Parent §4.6 originally had a saved search that omits `triage:` run within whichever triage tab is active; opening now uses the implicit `triage:inbox` scope instead, matching the meaning of the saved text on its own.
 
 **Tab clauses** of a text are every `triage` clause, plus the first `new:any` clause when there is no `triage` clause (the New-tab derivation, [Phase 1 §3.4](query_model_phase1_multiselect.md#34-activity-menu-and-the-new-tab-p4)). A saved search is **scoped** (`SavedSearchView.hasScope`) when its own text has any tab clause.
 
 Opening first parses the saved text. Text with issues is still opened (the input shows the error chips, [Phase 2 §7](query_model_phase2_query_input.md#7-error-reporting)). Opening is an `edit` (`pushState`) and computes from the latest state inside the updater ([Phase 2 §4.1](query_model_phase2_query_input.md#41-usedashboardfilters-api-rewritten)).
 
 - **Scoped search:** opening replaces the whole text with the saved text.
-- **Unscoped search:** opening keeps the active tab's clauses and replaces everything else with the saved text: `insertClause` the current text's tab clauses at rank 0 into the saved text.
+- **Unscoped search:** opening also replaces the whole text with the saved text, so it runs in the implicit `triage:inbox` scope, exactly as if the saved text were typed. The active tab is not carried over.
 - **Sort:** opening applies the saved sort/order in **both** cases.
 
 Examples (current text → after opening):
 
 | Saved text | On Inbox (`''`) | On New (`new:any`) | On Acked (`triage:acked`) |
 |---|---|---|---|
-| `repo:k/k` (unscoped) | `repo:k/k` | `new:any repo:k/k` | `triage:acked repo:k/k` |
+| `repo:k/k` (unscoped) | `repo:k/k` | `repo:k/k` | `repo:k/k` |
 | `new:any repo:k/k` (scoped, pinned on New) | `new:any repo:k/k` | `new:any repo:k/k` | `new:any repo:k/k` |
 | `triage:acked type:pr` (scoped) | `triage:acked type:pr` | `triage:acked type:pr` | `triage:acked type:pr` |
 
-This preserves the current pinned-repo behaviour for unscoped searches (clicking a pinned repo keeps the tab, because `toggleRepo` only changes repo/org) without duplicating `new:any` or producing an always-empty `triage:acked new:any`.
+Once an unscoped search is open, switching tabs edits only the tab clauses, and the row stays active (see the active-highlight rule below).
+
+- **Re-applying after create/update:** when the pin modal creates a search or updates the active (or origin) search, the dashboard re-applies it in place with `reapplySavedSearchText`, which for an unscoped search keeps the current tab clauses (`insertClause` at rank 0) so editing a search does not move the user off their tab.
 
 - **Active highlight:** requires **both** the current query and the saved search to have no parse issues (`currentParsed.issues.length === 0 && view.parsed.issues.length === 0`, since `canonicalQuery` strips error clauses). Then an unscoped row is active when `canonicalQuery(current text minus its tab clauses) === canonicalQuery(saved text)`; a scoped row when `canonicalQuery(current) === canonicalQuery(saved)`. Sort is ignored. The pin button uses the same rule (§2.1).
 - **Clicking the active row** resets the text to the current tab clauses only and sort/order to the defaults (the same reset as a sidebar Workflow row, [Phase 1 §3.4](query_model_phase1_multiselect.md#34-activity-menu-and-the-new-tab-p4)), mirroring how clicking the selected pinned repo cleared it.
@@ -460,8 +462,8 @@ export function useSavedSearches(): {
 - The list comes from the existing `GetConfig` query (`config.savedSearches`); mutations write the returned list into that query's cache and invalidate it. The hook makes **no count call of its own**.
 - `Dashboard` passes `countRequest.queries` to `useDashboardData({ ..., savedSearchQueries })`, which puts them in the single sidebar `GetFacets` request (§6.2) and returns `savedSearchCounts` (the response's `counts`). `attachCounts(searches, countRequest.rowIndex, savedSearchCounts)` (pure) produces the views the sidebar renders.
 - `create` refuses (throws) if `parseQuery(text)` has issues (the pin button is disabled in that case anyway).
-- Pure helpers in `frontend/src/logic/savedSearches.ts` (unit-tested): `toView`, `tabClauses(parsed)`, `badgeScope`, `buildCountRequest(views)` (the Exprs of valid searches plus the index map), `attachCounts`, `isActive(parsed, view)` (used by both the row highlight and the pin button), `openSavedSearchText(currentParsed, view)`, `suggestName(parsed)`, `moveItem(ids, from, to)`.
-- This phase adds `openSavedSearch(view)` to `useDashboardFilters` (commit 3.9): an `edit` that sets text via `openSavedSearchText(parseQuery(prev.text), view)` inside the state updater and applies the saved sort/order (§7).
+- Pure helpers in `frontend/src/logic/savedSearches.ts` (unit-tested): `toView`, `tabClauses(parsed)`, `badgeScope`, `buildCountRequest(views)` (the Exprs of valid searches plus the index map), `attachCounts`, `isActive(parsed, view)` (used by both the row highlight and the pin button), `reapplySavedSearchText(currentParsed, view)` (create/update re-apply only), `suggestName(parsed)`, `moveItem(ids, from, to)`.
+- This phase adds `openSavedSearch(view)` to `useDashboardFilters` (commit 3.9): an `edit` that sets text to the saved text inside the state updater and applies the saved sort/order (§7).
 
 ### 9.2 Components (`frontend/src/components/savedSearches/`)
 
@@ -535,7 +537,7 @@ Each commit must leave `./verify.sh` green (never `--force`). Commit subjects fo
 
 **3.7 `feat(frontend): add the saved searches hook`**
 - Files: `frontend/src/logic/savedSearches.ts`, `frontend/src/hooks/useSavedSearches.ts`, `frontend/src/hooks/useDashboardData.ts` (`savedSearchQueries` option added to the sidebar `GetFacets` request; returns `savedSearchCounts`), `Dashboard.test.tsx` `useQuery` stubs (`counts` in the sidebar `GetFacets` response, `savedSearches` in `GetConfig`).
-- Tests: `savedSearches.test.ts` (`toView` for valid and invalid text; `badgeScope` table covering every example in §6.3; `buildCountRequest` skips invalid searches; `attachCounts` maps `counts` back to rows; all-items badge picks inbox vs. acked style from `inbox_count`; `tabClauses` (triage clauses, plus the first `new:any` only when there is no triage clause); `isActive` for scoped and unscoped searches, and false when either the current query or the saved search has parse issues; `openSavedSearchText` for every cell of the §7 example table (no duplicated `new:any`; `new:any repo:k/k` opens wholesale on Acked); `suggestName` ignores tab clauses (`triage:acked repo:k/k` suggests `k/k`); `moveItem`); RPC-level tests (the sidebar still issues exactly one `GetFacets` per poll, now with `queries` = the parsed Exprs of valid searches in list order; invalid text yields an error view and no request entry; optimistic reorder and rollback on `FailedPrecondition`).
+- Tests: `savedSearches.test.ts` (`toView` for valid and invalid text; `badgeScope` table covering every example in §6.3; `buildCountRequest` skips invalid searches; `attachCounts` maps `counts` back to rows; all-items badge picks inbox vs. acked style from `inbox_count`; `tabClauses` (triage clauses, plus the first `new:any` only when there is no triage clause); `isActive` for scoped and unscoped searches, and false when either the current query or the saved search has parse issues; `reapplySavedSearchText` keeps tab clauses for unscoped searches (no duplicated `new:any`; `new:any repo:k/k` re-applies wholesale on Acked); `suggestName` ignores tab clauses (`triage:acked repo:k/k` suggests `k/k`); `moveItem`); RPC-level tests (the sidebar still issues exactly one `GetFacets` per poll, now with `queries` = the parsed Exprs of valid searches in list order; invalid text yields an error view and no request entry; optimistic reorder and rollback on `FailedPrecondition`).
 - AC: no UI yet.
 
 **3.8 `feat(dashboard): save the current query with a pin button`**

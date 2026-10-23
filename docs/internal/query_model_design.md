@@ -201,7 +201,7 @@ Before Phase 0 the Inbox / New / Acked / All tabs were a separate `triage` field
 - **The backend adds `triage:inbox`** when the `Expr` contains no `triage` predicate anywhere in the tree. An empty query means "inbox". The same query therefore means the same thing in the dashboard, the API and saved searches.
 - Including acked items requires an explicit `triage:acked`; `triage:all` expands to `triage:inbox,acked`.
 - The "New" tab (`TriageFilter` value `'activity'`) becomes inbox + `new:any`.
-- A saved search that omits `triage:` runs within whichever triage tab is active.
+- A saved search that omits `triage:` opens in the implicit `triage:inbox` scope, like any query without a triage term. Switching tabs afterwards keeps the saved search active.
 - **Callers that need every item must send `triage:all`**. Today that is only the DataBrowser. The extension background worker does not call `GetItems` at all (badge and notification decisions run in the daemon), and a guard test keeps it that way; any future caller there would also need `triage:all`.
 
 An intermediate decision applied the implicit scope only in the dashboard UI, with an empty API query meaning "everything". It was reverted so that a query has one meaning everywhere.
