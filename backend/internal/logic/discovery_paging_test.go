@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/cli/go-gh/v2/pkg/api"
 	graphql "github.com/cli/shurcooL-graphql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,11 +24,13 @@ import (
 
 // pagedSearchMock answers SearchCandidates with pages of one PR each, updated one minute apart
 // from firstUpdate, reporting a next page while page < pages. ItemsFetch hydrates every
-// requested ID as an open PR unless fetchErr is set.
+// requested ID as an open PR unless fetchErr is set or the ID is forbidden.
 type pagedSearchMock struct {
 	pages       int
 	firstUpdate time.Time
 	fetchErr    error
+	// forbidden are IDs that ItemsFetch reports with a per-node FORBIDDEN error.
+	forbidden map[string]bool
 
 	queries  []string
 	cursors  []any
@@ -60,11 +65,25 @@ func (m *pagedSearchMock) query(_ context.Context, name string, q any, vars map[
 		ids, _ := vars["ids"].([]string)
 		m.hydrated = append(m.hydrated, ids...)
 		nodes := make([]any, 0, len(ids))
+		var errs []api.GraphQLErrorItem
 		for i, id := range ids {
+			if m.forbidden[id] {
+				nodes = append(nodes, nil)
+				errs = append(errs, api.GraphQLErrorItem{
+					Type: "FORBIDDEN", Path: []any{"nodes", float64(i)}, Message: "SAML enforcement",
+				})
+				continue
+			}
 			nodes = append(nodes, mockPullRequestNode(id, "kubernetes/kubernetes", int32(1000+i)))
 		}
 		b, _ := json.Marshal(map[string]any{"nodes": nodes})
-		return json.Unmarshal(b, q)
+		if err := json.Unmarshal(b, q); err != nil {
+			return err
+		}
+		if len(errs) > 0 {
+			return &api.GraphQLError{Errors: errs}
+		}
+		return nil
 	}
 	return nil
 }
@@ -80,10 +99,12 @@ func newPagedDiscoveryEngine(t *testing.T, query string, m *pagedSearchMock) (*S
 
 func discoveryPayload(t *testing.T, db *database.DB) DiscoverySyncPayload {
 	t.Helper()
-	traces, err := db.GetSyncTraces(t.Context(), 1, traceTypeDiscovery)
+	traces, err := db.GetSyncTraces(t.Context(), 100, traceTypeDiscovery)
 	require.NoError(t, err)
-	require.Len(t, traces, 1)
-	raw, err := database.DecompressPayload(traces[0].RawPayloadCompressed)
+	require.NotEmpty(t, traces)
+	// Traces created within the same second tie on created_at; IDs end in a nanosecond stamp.
+	latest := slices.MaxFunc(traces, func(a, b *database.SyncTrace) int { return strings.Compare(a.ID, b.ID) })
+	raw, err := database.DecompressPayload(latest.RawPayloadCompressed)
 	require.NoError(t, err)
 	var p DiscoverySyncPayload
 	require.NoError(t, json.Unmarshal(raw, &p))

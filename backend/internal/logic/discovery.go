@@ -75,7 +75,13 @@ type DiscoverySyncPayload struct {
 	// TruncatedQueries are the queries whose search stopped at the page cap; they resume from
 	// the newest update reached on the next run.
 	TruncatedQueries []string `json:"truncated_queries,omitempty"`
-	Error            *string  `json:"error,omitempty"`
+	// HydrationFailures maps candidates that failed to hydrate with a per-item error (other than
+	// not found) to the error. Their queries' cursors stay below them so they are retried, up
+	// to discoveryMaxHydrationAttempts runs.
+	HydrationFailures map[string]string `json:"hydration_failures,omitempty"`
+	// AbandonedIDs are the failed candidates that ran out of attempts and were passed over.
+	AbandonedIDs []string `json:"abandoned_ids,omitempty"`
+	Error        *string  `json:"error,omitempty"`
 }
 
 // discoveryQueryProgress is the outcome of one tracked query's search, applied (cursor advanced
@@ -83,8 +89,13 @@ type DiscoverySyncPayload struct {
 type discoveryQueryProgress struct {
 	query      string
 	searchedAt time.Time
-	newCount   int
-	// cursor is the next discovery cursor for the query.
+	// candidates are everything the search matched.
+	candidates []github.SearchCandidate
+	// newIDs are the matched IDs that were not yet stored and first seen by this query.
+	newIDs []string
+	// prevCursor is the query's cursor before the search.
+	prevCursor time.Time
+	// cursor is the next discovery cursor for the query if every candidate is stored.
 	cursor time.Time
 }
 
@@ -183,8 +194,9 @@ func (s *SyncEngine) runDiscovery(ctx context.Context, triggerSource string) err
 		return runErr
 	}
 
+	var failed map[string]string
 	if uniqueNewCount > 0 {
-		itemsPersisted, runErr = s.hydrateAndPersistDiscoveredItems(
+		itemsPersisted, failed, runErr = s.hydrateAndPersistDiscoveredItems(
 			ctx,
 			candidates.toHydrate,
 			candidates.autoSubscribeIDs,
@@ -200,9 +212,14 @@ func (s *SyncEngine) runDiscovery(ctx context.Context, triggerSource string) err
 			"candidates_found", candidates.candidatesFound, "known_skipped", knownSkipped)
 	}
 
-	// Every candidate is stored (or was already known), so each successful query can move past
-	// what it found.
-	s.applyDiscoveryProgress(ctx, candidates.progress)
+	// Every other candidate is stored (or was already known), so each successful query can
+	// move past what it found, except candidates that failed to hydrate and may be retried.
+	retry, abandoned := s.trackDiscoveryHydrationFailures(ctx, failed)
+	if len(failed) > 0 {
+		payload.HydrationFailures = failed
+		payload.AbandonedIDs = abandoned
+	}
+	s.applyDiscoveryProgress(ctx, candidates.progress, failed, retry)
 
 	if len(candidates.queryErrList) > 0 {
 		runErr = errors.Join(candidates.queryErrList...)
@@ -212,11 +229,47 @@ func (s *SyncEngine) runDiscovery(ctx context.Context, triggerSource string) err
 }
 
 // applyDiscoveryProgress advances each searched query's discovery cursor and records its yield.
-func (s *SyncEngine) applyDiscoveryProgress(ctx context.Context, progress []discoveryQueryProgress) {
+// failed are the candidates that failed to hydrate this run (not counted in the yield); a query
+// whose candidates include one in retry keeps its cursor below that candidate.
+func (s *SyncEngine) applyDiscoveryProgress(
+	ctx context.Context,
+	progress []discoveryQueryProgress,
+	failed map[string]string,
+	retry map[string]struct{},
+) {
 	for _, p := range progress {
-		s.advanceDiscoveryCursor(ctx, p.query, p.cursor)
-		s.recordDiscoveryQueryYield(ctx, p.query, p.searchedAt, p.newCount)
+		s.advanceDiscoveryCursor(ctx, p.query, p.cursorWithRetries(retry))
+		newCount := 0
+		for _, id := range p.newIDs {
+			if _, bad := failed[id]; !bad {
+				newCount++
+			}
+		}
+		s.recordDiscoveryQueryYield(ctx, p.query, p.searchedAt, newCount)
 	}
+}
+
+// cursorWithRetries returns the query's next cursor, held at the update time of the earliest
+// candidate in retry (or at the previous cursor if that time is unknown), so the next run's
+// search (which starts the indexing buffer before the cursor) finds it again. The cursor never
+// moves backwards.
+func (p discoveryQueryProgress) cursorWithRetries(retry map[string]struct{}) time.Time {
+	next := p.cursor
+	for _, c := range p.candidates {
+		if _, ok := retry[c.ID]; !ok {
+			continue
+		}
+		if c.UpdatedAt.IsZero() {
+			return p.prevCursor
+		}
+		if c.UpdatedAt.Before(next) {
+			next = c.UpdatedAt
+		}
+	}
+	if next.Before(p.prevCursor) {
+		return p.prevCursor
+	}
+	return next
 }
 
 // nextDiscoveryCursor returns the cursor a query moves to after a search that started at
@@ -350,7 +403,9 @@ func (s *SyncEngine) collectDiscoveryCandidates(
 		res.progress = append(res.progress, discoveryQueryProgress{
 			query:      q,
 			searchedAt: searchStartTime,
-			newCount:   len(newIDs),
+			candidates: found.Candidates,
+			newIDs:     newIDs,
+			prevCursor: cursor,
 			cursor:     nextDiscoveryCursor(ctx, q, cursor, searchStartTime, found),
 		})
 		res.toHydrate = append(res.toHydrate, newIDs...)
@@ -380,20 +435,23 @@ func (s *SyncEngine) recordDiscoveryQueryYield(ctx context.Context, q string, t 
 	}
 }
 
+// hydrateAndPersistDiscoveredItems hydrates and stores the new candidates, returning how many
+// were stored and the candidates that failed to hydrate with a per-item error (ID to error).
 func (s *SyncEngine) hydrateAndPersistDiscoveredItems(
 	ctx context.Context,
 	candidateIDs []string,
 	autoSubscribeIDs map[string]struct{},
 	payload *DiscoverySyncPayload,
-) (int, error) {
+) (int, map[string]string, error) {
 	slog.InfoContext(ctx, "Hydrating newly discovered items", "new_count", len(candidateIDs))
-	foundItems, paging, missingIDs, fetchErr := s.gh.FetchItemsByIDs(ctx, candidateIDs)
+	fetched, fetchErr := s.gh.HydrateItemsByIDs(ctx, candidateIDs)
 	if fetchErr != nil {
-		return 0, fmt.Errorf("failed to hydrate candidate items: %w", fetchErr)
+		return 0, nil, fmt.Errorf("failed to hydrate candidate items: %w", fetchErr)
 	}
+	foundItems := fetched.Items
 
 	payload.HydratedCount = len(foundItems)
-	payload.MissingIDs = missingIDs
+	payload.MissingIDs = fetched.Missing
 	for _, item := range foundItems {
 		if item != nil {
 			payload.HydratedIDs = append(payload.HydratedIDs, item.GetId())
@@ -401,7 +459,7 @@ func (s *SyncEngine) hydrateAndPersistDiscoveredItems(
 	}
 
 	if len(foundItems) == 0 {
-		return 0, nil
+		return 0, fetched.Failed, nil
 	}
 
 	itemsToProcess := foundItems
@@ -411,11 +469,11 @@ func (s *SyncEngine) hydrateAndPersistDiscoveredItems(
 
 	s.autoSubscribeDiscoveredItems(ctx, itemsToProcess, autoSubscribeIDs, payload)
 
-	if err := s.processItemsDirect(ctx, itemsToProcess, paging, false); err != nil {
-		return 0, fmt.Errorf("failed to process discovered items: %w", err)
+	if err := s.processItemsDirect(ctx, itemsToProcess, fetched.Paging, false); err != nil {
+		return 0, nil, fmt.Errorf("failed to process discovered items: %w", err)
 	}
 
-	return len(itemsToProcess), nil
+	return len(itemsToProcess), fetched.Failed, nil
 }
 
 func (s *SyncEngine) autoSubscribeDiscoveredItems(

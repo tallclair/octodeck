@@ -1647,35 +1647,56 @@ func (c *Client) FetchItemByRepoAndNumber(
 	return nil, HydrationPaging{}, fmt.Errorf("item %s#%d not found on GitHub", repo, number)
 }
 
+// ItemsFetchResult is the outcome of hydrating items by node ID.
+type ItemsFetchResult struct {
+	// Items are the hydrated items.
+	Items []*octodeckv1.Item
+	// Paging holds the hydration paging state of the hydrated items by ID.
+	Paging HydrationPagingByID
+	// Missing are the IDs GitHub reported as gone: a null node without an error of its own, or
+	// a NOT_FOUND error for the node itself.
+	Missing []string
+	// Failed maps the IDs that could not be hydrated this time (an error other than NOT_FOUND
+	// for the node or one of its fields, such as FORBIDDEN or SAML enforcement) to the error.
+	// They are neither hydrated nor gone; callers should leave them as they are.
+	Failed map[string]string
+}
+
 // FetchItemsByIDs fetches details for a specific list of Node IDs.
 // It returns the found items, their hydration paging state, and a list of IDs that were not
-// found (deleted/404/error).
+// found (deleted/404). IDs that failed with another per-ID error are logged and left out of
+// both lists; use HydrateItemsByIDs to learn which they were.
 func (c *Client) FetchItemsByIDs(
 	ctx context.Context,
 	ids []string,
 ) ([]*octodeckv1.Item, HydrationPagingByID, []string, error) {
+	res, err := c.HydrateItemsByIDs(ctx, ids)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return res.Items, res.Paging, res.Missing, nil
+}
+
+// HydrateItemsByIDs fetches the items with the given node IDs in batches. A GraphQL response
+// with errors alongside data keeps every node that decoded cleanly and classifies the others
+// per ID (see ItemsFetchResult); a batch fails only when its errors can't be attributed to
+// individual nodes and no node decoded.
+func (c *Client) HydrateItemsByIDs(ctx context.Context, ids []string) (ItemsFetchResult, error) {
 	if len(ids) == 0 {
-		return nil, nil, nil, nil
+		return ItemsFetchResult{}, nil
 	}
 
-	var foundItems []*octodeckv1.Item
-	var missingIDs []string
-	paging := make(HydrationPagingByID)
+	res := ItemsFetchResult{Paging: make(HydrationPagingByID), Failed: make(map[string]string)}
 
 	// Process in batches of 50 to avoid query complexity limits
 	for i := 0; i < len(ids); i += nodeBatchSize {
 		end := min(i+nodeBatchSize, len(ids))
-		batchIDs := ids[i:end]
-
-		batchFound, batchMissing, err := c.fetchNodesBatch(ctx, batchIDs, paging)
-		if err != nil {
-			return nil, nil, nil, err
+		if err := c.fetchNodesBatch(ctx, ids[i:end], &res); err != nil {
+			return ItemsFetchResult{}, err
 		}
-		foundItems = append(foundItems, batchFound...)
-		missingIDs = append(missingIDs, batchMissing...)
 	}
 
-	return foundItems, paging, missingIDs, nil
+	return res, nil
 }
 
 // FetchItems fetches details for a specific list of items.
@@ -1701,13 +1722,123 @@ func (c *Client) FetchItems(
 	return c.FetchItemsByIDs(ctx, ids)
 }
 
-// fetchNodesBatch hydrates one batch of node IDs, recording each hydrated PR's paging state in
-// paging.
-func (c *Client) fetchNodesBatch(
-	ctx context.Context,
-	ids []string,
-	paging HydrationPagingByID,
-) ([]*octodeckv1.Item, []string, error) {
+// graphQLErrorItem is one entry of a GraphQL response's errors array.
+type graphQLErrorItem struct {
+	Message string
+	Type    string
+	Path    []any
+}
+
+// graphQLErrorItems returns the entries of a GraphQL errors response, and false if err is not
+// one (e.g. a transport or HTTP status error).
+func graphQLErrorItems(err error) ([]graphQLErrorItem, bool) {
+	var ghErr *api.GraphQLError
+	if errors.As(err, &ghErr) {
+		items := make([]graphQLErrorItem, 0, len(ghErr.Errors))
+		for _, e := range ghErr.Errors {
+			items = append(items, graphQLErrorItem{Message: e.Message, Type: e.Type, Path: e.Path})
+		}
+		return items, len(items) > 0
+	}
+	var rawErrs graphql.Errors
+	if errors.As(err, &rawErrs) {
+		items := make([]graphQLErrorItem, 0, len(rawErrs))
+		for _, e := range rawErrs {
+			items = append(items, graphQLErrorItem{Message: e.Message, Type: e.Type, Path: e.Path})
+		}
+		return items, len(items) > 0
+	}
+	return nil, false
+}
+
+// nodesField is the field name of the nodes(ids:) list, the first element of the error path
+// of anything that concerns a requested node.
+const nodesField = "nodes"
+
+// nodeErrorPathLen is the length of an error path ["nodes", i] that concerns a node itself.
+const nodeErrorPathLen = 2
+
+// nodeErrorIndex returns the index into nodes(ids:) that an error path points into, and whether
+// the error is about the node itself (the path is exactly ["nodes", i]) rather than one of its
+// fields. ok is false for paths outside the nodes list.
+func nodeErrorIndex(path []any, count int) (index int, whole, ok bool) {
+	if len(path) < nodeErrorPathLen || path[0] != nodesField {
+		return 0, false, false
+	}
+	var i int
+	switch v := path[1].(type) {
+	case float64:
+		i = int(v)
+		if float64(i) != v {
+			return 0, false, false
+		}
+	case int:
+		i = v
+	case json.Number:
+		n, err := v.Int64()
+		if err != nil {
+			return 0, false, false
+		}
+		i = int(n)
+	default:
+		return 0, false, false
+	}
+	if i < 0 || i >= count {
+		return 0, false, false
+	}
+	return i, len(path) == nodeErrorPathLen, true
+}
+
+// nodeBatchErrors are the errors of a nodes(ids:) response, grouped by the node they concern.
+type nodeBatchErrors struct {
+	// byNode holds the errors attributed to each node index.
+	byNode map[int][]graphQLErrorItem
+	// notFound marks the nodes whose only errors are NOT_FOUND for the node itself.
+	notFound map[int]bool
+	// unattributed are the errors that don't point into a requested node.
+	unattributed []graphQLErrorItem
+}
+
+func classifyNodeBatchErrors(items []graphQLErrorItem, count int) nodeBatchErrors {
+	errs := nodeBatchErrors{byNode: make(map[int][]graphQLErrorItem), notFound: make(map[int]bool)}
+	wholeNotFound := make(map[int]bool)
+	other := make(map[int]bool)
+	for _, e := range items {
+		i, whole, ok := nodeErrorIndex(e.Path, count)
+		if !ok {
+			errs.unattributed = append(errs.unattributed, e)
+			continue
+		}
+		errs.byNode[i] = append(errs.byNode[i], e)
+		if whole && strings.EqualFold(e.Type, "NOT_FOUND") {
+			wholeNotFound[i] = true
+		} else {
+			other[i] = true
+		}
+	}
+	for i := range wholeNotFound {
+		if !other[i] {
+			errs.notFound[i] = true
+		}
+	}
+	return errs
+}
+
+func joinErrorMessages(items []graphQLErrorItem) string {
+	msgs := make([]string, 0, len(items))
+	for _, e := range items {
+		if e.Type != "" {
+			msgs = append(msgs, e.Type+": "+e.Message)
+		} else {
+			msgs = append(msgs, e.Message)
+		}
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// fetchNodesBatch hydrates one batch of node IDs into res, recording each hydrated PR's paging
+// state in res.Paging.
+func (c *Client) fetchNodesBatch(ctx context.Context, ids []string, res *ItemsFetchResult) error {
 	var query struct {
 		Nodes []*gqlSearchResultNode `graphql:"nodes(ids: $ids)"`
 	}
@@ -1716,12 +1847,24 @@ func (c *Client) fetchNodesBatch(
 		"ids": ids,
 	}
 
+	var errs nodeBatchErrors
 	if err := c.getGraphQLClient().QueryWithContext(ctx, "ItemsFetch", &query, vars); err != nil {
-		return nil, nil, fmt.Errorf("graphql request failed: %w", err)
+		items, ok := graphQLErrorItems(err)
+		if !ok {
+			return fmt.Errorf("graphql request failed: %w", err)
+		}
+		// GitHub reports per-node problems (deleted, forbidden, SAML-protected) as errors
+		// alongside the data of the other nodes, which the client has already decoded.
+		errs = classifyNodeBatchErrors(items, len(ids))
+		if len(errs.unattributed) > 0 {
+			if !slices.ContainsFunc(query.Nodes, func(n *gqlSearchResultNode) bool { return n != nil }) {
+				return fmt.Errorf("graphql request failed: %w", err)
+			}
+			slog.WarnContext(ctx, "GraphQL item fetch returned errors not tied to an item; keeping the decoded items",
+				"errors", joinErrorMessages(errs.unattributed))
+		}
 	}
 
-	var foundItems []*octodeckv1.Item
-	var missingIDs []string
 	currentUser := c.CurrentLogin()
 
 	if len(query.Nodes) != len(ids) {
@@ -1737,22 +1880,37 @@ func (c *Client) fetchNodesBatch(
 		if i < len(query.Nodes) {
 			node = query.Nodes[i]
 		}
-		if node == nil {
-			missingIDs = append(missingIDs, requestedID)
+		switch {
+		case errs.notFound[i] && node == nil:
+			res.Missing = append(res.Missing, requestedID)
+			continue
+		case len(errs.byNode[i]) > 0:
+			// The node or one of its fields failed; its data is incomplete, so don't store it.
+			msg := joinErrorMessages(errs.byNode[i])
+			slog.WarnContext(ctx, "Skipping item that failed to hydrate", "id", requestedID, "error", msg)
+			res.Failed[requestedID] = msg
+			continue
+		case node == nil && len(errs.unattributed) > 0:
+			// The node may be null because of the request-level error rather than because it
+			// is gone, so don't report it missing.
+			res.Failed[requestedID] = joinErrorMessages(errs.unattributed)
+			continue
+		case node == nil:
+			res.Missing = append(res.Missing, requestedID)
 			continue
 		}
 
 		item, err := node.toProto(currentUser)
 		if err != nil {
 			slog.WarnContext(ctx, "Failed to parse item during GC", "id", requestedID, "error", err)
-			missingIDs = append(missingIDs, requestedID)
+			res.Missing = append(res.Missing, requestedID)
 			continue
 		}
-		foundItems = append(foundItems, item)
-		node.recordHydrationPaging(paging, item.GetId())
+		res.Items = append(res.Items, item)
+		node.recordHydrationPaging(res.Paging, item.GetId())
 	}
 
-	return foundItems, missingIDs, nil
+	return nil
 }
 
 type gqlFetchReviewCommentsNode struct {
