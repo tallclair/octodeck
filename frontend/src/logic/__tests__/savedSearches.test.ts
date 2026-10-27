@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  addsTabScope,
   attachCounts,
   badgeScope,
   buildCountRequest,
@@ -19,6 +20,21 @@ import { parseQuery } from '../query/syntax';
 import { SortKey, SortOrder as ProtoSortOrder } from '../../api/octodeck/v1/query_pb';
 
 describe('savedSearches logic', () => {
+
+  describe('addsTabScope', () => {
+    const unscoped = toView({ id: 's1', name: 'K8s', query: 'repo:k/k' });
+    const scoped = toView({ id: 's2', name: 'Acked', query: 'triage:acked repo:k/k' });
+
+    it('is true when the current text adds a tab clause to an unscoped search', () => {
+      expect(addsTabScope(parseQuery('triage:all repo:k/k'), unscoped)).toBe(true);
+      expect(addsTabScope(parseQuery('new:any repo:k/k'), unscoped)).toBe(true);
+    });
+
+    it('is false without a tab clause or for a scoped search', () => {
+      expect(addsTabScope(parseQuery('repo:k/k'), unscoped)).toBe(false);
+      expect(addsTabScope(parseQuery('triage:acked repo:k/k'), scoped)).toBe(false);
+    });
+  });
   describe('toView', () => {
     it('creates a view for valid query text', () => {
       const input: SavedSearchInput = {

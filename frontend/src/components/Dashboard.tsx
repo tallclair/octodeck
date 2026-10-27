@@ -25,6 +25,7 @@ import { useSavedSearches } from '../hooks/useSavedSearches';
 import { toSort } from '../logic/query/expr';
 import { toSidebarRepoSort } from '../logic/query/facets';
 import {
+  addsTabScope,
   attachCounts,
   findActiveSearch,
   isActive,
@@ -169,13 +170,21 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
     originSearch !== null &&
     !hasDifferentActiveMatch &&
     (!isActive(parsed, originSearch) ||
+      addsTabScope(parsed, originSearch) ||
       state.sort !== originSearch.sort ||
       state.order !== originSearch.order);
-  const effectiveActiveSearch = isOriginModified
+  const matchedSearch = isOriginModified
     ? null
     : hasDifferentActiveMatch
       ? activeSavedSearch
       : (originSearch ?? activeSavedSearch ?? null);
+  // An unscoped match with an added tab clause still highlights its sidebar row, but the pin
+  // treats the query as a modification of that search so saving keeps the tab clause.
+  const tabScopedSearch =
+    matchedSearch && addsTabScope(parsed, matchedSearch) ? matchedSearch : null;
+  const pinOriginSearch = isOriginModified ? originSearch : (tabScopedSearch ?? originSearch);
+  const isPinModified = isOriginModified || tabScopedSearch !== null;
+  const effectiveActiveSearch = isPinModified ? null : matchedSearch;
 
   // Items, dropdown options and sidebar counts, all filtered and counted by the daemon.
   const data = useDashboardData({
@@ -726,13 +735,13 @@ export function Dashboard({ onOpenDebug }: DashboardProps) {
                         facets={data.facets}
                         inputRef={queryInputRef}
                         activeSearch={effectiveActiveSearch}
-                        originSearch={originSearch}
-                        isOriginModified={isOriginModified}
+                        originSearch={pinOriginSearch}
+                        isOriginModified={isPinModified}
                         onPinClick={() => {
-                          if (originSearch && isOriginModified) {
+                          if (pinOriginSearch && isPinModified) {
                             setSaveModalSession({
                               mode: 'modified',
-                              savedSearch: originSearch,
+                              savedSearch: pinOriginSearch,
                             });
                           } else if (effectiveActiveSearch) {
                             setSaveModalSession({

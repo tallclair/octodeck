@@ -675,7 +675,7 @@ describe('SaveSearchModal component', () => {
     });
   });
 
-  it('strips tab clauses in modified mode when updating an unscoped origin search on Acked tab', () => {
+  it('keeps tab clauses in modified mode when updating an unscoped origin search on Acked tab', () => {
     const stored = toView({
       id: 's1',
       name: 'K8s Bugs',
@@ -693,8 +693,9 @@ describe('SaveSearchModal component', () => {
       onClose: vi.fn(),
     });
 
-    // Initial state: tab clause triage:acked is stripped so search stays unscoped when updated
+    // Unscoped searches open on the implicit Inbox tab, so triage:acked was added on purpose and
+    // is kept (updating makes the search scoped).
     const queryInput = screen.getByTestId('saved-search-query-input') as HTMLTextAreaElement;
-    expect(queryInput.value).toBe('repo:kubernetes/kubernetes label:kind/bug is:issue');
+    expect(queryInput.value).toBe('triage:acked repo:kubernetes/kubernetes label:kind/bug is:issue');
   });
 });

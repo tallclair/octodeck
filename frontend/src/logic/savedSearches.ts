@@ -376,6 +376,16 @@ export function isActive(currentParsed: ParsedQuery, view: SavedSearchView): boo
   return canonicalQuery(stripTabClauses(currentParsed)) === view.canonical;
 }
 
+/**
+ * Whether `currentParsed` adds a tab clause to the unscoped saved search `view` (§7). An unscoped
+ * search always opens on the implicit Inbox tab, so any tab clause in the current text was added
+ * by the user afterwards; pinning then treats the query as a modification of `view` and keeps
+ * the tab clause instead of discarding it.
+ */
+export function addsTabScope(currentParsed: ParsedQuery, view: SavedSearchView): boolean {
+  return !view.hasScope && tabClauses(currentParsed).length > 0;
+}
+
 /** Returns the first active saved search matching `currentParsed`, or `undefined`. */
 export function findActiveSearch(
   currentParsed: ParsedQuery,

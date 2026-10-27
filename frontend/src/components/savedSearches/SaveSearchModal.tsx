@@ -21,7 +21,6 @@ import { mapServerErrorToRequest } from '../../logic/query/predicates';
 import { parseQuery, type ParsedQuery } from '../../logic/query/syntax';
 import {
   MAX_SAVED_SEARCH_QUERY_LENGTH,
-  stripTabClauses,
   suggestName,
   validateSavedSearchName,
   type SavedSearchView,
@@ -104,14 +103,8 @@ function resolveInitialDraftQuery(snapshot: ModalSessionSnapshot): string {
   if (snapshot.mode === 'edit' && snapshot.savedSearch) {
     return snapshot.savedSearch.text;
   }
-  if (
-    snapshot.mode === 'modified' &&
-    snapshot.savedSearch &&
-    !snapshot.savedSearch.hasScope
-  ) {
-    const stripped = stripTabClauses(snapshot.parsed);
-    return stripped.trim() !== '' ? stripped : snapshot.queryText;
-  }
+  // Create and modified modes start from the full current text, tab clauses included: unscoped
+  // searches always open on the implicit Inbox tab, so a tab clause here was added on purpose.
   return snapshot.queryText;
 }
 

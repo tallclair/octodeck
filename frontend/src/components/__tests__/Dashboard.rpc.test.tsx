@@ -1476,12 +1476,11 @@ describe('Dashboard (RPC-level)', () => {
       expect(req?.savedSearch?.sort?.order).toBe(SortOrder.ASC);
     });
 
-    it('shows the pin filled when a saved search is active (including unscoped on Acked tab) and opens edit mode', async () => {
+    it('shows the pin filled when a saved search is active and opens edit mode', async () => {
       const savedSearches = [
         { id: 's1', name: 'K8s', query: 'repo:kubernetes/kubernetes' },
       ];
-      // Unscoped search opened on Acked tab: ?q=triage:acked repo:kubernetes/kubernetes
-      window.history.pushState(null, '', '/?q=triage:acked repo:kubernetes/kubernetes');
+      window.history.pushState(null, '', '/?q=repo:kubernetes/kubernetes');
       render({
         getConfig: () => ({
           config: {
@@ -1500,6 +1499,50 @@ describe('Dashboard (RPC-level)', () => {
       expect(screen.getByRole('dialog')).toBeDefined();
       expect(screen.getByRole('heading', { name: 'Edit pinned search' })).toBeDefined();
       expect((screen.getByLabelText(/^Name$/i) as HTMLInputElement).value).toBe('K8s');
+    });
+
+    it('treats a tab clause added to an active unscoped search as a modification and keeps it when pinning', async () => {
+      const savedSearches = [
+        { id: 's1', name: 'K8s', query: 'repo:kubernetes/kubernetes' },
+      ];
+      window.history.pushState(null, '', '/?q=triage:all repo:kubernetes/kubernetes');
+      let updateReq: UpdateSavedSearchRequest | undefined;
+      const { daemon } = render({
+        getConfig: () => ({
+          config: {
+            pollingIntervalMin: 15,
+            savedSearches,
+          },
+          currentUserLogin: 'testuser',
+        }),
+        updateSavedSearch: (req) => {
+          updateReq = req;
+          return create(UpdateSavedSearchResponseSchema, {
+            savedSearches: [
+              {
+                id: 's1',
+                name: req.savedSearch?.name ?? 'K8s',
+                query: req.savedSearch?.query ?? 'repo:kubernetes/kubernetes',
+              },
+            ],
+          });
+        },
+      });
+
+      // The sidebar row still highlights, but the pin offers to update the search.
+      const pinButton = await screen.findByTestId('pin-search-button');
+      expect(pinButton.getAttribute('data-active')).toBe('modified');
+      expect(pinButton.getAttribute('aria-label')).toBe('Update pinned search K8s');
+
+      fireEvent.click(pinButton);
+      const queryInput = screen.getByTestId('saved-search-query-input') as HTMLTextAreaElement;
+      expect(queryInput.value).toBe('triage:all repo:kubernetes/kubernetes');
+
+      fireEvent.click(screen.getByRole('button', { name: /^Update$/i }));
+      await waitFor(() => {
+        expect(daemon.requestsFor('UpdateSavedSearch')).toHaveLength(1);
+      });
+      expect(updateReq?.savedSearch?.query).toBe('triage:all repo:kubernetes/kubernetes');
     });
 
     it('saves changes in edit mode using update mask name only', async () => {
