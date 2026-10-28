@@ -320,6 +320,18 @@ func TestOctoDeckHandler_SyncAndConfig(t *testing.T) {
 		assert.Equal(t, octodeckv1.SyncResponse_STAGE_COMPLETE, responses[1].GetStage())
 	})
 
+	t.Run("RefreshRecentItems", func(t *testing.T) {
+		for _, started := range []bool{true, false} {
+			mockSync.refreshCalls, mockSync.refreshStarted = 0, started
+			req := connect.NewRequest(&octodeckv1.RefreshRecentItemsRequest{})
+			addHeaders(req)
+			resp, err := client.RefreshRecentItems(t.Context(), req)
+			require.NoError(t, err)
+			assert.Equal(t, 1, mockSync.refreshCalls)
+			assert.Equal(t, started, resp.Msg.GetStarted())
+		}
+	})
+
 	t.Run("Config", func(t *testing.T) {
 		// 1. Get Config
 		reqGet := connect.NewRequest(&octodeckv1.GetConfigRequest{})

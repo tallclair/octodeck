@@ -295,6 +295,20 @@ func (h *octoDeckHandler) GetItem(ctx context.Context,
 	}.Build()), nil
 }
 
+// RefreshRecentItems starts a freshness sweep in the background and returns immediately; the
+// dashboard's polling picks up the re-fetched items.
+func (h *octoDeckHandler) RefreshRecentItems(ctx context.Context,
+	_ *connect.Request[octodeckv1.RefreshRecentItemsRequest],
+) (*connect.Response[octodeckv1.RefreshRecentItemsResponse], error) {
+	if h.syncEngine == nil {
+		return nil, connect.NewError(connect.CodeUnavailable, errors.New("sync engine is not running"))
+	}
+	started := h.syncEngine.RefreshRecentItems(ctx)
+	return connect.NewResponse(octodeckv1.RefreshRecentItemsResponse_builder{
+		Started: config.Ptr(started),
+	}.Build()), nil
+}
+
 func (h *octoDeckHandler) Sync(ctx context.Context,
 	_ *connect.Request[octodeckv1.SyncRequest],
 	stream *connect.ServerStream[octodeckv1.SyncResponse]) error {

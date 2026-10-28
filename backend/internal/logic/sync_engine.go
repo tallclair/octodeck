@@ -104,10 +104,20 @@ type SyncEngine struct {
 	// invalidations. Nil-safe.
 	broadcaster *notify.Broadcaster
 	// reconcileMu serializes reconciliation (read stored copy, merge, save, publish) across every
-	// sync path, including discovery, which runs outside mu. Otherwise two paths reconciling the
-	// same item at once would both see it as new and both notify. Lock order: mu or discoveryMu,
-	// then reconcileMu; nothing acquires mu or discoveryMu while holding it.
+	// sync path, including discovery and the freshness sweep, which run outside mu. Otherwise two
+	// paths reconciling the same item at once would both see it as new and both notify. Lock
+	// order: mu, discoveryMu or freshnessMu, then reconcileMu; nothing acquires mu, discoveryMu or
+	// freshnessMu while holding it.
 	reconcileMu sync.Mutex
+	// freshnessMu serializes freshness sweeps (see freshness.go).
+	freshnessMu sync.Mutex
+	// freshnessStateMu guards lastFreshnessSweepAt and tickerFreshness. It is held only briefly
+	// and nothing is acquired while holding it; it may be acquired while holding freshnessMu.
+	freshnessStateMu sync.Mutex
+	// lastFreshnessSweepAt is when the latest freshness sweep started (the on-demand rate limit).
+	lastFreshnessSweepAt time.Time
+	// tickerFreshness drives the background freshness sweep.
+	tickerFreshness *time.Ticker
 	// clock returns the current time; nil means time.Now. Tests override it.
 	clock func() time.Time
 }
@@ -332,6 +342,9 @@ func (s *SyncEngine) Start(ctx context.Context) {
 		s.tickerInc = time.NewTicker(s.cfg.GetSyncInterval())
 		s.tickerDiscovery = time.NewTicker(s.cfg.GetDiscoveryInterval())
 		s.mu.Unlock()
+		s.freshnessStateMu.Lock()
+		s.tickerFreshness = time.NewTicker(FreshnessSweepInterval)
+		s.freshnessStateMu.Unlock()
 		tickerGC := time.NewTicker(config.DefaultGCInterval)
 
 		go s.runEventLoop(ctx, tickerGC)
@@ -357,6 +370,12 @@ func (s *SyncEngine) runEventLoop(ctx context.Context, tickerGC *time.Ticker) {
 			discCtx, cancel := context.WithTimeout(ctx, config.SyncHeartbeatTimeout)
 			if err := s.RunDiscovery(discCtx); err != nil {
 				slog.ErrorContext(discCtx, "Discovery run failed", "error", err)
+			}
+			cancel()
+		case <-s.tickerFreshness.C:
+			sweepCtx, cancel := context.WithTimeout(ctx, config.SyncHeartbeatTimeout)
+			if err := s.RunFreshnessSweep(sweepCtx); err != nil {
+				slog.ErrorContext(sweepCtx, "Freshness sweep failed", "error", err)
 			}
 			cancel()
 		case <-tickerGC.C:
@@ -388,6 +407,11 @@ func (s *SyncEngine) stopEventLoopTickers(tickerGC *time.Ticker) {
 		s.tickerDiscovery.Stop()
 	}
 	s.mu.Unlock()
+	s.freshnessStateMu.Lock()
+	if s.tickerFreshness != nil {
+		s.tickerFreshness.Stop()
+	}
+	s.freshnessStateMu.Unlock()
 	tickerGC.Stop()
 }
 

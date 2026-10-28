@@ -47,6 +47,7 @@ type GitHubClient interface {
 // SyncEngine defines the interface for synchronization and item refetching.
 type SyncEngine interface {
 	ForceSync(ctx context.Context) error
+	RefreshRecentItems(ctx context.Context) bool
 	RefetchItem(ctx context.Context, id string) (*octodeckv1.Item, error)
 	GetStatus() *octodeckv1.SyncStatus
 	ResetTicker()

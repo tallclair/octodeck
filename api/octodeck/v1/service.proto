@@ -18,6 +18,10 @@ service OctoDeckService {
 
   // Synchronization (Streaming)
   rpc Sync(SyncRequest) returns (stream SyncResponse);
+  // Starts a freshness sweep in the background: re-fetches stored items that GitHub reports
+  // as updated since the last sweep (e.g. closed or marked ready for review outside the
+  // browser). A no-op within a minute of the previous sweep or while one is running.
+  rpc RefreshRecentItems(RefreshRecentItemsRequest) returns (RefreshRecentItemsResponse);
 
   // Actions
   rpc ViewItem(ViewItemRequest) returns (ViewItemResponse);
@@ -142,6 +146,13 @@ message SetNotesRequest {
 
 message SetNotesResponse {
   Item item = 1;
+}
+
+message RefreshRecentItemsRequest {}
+
+message RefreshRecentItemsResponse {
+  // Whether a sweep was started; false when rate-limited or one is already running.
+  bool started = 1;
 }
 
 message RefetchItemRequest {

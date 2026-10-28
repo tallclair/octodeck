@@ -24,6 +24,15 @@ export const getItem = OctoDeckService.method.getItem;
 export const getFacets = OctoDeckService.method.getFacets;
 
 /**
+ * Starts a freshness sweep in the background: re-fetches stored items that GitHub reports
+ * as updated since the last sweep (e.g. closed or marked ready for review outside the
+ * browser). A no-op within a minute of the previous sweep or while one is running.
+ *
+ * @generated from rpc octodeck.v1.OctoDeckService.RefreshRecentItems
+ */
+export const refreshRecentItems = OctoDeckService.method.refreshRecentItems;
+
+/**
  * Actions
  *
  * @generated from rpc octodeck.v1.OctoDeckService.ViewItem

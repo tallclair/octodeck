@@ -249,6 +249,27 @@ func (d *DB) GetAllItemIDs(ctx context.Context) (map[string]struct{}, error) {
 	return idSet, nil
 }
 
+// GetItemUpdatedTimes returns the stored GitHub update time (items.updated_at) of every item,
+// keyed by item ID. Items whose stored time can't be parsed map to the zero time.
+func (d *DB) GetItemUpdatedTimes(ctx context.Context) (map[string]time.Time, error) {
+	var rows []struct {
+		ID        string `db:"id"`
+		UpdatedAt string `db:"updated_at"`
+	}
+	if err := d.SelectContext(ctx, &rows, "SELECT id, updated_at FROM items"); err != nil {
+		return nil, fmt.Errorf("failed to query item update times: %w", err)
+	}
+	times := make(map[string]time.Time, len(rows))
+	for _, r := range rows {
+		t, err := time.Parse(time.RFC3339, r.UpdatedAt)
+		if err != nil {
+			t = time.Time{}
+		}
+		times[r.ID] = t
+	}
+	return times, nil
+}
+
 // ItemFilter narrows GetItems with a SQL condition over the items table columns
 // (repo, type, state, author_login). A nil filter returns every item.
 type ItemFilter struct {

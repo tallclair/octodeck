@@ -534,6 +534,29 @@ func TestGetDatabaseStats(t *testing.T) {
 	assert.Equal(t, int64(2), stats.GetTotalRepos())
 }
 
+func TestGetItemUpdatedTimes(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := t.Context()
+
+	times, err := db.GetItemUpdatedTimes(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, times)
+
+	updated := time.Date(2026, 10, 1, 12, 30, 45, 0, time.UTC)
+	require.NoError(t, db.SaveItems(ctx, []*octodeckv1.Item{
+		octodeckv1.Item_builder{
+			Id: config.Ptr("a"), Repo: config.Ptr("o/r"), UpdatedAt: timestamppb.New(updated),
+		}.Build(),
+		octodeckv1.Item_builder{Id: config.Ptr("b"), Repo: config.Ptr("o/r")}.Build(),
+	}))
+
+	times, err = db.GetItemUpdatedTimes(ctx)
+	require.NoError(t, err)
+	require.Len(t, times, 2)
+	assert.True(t, updated.Equal(times["a"]), "got %v", times["a"])
+	assert.True(t, times["b"].IsZero(), "an item without an update time maps to the zero time")
+}
+
 func TestGetAllItemIDs(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := t.Context()

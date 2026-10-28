@@ -95,8 +95,15 @@ func (m *mockGitHubClient) CountSearchIssues(ctx context.Context, searchQuery st
 type mockSyncEngine struct {
 	forceSyncCalled   bool
 	resetTickerCalled bool
+	refreshCalls      int
+	refreshStarted    bool
 	err               error
 	refetchItemFn     func(ctx context.Context, id string) (*octodeckv1.Item, error)
+}
+
+func (m *mockSyncEngine) RefreshRecentItems(_ context.Context) bool {
+	m.refreshCalls++
+	return m.refreshStarted
 }
 
 func (m *mockSyncEngine) ForceSync(_ context.Context) error {

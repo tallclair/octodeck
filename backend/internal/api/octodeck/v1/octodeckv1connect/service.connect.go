@@ -44,6 +44,9 @@ const (
 	OctoDeckServiceGetFacetsProcedure = "/octodeck.v1.OctoDeckService/GetFacets"
 	// OctoDeckServiceSyncProcedure is the fully-qualified name of the OctoDeckService's Sync RPC.
 	OctoDeckServiceSyncProcedure = "/octodeck.v1.OctoDeckService/Sync"
+	// OctoDeckServiceRefreshRecentItemsProcedure is the fully-qualified name of the OctoDeckService's
+	// RefreshRecentItems RPC.
+	OctoDeckServiceRefreshRecentItemsProcedure = "/octodeck.v1.OctoDeckService/RefreshRecentItems"
 	// OctoDeckServiceViewItemProcedure is the fully-qualified name of the OctoDeckService's ViewItem
 	// RPC.
 	OctoDeckServiceViewItemProcedure = "/octodeck.v1.OctoDeckService/ViewItem"
@@ -105,6 +108,10 @@ type OctoDeckServiceClient interface {
 	GetFacets(context.Context, *connect.Request[v1.GetFacetsRequest]) (*connect.Response[v1.GetFacetsResponse], error)
 	// Synchronization (Streaming)
 	Sync(context.Context, *connect.Request[v1.SyncRequest]) (*connect.ServerStreamForClient[v1.SyncResponse], error)
+	// Starts a freshness sweep in the background: re-fetches stored items that GitHub reports
+	// as updated since the last sweep (e.g. closed or marked ready for review outside the
+	// browser). A no-op within a minute of the previous sweep or while one is running.
+	RefreshRecentItems(context.Context, *connect.Request[v1.RefreshRecentItemsRequest]) (*connect.Response[v1.RefreshRecentItemsResponse], error)
 	// Actions
 	ViewItem(context.Context, *connect.Request[v1.ViewItemRequest]) (*connect.Response[v1.ViewItemResponse], error)
 	AckItem(context.Context, *connect.Request[v1.AckItemRequest]) (*connect.Response[v1.AckItemResponse], error)
@@ -164,6 +171,12 @@ func NewOctoDeckServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			httpClient,
 			baseURL+OctoDeckServiceSyncProcedure,
 			connect.WithSchema(octoDeckServiceMethods.ByName("Sync")),
+			connect.WithClientOptions(opts...),
+		),
+		refreshRecentItems: connect.NewClient[v1.RefreshRecentItemsRequest, v1.RefreshRecentItemsResponse](
+			httpClient,
+			baseURL+OctoDeckServiceRefreshRecentItemsProcedure,
+			connect.WithSchema(octoDeckServiceMethods.ByName("RefreshRecentItems")),
 			connect.WithClientOptions(opts...),
 		),
 		viewItem: connect.NewClient[v1.ViewItemRequest, v1.ViewItemResponse](
@@ -277,6 +290,7 @@ type octoDeckServiceClient struct {
 	getItem              *connect.Client[v1.GetItemRequest, v1.GetItemResponse]
 	getFacets            *connect.Client[v1.GetFacetsRequest, v1.GetFacetsResponse]
 	sync                 *connect.Client[v1.SyncRequest, v1.SyncResponse]
+	refreshRecentItems   *connect.Client[v1.RefreshRecentItemsRequest, v1.RefreshRecentItemsResponse]
 	viewItem             *connect.Client[v1.ViewItemRequest, v1.ViewItemResponse]
 	ackItem              *connect.Client[v1.AckItemRequest, v1.AckItemResponse]
 	starItem             *connect.Client[v1.StarItemRequest, v1.StarItemResponse]
@@ -314,6 +328,11 @@ func (c *octoDeckServiceClient) GetFacets(ctx context.Context, req *connect.Requ
 // Sync calls octodeck.v1.OctoDeckService.Sync.
 func (c *octoDeckServiceClient) Sync(ctx context.Context, req *connect.Request[v1.SyncRequest]) (*connect.ServerStreamForClient[v1.SyncResponse], error) {
 	return c.sync.CallServerStream(ctx, req)
+}
+
+// RefreshRecentItems calls octodeck.v1.OctoDeckService.RefreshRecentItems.
+func (c *octoDeckServiceClient) RefreshRecentItems(ctx context.Context, req *connect.Request[v1.RefreshRecentItemsRequest]) (*connect.Response[v1.RefreshRecentItemsResponse], error) {
+	return c.refreshRecentItems.CallUnary(ctx, req)
 }
 
 // ViewItem calls octodeck.v1.OctoDeckService.ViewItem.
@@ -410,6 +429,10 @@ type OctoDeckServiceHandler interface {
 	GetFacets(context.Context, *connect.Request[v1.GetFacetsRequest]) (*connect.Response[v1.GetFacetsResponse], error)
 	// Synchronization (Streaming)
 	Sync(context.Context, *connect.Request[v1.SyncRequest], *connect.ServerStream[v1.SyncResponse]) error
+	// Starts a freshness sweep in the background: re-fetches stored items that GitHub reports
+	// as updated since the last sweep (e.g. closed or marked ready for review outside the
+	// browser). A no-op within a minute of the previous sweep or while one is running.
+	RefreshRecentItems(context.Context, *connect.Request[v1.RefreshRecentItemsRequest]) (*connect.Response[v1.RefreshRecentItemsResponse], error)
 	// Actions
 	ViewItem(context.Context, *connect.Request[v1.ViewItemRequest]) (*connect.Response[v1.ViewItemResponse], error)
 	AckItem(context.Context, *connect.Request[v1.AckItemRequest]) (*connect.Response[v1.AckItemResponse], error)
@@ -465,6 +488,12 @@ func NewOctoDeckServiceHandler(svc OctoDeckServiceHandler, opts ...connect.Handl
 		OctoDeckServiceSyncProcedure,
 		svc.Sync,
 		connect.WithSchema(octoDeckServiceMethods.ByName("Sync")),
+		connect.WithHandlerOptions(opts...),
+	)
+	octoDeckServiceRefreshRecentItemsHandler := connect.NewUnaryHandler(
+		OctoDeckServiceRefreshRecentItemsProcedure,
+		svc.RefreshRecentItems,
+		connect.WithSchema(octoDeckServiceMethods.ByName("RefreshRecentItems")),
 		connect.WithHandlerOptions(opts...),
 	)
 	octoDeckServiceViewItemHandler := connect.NewUnaryHandler(
@@ -579,6 +608,8 @@ func NewOctoDeckServiceHandler(svc OctoDeckServiceHandler, opts ...connect.Handl
 			octoDeckServiceGetFacetsHandler.ServeHTTP(w, r)
 		case OctoDeckServiceSyncProcedure:
 			octoDeckServiceSyncHandler.ServeHTTP(w, r)
+		case OctoDeckServiceRefreshRecentItemsProcedure:
+			octoDeckServiceRefreshRecentItemsHandler.ServeHTTP(w, r)
 		case OctoDeckServiceViewItemProcedure:
 			octoDeckServiceViewItemHandler.ServeHTTP(w, r)
 		case OctoDeckServiceAckItemProcedure:
@@ -636,6 +667,10 @@ func (UnimplementedOctoDeckServiceHandler) GetFacets(context.Context, *connect.R
 
 func (UnimplementedOctoDeckServiceHandler) Sync(context.Context, *connect.Request[v1.SyncRequest], *connect.ServerStream[v1.SyncResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("octodeck.v1.OctoDeckService.Sync is not implemented"))
+}
+
+func (UnimplementedOctoDeckServiceHandler) RefreshRecentItems(context.Context, *connect.Request[v1.RefreshRecentItemsRequest]) (*connect.Response[v1.RefreshRecentItemsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("octodeck.v1.OctoDeckService.RefreshRecentItems is not implemented"))
 }
 
 func (UnimplementedOctoDeckServiceHandler) ViewItem(context.Context, *connect.Request[v1.ViewItemRequest]) (*connect.Response[v1.ViewItemResponse], error) {
