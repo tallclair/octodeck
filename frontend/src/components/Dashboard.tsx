@@ -42,12 +42,17 @@ import { SortMenu } from './dashboard/SortMenu';
 import { DashboardSidebar } from './dashboard/DashboardSidebar';
 import { QueryInput } from './query/QueryInput';
 import { SaveSearchModal, type SaveSearchModalMode } from './savedSearches/SaveSearchModal';
+import { useRefreshOnReveal } from '../hooks/useRefreshOnReveal';
+
+/** Asks the daemon to re-fetch items updated on GitHub since its last freshness sweep. */
+const refreshRecentItems = () => client.refreshRecentItems({});
 
 interface DashboardProps {
   onOpenDebug?: (targetItemId?: string) => void;
 }
 
 export function Dashboard({ onOpenDebug }: DashboardProps) {
+  useRefreshOnReveal(refreshRecentItems);
   const { data: configData, isError: isConfigError, refetch: refetchConfig } = useQuery(getConfig, {});
   const { data: syncStatusData, isError: isSyncStatusError, refetch: refetchSyncStatus } = useQuery(
     getSyncStatus,
