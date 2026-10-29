@@ -90,8 +90,9 @@ func New(
 	r := chi.NewRouter()
 
 	// A good base middleware stack
+	// No RealIP middleware: the daemon serves local clients directly, so trusting
+	// client-supplied X-Forwarded-For / X-Real-IP headers would only allow spoofing.
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 

@@ -19,6 +19,16 @@ import (
 )
 
 func TestNewClient(t *testing.T) {
+	// NewClient resolves credentials the same way the gh CLI does. Isolate the test
+	// from the developer's gh config and supply a token through the environment so
+	// it passes without a logged-in gh CLI (e.g. in CI). No requests are made.
+	t.Setenv("GH_CONFIG_DIR", t.TempDir())
+	t.Setenv("GH_HOST", "")
+	t.Setenv("GH_ENTERPRISE_TOKEN", "")
+	t.Setenv("GITHUB_ENTERPRISE_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GH_TOKEN", "test-token")
+
 	client, err := NewClient()
 	require.NoError(t, err, "Failed to create client")
 	require.NotNil(t, client.RestClient, "Client.RestClient is nil")
