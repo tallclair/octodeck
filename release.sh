@@ -169,29 +169,22 @@ else
     fi
 fi
 
-# 4. Release Notes Preview
+# 4. Release Notes Check & Preview
+# The notes for each release are written ahead of time (see the release skill in
+# .agents/skills/release/) and committed as docs/releases/<tag>.md. The release
+# workflow publishes that file, so it must exist in the commit being tagged.
+NOTES_FILE="docs/releases/${TARGET_TAG}.md"
+if ! git cat-file -e "HEAD:${NOTES_FILE}" 2>/dev/null; then
+    echo "Error: Release notes '${NOTES_FILE}' are not committed at HEAD." >&2
+    echo "Write and commit the release notes before tagging (see .agents/skills/release/SKILL.md)." >&2
+    exit 1
+fi
+
 echo ""
 echo "================================================================================"
 echo "                           Release Notes Preview"
 echo "================================================================================"
-RELEASE_NOTES_CMD=""
-if [ -x "$SCRIPT_DIR/scripts/release-notes.sh" ]; then
-    RELEASE_NOTES_CMD="$SCRIPT_DIR/scripts/release-notes.sh"
-elif [ -x "$SCRIPT_DIR/release-notes.sh" ]; then
-    RELEASE_NOTES_CMD="$SCRIPT_DIR/release-notes.sh"
-elif [ -x "./scripts/release-notes.sh" ]; then
-    RELEASE_NOTES_CMD="./scripts/release-notes.sh"
-fi
-
-if [ -n "$RELEASE_NOTES_CMD" ]; then
-    if [ -n "$LATEST_TAG" ]; then
-        "$RELEASE_NOTES_CMD" "$LATEST_TAG" HEAD || true
-    else
-        "$RELEASE_NOTES_CMD" "" HEAD || true
-    fi
-else
-    echo "Release notes generator not found; skipping preview."
-fi
+git show "HEAD:${NOTES_FILE}"
 echo "================================================================================"
 echo ""
 

@@ -55,14 +55,29 @@ jobs:
           # 3. Standalone Web App Distribution (.zip)
           (cd backend/frontend_dist && zip -q -r "../../dist/octodeck-webapp-${VERSION}.zip" .)
 
-      - name: Generate Release Notes
+      - name: Assemble Release Notes
         run: |
-          PREV_TAG=$(git tag -l --sort=-v:refname "v*" | sed -n '2p' || true)
-          if [ -n "$PREV_TAG" ]; then
-            ./scripts/release-notes.sh "$PREV_TAG" HEAD > RELEASE_NOTES.md
-          else
-            ./scripts/release-notes.sh "" HEAD > RELEASE_NOTES.md
+          VERSION="${GITHUB_REF_NAME}"
+          NOTES_FILE="docs/releases/${VERSION}.md"
+          if [ ! -f "$NOTES_FILE" ]; then
+            echo "::error file=${NOTES_FILE}::Release notes ${NOTES_FILE} are missing from the tagged commit."
+            exit 1
           fi
+
+          # Committed, reviewed notes followed by a fixed assets footer.
+          {
+            cat "$NOTES_FILE"
+            echo ""
+            echo "---"
+            echo ""
+            echo "## Release Assets"
+            echo ""
+            echo "* \`octodeck-${VERSION}-linux-amd64\`: Linux daemon binary (includes the embedded web app)."
+            echo "* \`octodeck-extension-${VERSION}.zip\`: Companion Chrome extension (extract and load via \`chrome://extensions/\`)."
+            echo "* \`octodeck-webapp-${VERSION}.zip\`: Standalone static web app assets (optional, for external hosting)."
+            echo ""
+            echo "See the [README](https://github.com/${GITHUB_REPOSITORY}/blob/${VERSION}/README.md) for installation steps and prerequisites, and the [User Guide](https://github.com/${GITHUB_REPOSITORY}/blob/${VERSION}/docs/user_guide.md) for detailed usage instructions."
+          } > RELEASE_NOTES.md
 
       - name: Create Draft Release (Official GitHub CLI)
         run: |

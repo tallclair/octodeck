@@ -16,13 +16,13 @@ Each phase document is self-contained for the agent implementing that phase: pre
 
 ## 1. Ground rules for the implementer
 
-- Read first: `GEMINI.md`, `backend/GEMINI.md`, `frontend/GEMINI.md`, `CONTRIBUTING.md`, `spec.md`, and the parent design. These plans do not repeat their rules.
+- Read first: `AGENTS.md`, `backend/AGENTS.md`, `frontend/AGENTS.md`, `CONTRIBUTING.md`, `spec.md`, and the parent design. These plans do not repeat their rules.
 - **Every commit must pass `./verify.sh`** (the pre-commit hook runs it; it takes about 40 s). Never pass `--force`.
 - Commit messages: Conventional Commits, imperative, **no backticks anywhere** (the `commit-msg` hook rejects them). Use single quotes for identifiers.
 - Go: `goimports -w`, `testify/assert` + `testify/require`, table-driven tests, `go test ./...`.
 - Frontend: Vitest (non-interactive), React Testing Library. Use the existing RPC-level harness in [`rpcTestUtils.tsx`](../../frontend/src/test/rpcTestUtils.tsx) (`createMockDaemon`, `requestsFor`, `lastRequest`) for component behaviour that depends on requests; the `describeQuery`/`itemsByQuery` helpers in [`Dashboard.rpc.test.tsx`](../../frontend/src/components/__tests__/Dashboard.rpc.test.tsx) show the pattern.
 - No new runtime or dev dependencies. In particular: no drag-and-drop library, no property-testing library, no UUID library.
-- Update `spec.md` at the end of each phase (the last commit of each phase lists it), following the noise rules in `GEMINI.md`.
+- Update `spec.md` at the end of each phase (the last commit of each phase lists it), following the noise rules in `AGENTS.md`.
 - Implement phases in order and merge each before starting the next (§3).
 
 ---

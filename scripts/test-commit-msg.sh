@@ -144,6 +144,30 @@ run_test "only comment lines" "# Just a comment
 run_test "only comment lines with backticks" "# Comment with \`backticks\`
 # Another \`comment\`" 1
 
+# 7. Release-Note Footer (scripts/release-notes.sh)
+echo "--- Group 7: Release-Note Footer ---"
+run_test "release-note major" "feat: add saved searches
+
+Release-Note: major" 0
+run_test "release-note none" "fix: correct unreleased toast styling
+
+Release-Note: none" 0
+run_test "release-note lowercase key and value" "feat: add saved searches
+
+release-note: Major" 0
+run_test "release-note alongside other trailers" "feat: add saved searches
+
+Release-Note: major
+Signed-off-by: Tester <tester@octodeck.test>" 0
+run_test "release-note invalid value" "feat: add saved searches
+
+Release-Note: highlight" 1
+run_test "release-note empty value" "feat: add saved searches
+
+Release-Note:" 1
+run_test "release-note in comment ignored" "feat: add saved searches
+# Release-Note: bogus" 0
+
 echo "=========================================="
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed."
 if [ "$FAIL_COUNT" -gt 0 ]; then

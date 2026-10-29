@@ -81,17 +81,19 @@ The commit type must be strictly lowercase and must be one of the following:
 
 | Type | Purpose | Release Notes Category |
 |---|---|---|
-| `feat` | A new user-facing feature or API capability | Features (`### Features`) |
-| `fix` | A bug fix | Fixes (`### Fixes`) |
-| `docs` | Documentation-only updates (README, docs, markdown files) | Other Changes (`### Other Changes`) |
-| `style` | Code formatting or whitespace changes with no logic alterations | Other Changes (`### Other Changes`) |
-| `refactor` | Code restructuring that neither fixes a bug nor adds a feature | Other Changes (`### Other Changes`) |
-| `perf` | Changes that improve runtime performance | Other Changes (`### Other Changes`) |
-| `test` | Adding missing tests or correcting existing tests | Other Changes (`### Other Changes`) |
-| `build` | Changes to build tooling, dependencies, Vite, or LDFlags | Other Changes (`### Other Changes`) |
-| `ci` | Changes to CI workflows, GitHub Actions, or automation scripts | Other Changes (`### Other Changes`) |
-| `chore` | Routine repository maintenance, housekeeping, or cleanup | Other Changes (`### Other Changes`) |
-| `revert` | Reverts a previous commit | Other Changes (`### Other Changes`) |
+| `feat` | A new user-facing feature or API capability | Other Enhancements, or Major Features with `Release-Note: major` |
+| `fix` | A bug fix | Bug Fixes |
+| `docs` | Documentation-only updates (README, docs, markdown files) | Omitted |
+| `style` | Code formatting or whitespace changes with no logic alterations | Omitted |
+| `refactor` | Code restructuring that neither fixes a bug nor adds a feature | Omitted |
+| `perf` | Changes that improve runtime performance | Omitted |
+| `test` | Adding missing tests or correcting existing tests | Omitted |
+| `build` | Changes to build tooling, dependencies, Vite, or LDFlags | Omitted |
+| `ci` | Changes to CI workflows, GitHub Actions, or automation scripts | Omitted |
+| `chore` | Routine repository maintenance, housekeeping, or cleanup | Omitted |
+| `revert` | Reverts a previous commit | Omitted (and so is the reverted commit) |
+
+A commit of any type marked as breaking (see below) is listed under Breaking Changes. Because performance improvements are omitted, use `feat` or `fix` for a perf change that users would notice and care about.
 
 ### Scopes (Optional)
 Scopes provide context on which component was modified and are enclosed in parentheses immediately after the type.
@@ -114,8 +116,26 @@ Breaking changes represent backwards-incompatible API or behavioral changes.
 - Indicated by placing an exclamation point `!` immediately before the colon:
   - With scope: `feat(api)!: modify StatusResponse JSON schema`
   - Without scope: `feat!: change default daemon port to 38275`
-- Breaking changes indicate a major SemVer version increment.
+- Breaking changes are permitted before 1.0 and require a major version bump from 1.0 on (see [Versioning](#versioning)).
+- Alternatively, add a `BREAKING CHANGE:` (or `BREAKING-CHANGE:`) footer to the commit body. Either form lists the commit under Breaking Changes in the release notes.
 - Describe the breaking change and migration requirements in the commit body, optionally with a `BREAKING CHANGE:` footer.
+
+### Release-Note Footer
+An optional `Release-Note:` footer controls how a commit appears in the release notes. The `commit-msg` hook accepts only these values:
+
+| Footer | Effect |
+|---|---|
+| `Release-Note: major` | Lists a `feat` commit under Major Features instead of Other Enhancements. Use it for headline features worth calling out at the top of the release. |
+| `Release-Note: none` | Omits a `feat` or `fix` commit from the release notes, such as a fix for a bug that was introduced and fixed within the same release. |
+
+Example:
+```
+feat(dashboard): add saved searches
+
+Saved searches allow arbitrary queries to be pinned to the sidebar.
+
+Release-Note: major
+```
 
 ### Description Formatting Rules
 - Must include a colon followed by exactly one space (`: `).
@@ -132,7 +152,7 @@ Commit messages must never contain backtick characters anywhere in the subject l
 
 ### Why Backticks Are Prohibited
 1. **Shell Script Execution Hazards:** In Bourne/Bash shells, backticks are command substitution operators. Because commit subjects are passed into shell variables by release automation scripts (such as `git tag -a <version> -m "$SUBJECT"` or CI pipelines), unescaped backticks trigger unexpected shell command execution or syntax crashes.
-2. **Markdown Release Notes Corruption:** The automated release notes generator (`scripts/release-notes.sh`) formats commit subjects into Markdown bullet lists (`- <subject>`). Backticks in commit subjects frequently produce unclosed code spans, corrupt table layouts, and break rendering on GitHub Releases and web dashboard changelogs.
+2. **Markdown Release Notes Corruption:** The automated release notes generator (`scripts/release-notes.sh`) formats commit subjects into Markdown headings. Backticks in commit subjects frequently produce unclosed code spans, corrupt table layouts, and break rendering on GitHub Releases and web dashboard changelogs.
 3. **Cross-Platform Portability:** Avoids quoting and escaping bugs across different operating systems and developer shells (Linux, macOS, Windows Git Bash).
 
 ### Acceptable Alternatives to Backticks
@@ -147,20 +167,31 @@ When referencing code identifiers, filenames, function names, or CLI flags in co
 
 ---
 
-## 5. Automated Release Notes Generation
+## 5. Releases & Release Notes
 
-OctoDeck uses automated tooling (`scripts/release-notes.sh`) to generate release notes directly from Git commit history between tags (`git log $PREV_TAG..HEAD`).
+### Versioning
+OctoDeck follows SemVer, with the usual pre-1.0 relaxation:
+- **Before 1.0 (alpha, current):** breaking changes are permitted in any release. Releases with new features or breaking changes typically bump the minor version (`v0.1.0` to `v0.2.0`), and releases with only fixes bump the patch version (`v0.2.0` to `v0.2.1`).
+- **From 1.0 on:** breaking changes require a major version bump.
 
-### Categorization Pipeline
-When a release is created, commits are automatically organized into sections:
-- **`feat`** commits are grouped under **`### Features`**.
-- **`fix`** commits are grouped under **`### Fixes`**.
-- All other types (`docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`) are grouped under **`### Other Changes`**.
+The maintainer cutting the release chooses the version. `release.sh` only enforces that it is the next patch, minor, or major version.
 
-### Release Preview
-The release automation script (`./release.sh`) displays the generated release notes in the terminal for preview before tagging and pushing a new release.
+### Release Notes
+Release notes are written for each release and committed as `docs/releases/vX.Y.Z.md`, named after the release tag, before tagging. `release.sh` refuses to tag without that file at `HEAD`, and the release workflow publishes it (followed by a generated list of release assets) as the body of the draft GitHub release. The earlier files in `docs/releases/` are the reference for format and tone.
 
-Because commit subjects are published directly in user-facing release notes, write clear, descriptive, professional descriptions that explain *what* changed from a user or consumer perspective.
+Agents writing release notes follow the release skill (`.agents/skills/release/SKILL.md`), which documents the full release workflow, the notes template, and the style rules.
+
+### Release Notes Input (`scripts/release-notes.sh`)
+The notes are drafted from `scripts/release-notes.sh [FROM_REF] [TO_REF]` (defaulting to the latest tag through `HEAD`), which groups the commits in the range by user impact. Every included entry carries the full commit body along with the commit hash, type, and scope. Each included commit is listed in exactly one section, in this order:
+1. **`## Breaking Changes`:** commits of any type with `!` before the colon or a `BREAKING CHANGE:` footer.
+2. **`## Major Features`:** `feat` commits with a `Release-Note: major` footer.
+3. **`## Other Enhancements`:** all other `feat` commits.
+4. **`## Bug Fixes`:** `fix` commits.
+5. **`## Omitted`:** everything else, by subject only: the other commit types, commits with a `Release-Note: none` footer, and commits that were reverted within the range. Merge commits are skipped entirely.
+
+Within each section, entries are listed oldest first.
+
+Because commit subjects and bodies are the source material for user-facing release notes, write clear, descriptive, professional descriptions that explain *what* changed from a user or consumer perspective, and use the body to explain the user impact of `feat` and `fix` commits and the migration steps for breaking changes.
 
 ---
 
@@ -180,6 +211,7 @@ Because commit subjects are published directly in user-facing release notes, wri
 - `ci: configure automated verification workflow`
 - `chore(hooks): add commit-msg hook for conventional commits`
 - `feat(api)!: restructure 'StatusResponse' protobuf definition`
+- `feat(dashboard): add saved searches` with a `Release-Note: major` footer
 - `revert: revert commit 'feat(ui): experimental card animation'`
 
 ### Invalid Commit Messages (Rejected by Hook)
@@ -208,8 +240,8 @@ Because commit subjects are published directly in user-facing release notes, wri
 
 1. **Check Requirements:** Verify that your planned changes align with `spec.md`.
 2. **Review Component Guidelines:**
-   - Backend Go guidelines: `backend/GEMINI.md`
-   - Frontend React & Extension guidelines: `frontend/GEMINI.md`
+   - Backend Go guidelines: `backend/AGENTS.md`
+   - Frontend React & Extension guidelines: `frontend/AGENTS.md`
 3. **Verify Git Hooks:** Confirm `git config core.hooksPath .githooks` has been configured.
 4. **Implement Code & Tests:** Ensure all new code has unit/component tests.
 5. **Run Verification:** Execute `./verify.sh` and ensure all checks pass with zero errors.

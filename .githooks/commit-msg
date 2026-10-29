@@ -60,4 +60,16 @@ if ! printf '%s\n' "$SUBJECT" | grep -E -q "$CONVENTIONAL_REGEX"; then
     exit 1
 fi
 
+# 5. Validate the optional Release-Note footer used by scripts/release-notes.sh
+RELEASE_NOTES=$(printf '%s\n' "$NON_COMMENT_LINES" | grep -i '^Release-Note:' || true)
+if [ -n "$RELEASE_NOTES" ]; then
+    INVALID=$(printf '%s\n' "$RELEASE_NOTES" | grep -Eiv '^Release-Note:[[:space:]]*(major|none)[[:space:]]*$' || true)
+    if [ -n "$INVALID" ]; then
+        echo "Error: Invalid Release-Note footer. Allowed values: major, none." >&2
+        echo "" >&2
+        printf '%s\n' "$INVALID" | sed 's/^/  > /' >&2
+        exit 1
+    fi
+fi
+
 exit 0

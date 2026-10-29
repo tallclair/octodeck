@@ -5,15 +5,9 @@ set -euo pipefail
 # Comprehensive automated test harness for release.sh
 
 SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/release.sh"
-RELEASE_NOTES_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/release-notes.sh"
 
 if [ ! -f "$SCRIPT_PATH" ]; then
     echo "Error: release.sh not found at '$SCRIPT_PATH'" >&2
-    exit 1
-fi
-
-if [ ! -f "$RELEASE_NOTES_PATH" ]; then
-    echo "Error: release-notes.sh not found at '$RELEASE_NOTES_PATH'" >&2
     exit 1
 fi
 
@@ -181,6 +175,18 @@ echo "--- Group 2: Git Preflight Checks ---"
 TMP_TEST_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_TEST_DIR"' EXIT
 
+# Writes placeholder release notes for each given tag, as release.sh requires
+# docs/releases/<tag>.md to be committed at HEAD.
+ADD_NOTES() {
+    local dir="$1"
+    shift
+    mkdir -p "$dir/docs/releases"
+    local tag
+    for tag in "$@"; do
+        printf '# OctoDeck %s\n\nNotes for %s.\n' "$tag" "$tag" > "$dir/docs/releases/$tag.md"
+    done
+}
+
 SETUP_REPO() {
     local dir="$1"
     mkdir -p "$dir"
@@ -189,8 +195,7 @@ SETUP_REPO() {
     git -C "$dir" config user.email "tester@octodeck.test"
 
     cp "$SCRIPT_PATH" "$dir/release.sh"
-    mkdir -p "$dir/scripts"
-    cp "$RELEASE_NOTES_PATH" "$dir/scripts/release-notes.sh"
+    ADD_NOTES "$dir" v0.0.2 v0.0.3 v0.0.4 v0.1.0 v1.0.0
 
     cat << 'MOCK_EOF' > "$dir/verify.sh"
 #!/usr/bin/env bash
@@ -374,6 +379,7 @@ git -C "$TMP_TAGLESS" config user.name "OctoDeck Tester"
 git -C "$TMP_TAGLESS" config user.email "tester@octodeck.test"
 echo "root file" > "$TMP_TAGLESS/init.txt"
 cp "$SCRIPT_PATH" "$TMP_TAGLESS/release.sh"
+ADD_NOTES "$TMP_TAGLESS" v0.0.1 v0.1.0 v1.0.0
 git -C "$TMP_TAGLESS" add .
 git -C "$TMP_TAGLESS" commit --quiet -m "feat: root commit"
 
@@ -424,7 +430,27 @@ echo "--- Group 5: Release Notes Preview & Confirmation Prompt ---"
 # Preview output verification
 output=$(cd "$REPO" && ./release.sh --dry-run -y --skip-verify "v0.0.2")
 assert_contains "preview header" "$output" "Release Notes Preview"
-assert_contains "preview commit entry" "$output" "- feat: implement release script"
+assert_contains "preview shows committed notes" "$output" "Notes for v0.0.2."
+
+# Missing release notes file is rejected
+git -C "$REPO" rm --quiet docs/releases/v0.0.2.md
+git -C "$REPO" commit --quiet -m "docs: drop v0.0.2 notes"
+set +e
+output=$(cd "$REPO" && ./release.sh --dry-run -y --skip-verify "v0.0.2" 2>&1)
+code=$?
+set -e
+assert_exit_code "missing notes exits 1" 1 "$code"
+assert_contains "missing notes error" "$output" "Release notes 'docs/releases/v0.0.2.md' are not committed at HEAD"
+
+# Uncommitted notes file is rejected too (dry runs allow a dirty tree)
+git -C "$REPO" show HEAD~1:docs/releases/v0.0.2.md > "$REPO/docs/releases/v0.0.2.md"
+set +e
+output=$(cd "$REPO" && ./release.sh --dry-run -y --skip-verify "v0.0.2" 2>&1)
+code=$?
+set -e
+assert_exit_code "uncommitted notes exits 1" 1 "$code"
+git -C "$REPO" add docs/releases/v0.0.2.md
+git -C "$REPO" commit --quiet -m "docs: restore v0.0.2 notes"
 
 # Confirmation prompt rejected: 'n'
 set +e

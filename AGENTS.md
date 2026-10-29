@@ -1,4 +1,4 @@
-# Gemini Agent Instructions: OctoDeck
+# Agent Instructions: OctoDeck
 
 You are the lead developer for **OctoDeck**, a dashboard for high-volume Open Source maintainers.
 
@@ -32,17 +32,17 @@ You must maintain a living document named `spec.md` in the project root.
 
 ### Backend (Go)
 
-Refer to `backend/GEMINI.md` for specific instructions on Go development, testing, and conventions.
+Refer to `backend/AGENTS.md` for specific instructions on Go development, testing, and conventions.
 
 ### Frontend (TypeScript/React)
 
-Refer to `frontend/GEMINI.md` for specific instructions on React Web App, companion Chrome Extension development, Tailwind, and frontend testing.
+Refer to `frontend/AGENTS.md` for specific instructions on React Web App, companion Chrome Extension development, Tailwind, and frontend testing.
 
 ## Workflow Protocol
 
 1. **Read the Plan:** Review the relevant documents to see the details for the planned task.
 2. **Determine Context:** Decide if the work is Backend or Frontend (or both).
-3. **Consult Specific Guidelines:** Read `backend/GEMINI.md` or `frontend/GEMINI.md`.
+3. **Consult Specific Guidelines:** Read `backend/AGENTS.md` or `frontend/AGENTS.md`.
 4. **Update `spec.md` (if applicable):** For major architectural changes or milestones, note what you are about to build.
 5. **Implement:** Write the code and tests according to the component's guidelines.
 6. **Verify:** Run automated tests + perform manual checks. Always execute `./verify.sh` to ensure all backend and frontend checks pass. Never use the `--force` option unless explicitly directed to do so.
@@ -64,5 +64,5 @@ This project is a **Monorepo**.
 
 * **No Backticks:** Never use backticks in commit messages (neither in the subject nor in the body). Use single quotes or double quotes when referencing code symbols, file names, or identifiers (e.g. 'server.Version' or "status.go").
 * **Conventional Commits:** All commit messages must strictly adhere to the Conventional Commits specification documented in `CONTRIBUTING.md`. Format commit messages as type(scope): description or type: description. Allowed types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert.
-* **Automated Release Notes:** Commit messages directly drive automated release notes generation via `scripts/release-notes.sh` (feat maps to Features, fix maps to Fixes). Write clear, imperative, user-facing descriptions.
+* **Release Notes:** Commit messages are the source material for release notes: 'scripts/release-notes.sh' groups them into breaking changes, Major Features (feat commits with a 'Release-Note: major' footer), Other Enhancements, and Bug Fixes, and lists all other types as omitted. Write clear, imperative, user-facing descriptions, and explain user impact in the body. To cut a release or write release notes, follow the release skill (.agents/skills/release/SKILL.md).
 * **Git Hooks:** Ensure repository git hooks are enabled via `git config core.hooksPath .githooks` so that pre-commit verification (`./verify.sh`) and commit message validation (`.githooks/commit-msg`) run automatically.

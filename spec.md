@@ -9,7 +9,7 @@
 * **The Backend (Daemon):** A local Go server (`octodeck serve`) that handles business logic, GitHub API interactions, and local persistence. It listens on `127.0.0.1:38274` and embeds the React Web App UI static files directly via `//go:embed frontend_dist`. Its runtime version is dynamically extracted from git tags and injected at build time via `-ldflags` into `server.Version`, surfaced through the CLI (`octodeck --version`) and the HTTP `/api/v1/status` endpoint.
 * **The Web App Dashboard:** Hosted exclusively by the Go backend daemon at `http://127.0.0.1:38274/`. Renders the maintainer triage interface using ConnectRPC over relative `/api/v1` routes with SameSite Anti-CSRF cookies (`octodeck_csrf`), surfacing the daemon runtime version in the settings modal.
 * **The Companion Extension:** A lightweight Manifest V3 Chrome Extension. Manifest V3 metadata is injected at build time with numeric and descriptive SemVer versions. Handles browser-native capabilities (`github.com` view tracking, GitHub action tracking & auto-sync, desktop notifications and toolbar badge pushed by the daemon, action toolbar launcher, GitHub right sidebar integration with Ack/Star/Notes controls, and grouped timeline noise collapsing). Displays daemon pairing, version status, and version mismatch warnings directly in its options page.
-* **Release Automation & Quality Gates:** A repository-level release and verification pipeline that enforces Conventional Commits and backtick restrictions via Git hooks (`.githooks/`), generates categorized Markdown release notes from commit history (`scripts/release-notes.sh`), and manages strictly incremental SemVer releases (`release.sh`) protected by full verification preflights (`./verify.sh --force`).
+* **Release Automation & Quality Gates:** A repository-level release and verification pipeline that enforces Conventional Commits and backtick restrictions via Git hooks (`.githooks/`), collects categorized user-facing changes from commit history as input for release notes (`scripts/release-notes.sh`), publishes hand-reviewed release notes committed under `docs/releases/`, and manages strictly incremental SemVer releases (`release.sh`) protected by full verification preflights (`./verify.sh --force`).
 
 ---
 
@@ -77,17 +77,18 @@
 
 - **Git Hooks (`.githooks/commit-msg`, `.githooks/pre-commit`)**: Version-controlled repository hooks configured via `git config core.hooksPath .githooks`. The `commit-msg` hook enforces Conventional Commits (`type(scope)!: description`) across allowed types (`feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`) and strictly prohibits backtick characters across all non-comment lines to prevent shell injection hazards and release notes Markdown formatting corruption. The `pre-commit` hook invokes `./verify.sh` on changed files prior to commit creation.
 - **Contribution Standards (`CONTRIBUTING.md`)**: Comprehensive developer standards documenting development prerequisites, repository setup, git hook configuration, verification procedures, conventional commit formatting, backtick restrictions, release note categorization, and contribution workflow.
-- **Automated Release Notes Generator (`scripts/release-notes.sh`)**: Analyzes git commit history between revisions (`git log $PREV_TAG..HEAD`), automatically categorizing commit subjects into Markdown sections: `### Features` for `feat`, `### Fixes` for `fix`, and `### Other Changes` for all other commit types.
+- **Automated Release Notes Generator (`scripts/release-notes.sh`)**: Analyzes git commit history between revisions (`git log $PREV_TAG..HEAD`), and emits the user-facing changes with their full commit bodies, as input for writing release notes. Sections: Breaking Changes (`!` or a `BREAKING CHANGE:` footer, any type), Major Features (`feat` with a `Release-Note: major` footer), Other Enhancements (other `feat`), Bug Fixes (`fix`), and Omitted (subjects only: other commit types, reverted commits, and commits with `Release-Note: none`). The `commit-msg` hook validates `Release-Note` values.
+- **Release Notes (`docs/releases/vX.Y.Z.md`)**: Per-release notes, drafted by an agent following the release skill (`.agents/skills/release/SKILL.md`, which defines the template, tone, and workflow), reviewed by a maintainer, and committed before tagging.
 - **Release Automation (`release.sh`)**: Orchestrates the release lifecycle with end-to-end preflights:
   - **SemVer Validation**: Validates target version format (`vX.Y.Z` or `X.Y.Z`, normalized to `vX.Y.Z`).
   - **Strict Incrementalism**: Enforces that target versions increment strictly by patch (`+1`), minor (`+1.0`), or major (`+1.0.0`) from the latest git tag, rejecting arbitrary jumps. In tagless repositories, initial releases are restricted to `v0.0.1`, `v0.1.0`, or `v1.0.0`.
   - **Git Preflights**: Enforces execution on branch `main` and verifies a clean working directory with zero uncommitted or untracked changes.
-  - **Release Notes Preview**: Generates and displays release notes preview via `scripts/release-notes.sh`.
+  - **Release Notes Check**: Requires `docs/releases/<version>.md` to be committed at `HEAD` and displays it for preview.
   - **Verification Gate**: Executes `./verify.sh --force`, aborting release creation if any test, linter, or build check fails.
   - **Tagging & Publishing**: Creates an annotated git tag (`git tag -a <version> -m "Release <version>"`) and pushes the tag to the remote origin repository.
 - **Verification Runner (`verify.sh`)**: Maps changed paths (including root dependency files such as `go.work.sum` and `package-lock.json`) to the affected component suites (`api/verify.sh`, `backend/verify.sh`, `frontend/verify.sh`, `scripts/verify.sh`) and runs them in parallel (the backend and frontend suites also run their own steps in parallel, via `scripts/lib/parallel.sh`), printing per-step results and the captured output of failed steps; `--force` runs everything. `api/verify.sh` regenerates code into a scratch directory and fails if the committed generated code under `backend/` or `frontend/` is stale, so generator bumps and unregenerated proto edits are caught.
 - **GitHub Actions CI (`.github/workflows/ci.yml`)**: Runs the full verification suite on every pull request (including Dependabot npm and Go module bumps) and push to `main`, as parallel per-component jobs gated by an aggregate `CI passed` check.
-- **GitHub Actions Release Pipeline (`.github/workflows/release.yml`)**: Automated CI/CD release workflow triggered by pushing a version tag (`v*`). Builds the Web App UI, compiles the Go backend binary (`dist/octodeck-<version>-linux-amd64`), packages the companion extension (`dist/octodeck-extension-<version>.zip`) and standalone web app assets (`dist/octodeck-webapp-<version>.zip`), generates commit-based release notes via `scripts/release-notes.sh`, and publishes an authenticated draft release with assets attached via the GitHub CLI.
+- **GitHub Actions Release Pipeline (`.github/workflows/release.yml`)**: Automated CI/CD release workflow triggered by pushing a version tag (`v*`). Builds the Web App UI, compiles the Go backend binary (`dist/octodeck-<version>-linux-amd64`), packages the companion extension (`dist/octodeck-extension-<version>.zip`) and standalone web app assets (`dist/octodeck-webapp-<version>.zip`), uses the committed `docs/releases/<version>.md` (failing if it is missing) followed by a generated release assets footer as the release body, and publishes an authenticated draft release with assets attached via the GitHub CLI.
 
 ---
 
@@ -133,6 +134,7 @@ The backend exposes a ConnectRPC API alongside HTTP REST endpoints. See `api/oct
 
 ```
 /
+├── .agents/skills/         # Agent skills checked into the repo (code-reviewer, release)
 ├── .github/                # GitHub Actions automated workflows
 │   └── workflows/          # CI/CD workflow configurations (ci.yml, release.yml)
 ├── .githooks/              # Version-controlled Git hooks
@@ -155,6 +157,7 @@ The backend exposes a ConnectRPC API alongside HTTP REST endpoints. See `api/oct
 │   ├── embed.go            # Web App static asset embed
 │   └── main.go             # Backend daemon entrypoint
 ├── docs/                   # User guide, developer guides, and architecture specs
+│   └── releases/           # Published release notes, one vX.Y.Z.md per release
 ├── frontend/               # React Web App & Companion Extension Source
 │   └── src/
 │       ├── api/            # Generated TypeScript ConnectRPC Client
@@ -174,9 +177,9 @@ The backend exposes a ConnectRPC API alongside HTTP REST endpoints. See `api/oct
 │           └── manifest.json  # Manifest V3 configuration template
 ├── scripts/                # Repository operational and release scripts
 │   ├── build-backend.sh    # Backend build script with version LDFlags and fallback placeholder
-│   └── release-notes.sh    # Automated conventional commit release notes generator
+│   └── release-notes.sh    # Groups commits in a range by user impact, as input for release notes
 ├── CONTRIBUTING.md         # Contribution standards, commit conventions, and development workflows
-├── GEMINI.md               # Project-wide developer guidelines and architectural instructions
+├── AGENTS.md               # Project-wide developer guidelines and architectural instructions
 ├── release.sh              # SemVer release automation script with preflights and verification gate
 ├── spec.md                 # Living architecture specification
 └── verify.sh               # Root verification runner for all monorepo subsystems
