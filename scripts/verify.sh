@@ -11,7 +11,7 @@ exec 1>&2
 EXIT_CODE=0
 for t in scripts/test-*.sh; do
     echo "Running $t..."
-    if ! "$t" > /dev/null; then
+    if ! "$t"; then
         echo "Error: $t failed."
         EXIT_CODE=1
     fi

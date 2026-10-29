@@ -52,6 +52,7 @@ Before creating a commit or submitting a pull request, run the repository verifi
   - If `scripts/`, `.githooks/`, or `release.sh` changed: runs `scripts/verify.sh` (the `scripts/test-*.sh` suites).
   - Root dependency files map to the components they affect: `go.work`/`go.work.sum` run API and backend checks; `package.json`/`package-lock.json`/`.npmrc` run API and frontend checks; changes to `verify.sh` itself run everything.
   - API changes do not trigger backend or frontend checks on their own. Any API change that affects them must change the committed generated code under `backend/` or `frontend/`, and the generated code check enforces that.
+- **Parallel Execution:** Selected components run in parallel, and within the backend (build, lint, tests) and frontend (typecheck, lint, tests, webapp and extension bundles) the individual steps run in parallel too, via the shared `scripts/lib/parallel.sh` helper. Output is captured per step: a `PASS`/`FAIL` line with the elapsed time is printed as each finishes, and the full output of anything that failed is printed at the end. Interrupting (Ctrl-C) stops everything. Frontend linting uses an ESLint cache in `frontend/node_modules/.cache/eslint/`.
 - **Full Verification (`--force`):**
   ```bash
   ./verify.sh --force

@@ -35,78 +35,55 @@ changed() {
 #     the api/ code generators).
 #   - package.json / package-lock.json / .npmrc drive the npm workspaces
 #     (frontend runtime deps and the api/ buf toolchain).
-#   - verify.sh changes how every component is verified.
+#   - verify.sh and the shared scripts/lib/ helpers change how every component
+#     is verified.
 GO_ROOT='^go\.work(\.sum)?$'
 NPM_ROOT='^(package\.json|package-lock\.json|\.npmrc)$'
-SELF='^verify\.sh$'
+SELF='^verify\.sh$|^scripts/lib/'
 
 # API changes don't directly trigger backend/frontend checks: api/verify.sh
 # fails if the committed generated code (under backend/ and frontend/) is
 # stale, so any effect on those components shows up as changes there.
-RUN_API=false
-if [ "$FORCE" = "true" ] || changed "^api/|$GO_ROOT|$NPM_ROOT|$SELF"; then
-    RUN_API=true
-fi
-
-RUN_BACKEND=false
-if [ "$FORCE" = "true" ] || changed "^backend/|$GO_ROOT|$SELF"; then
-    RUN_BACKEND=true
-fi
-
-RUN_FRONTEND=false
-if [ "$FORCE" = "true" ] || changed "^frontend/|$NPM_ROOT|$SELF"; then
-    RUN_FRONTEND=true
-fi
-
-RUN_SCRIPTS=false
-if [ "$FORCE" = "true" ] || changed "^scripts/|^\.githooks/|^release\.sh$|$SELF"; then
-    RUN_SCRIPTS=true
-fi
-
-EXIT_CODE=0
-
-if [ "$RUN_API" = "true" ]; then
-    echo "API changes detected (or forced)."
-    if ! ./api/verify.sh; then
-        EXIT_CODE=1
+COMPONENTS=""
+SKIPPED=""
+select_component() { # <name> <regex>
+    if [ "$FORCE" = "true" ] || changed "$2"; then
+        COMPONENTS="$COMPONENTS $1"
+    else
+        SKIPPED="$SKIPPED $1"
     fi
-else
-    echo "No API changes detected."
+}
+select_component api "^api/|$GO_ROOT|$NPM_ROOT|$SELF"
+select_component backend "^backend/|$GO_ROOT|$SELF"
+select_component frontend "^frontend/|$NPM_ROOT|$SELF"
+select_component scripts "^scripts/|^\.githooks/|^release\.sh$|$SELF"
+
+if [ -n "$SKIPPED" ]; then
+    echo "Skipping (no changes):$SKIPPED"
+fi
+if [ -z "$COMPONENTS" ]; then
+    echo "Nothing to verify."
+    exit 0
 fi
 
-if [ "$RUN_BACKEND" = "true" ]; then
-    echo "Backend changes detected (or forced)."
-    # Pass --force argument if it was set
-    ARGS=""
-    if [ "$FORCE" = "true" ]; then ARGS="--force"; fi
+. ./scripts/lib/parallel.sh
 
-    if ! ./backend/verify.sh $ARGS; then
-        EXIT_CODE=1
+BACKEND_ARGS=""
+if [ "$FORCE" = "true" ]; then BACKEND_ARGS="--force"; fi
+
+echo "Verifying in parallel:$COMPONENTS"
+par_start
+for c in $COMPONENTS; do
+    if [ "$c" = "backend" ]; then
+        par_run "$c" ./backend/verify.sh $BACKEND_ARGS
+    else
+        par_run "$c" "./$c/verify.sh"
     fi
-else
-    echo "No backend changes detected."
-fi
+done
 
-if [ "$RUN_FRONTEND" = "true" ]; then
-    echo "Frontend changes detected (or forced)."
-    if ! ./frontend/verify.sh; then
-        EXIT_CODE=1
-    fi
-else
-    echo "No frontend changes detected."
+if ! par_wait; then
+    echo
+    echo "Verification failed:$PAR_FAILED. Fix errors before committing."
+    exit 1
 fi
-
-if [ "$RUN_SCRIPTS" = "true" ]; then
-    echo "Script changes detected (or forced)."
-    if ! ./scripts/verify.sh; then
-        EXIT_CODE=1
-    fi
-else
-    echo "No script changes detected."
-fi
-
-if [ $EXIT_CODE -ne 0 ]; then
-    echo "Verification failed. Fix errors before committing."
-fi
-
-exit $EXIT_CODE
+echo "Verification passed."

@@ -6,9 +6,12 @@
   "scripts": {
     "dev": "vite",
     "dev:webapp": "BUILD_TARGET=webapp vite",
-    "build:webapp": "tsc -b && BUILD_TARGET=webapp vite build --outDir ../backend/frontend_dist --emptyOutDir",
-    "build:extension": "tsc -b && BUILD_TARGET=extension vite build --outDir ../extension_dist --emptyOutDir && BUILD_TARGET=extension-content vite build --outDir ../extension_dist --emptyOutDir=false",
+    "build:webapp": "tsc -b && npm run bundle:webapp",
+    "build:extension": "tsc -b && npm run bundle:extension",
+    "bundle:webapp": "BUILD_TARGET=webapp vite build --outDir ../backend/frontend_dist --emptyOutDir",
+    "bundle:extension": "BUILD_TARGET=extension vite build --outDir ../extension_dist --emptyOutDir && BUILD_TARGET=extension-content vite build --outDir ../extension_dist --emptyOutDir=false",
     "build": "npm run build:webapp && npm run build:extension",
+    "typecheck": "tsc -b",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "tsc -b && vitest run"
