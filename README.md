@@ -65,9 +65,11 @@ GitHub doesn't provide many ways to organize items for your own personal triage.
 
 ### 2. Install
 
-Download the latest release assets from the **[Releases](https://github.com/tallclair/octodeck/releases/latest)** page:
+You can either download pre-built release assets (Linux AMD64) or build OctoDeck from source.
 
-#### Backend Daemon (Linux AMD64)
+#### Option A: Pre-Built Release Binaries (Linux AMD64)
+
+Download the latest release assets from the **[Releases](https://github.com/tallclair/octodeck/releases/latest)** page:
 
 1. Download the pre-built executable binary:
    ```bash
@@ -76,29 +78,58 @@ Download the latest release assets from the **[Releases](https://github.com/tall
    chmod +x octodeck-<version>-linux-amd64
    mv octodeck-<version>-linux-amd64 octodeck
    ```
-2. Start the daemon:
+2. Download and extract the Companion Chrome Extension bundle:
    ```bash
-   ./octodeck serve
-   ```
-3. Open **`http://127.0.0.1:38274`** in your browser to access the dashboard (the web app is embedded directly into the daemon binary).
-
-> [!NOTE]
-> To build OctoDeck from source instead of using pre-compiled release binaries, see the **[Development Guide](docs/development.md#building-production-artifacts)**.
-
-#### Companion Chrome Extension
-
-1. Download and extract `octodeck-extension-<version>.zip`:
-   ```bash
+   curl -LO https://github.com/tallclair/octodeck/releases/download/<version>/octodeck-extension-<version>.zip
    unzip octodeck-extension-<version>.zip -d octodeck-extension
    ```
-2. Open Google Chrome and navigate to `chrome://extensions/`.
-3. Enable **Developer mode** using the toggle in the top-right corner.
-4. Click **Load unpacked** in the top-left corner and select the extracted `octodeck-extension` directory.
-5. The extension will automatically pair with your running `octodeck` daemon.
 
 *(Optional)* A standalone bundle of the web assets (`octodeck-webapp-<version>.zip`) is also provided if you wish to host the web app on your own static web server instead of serving it from the Go daemon.
 
-### 3. Optional: Install as a Background Service (Linux)
+#### Option B: Build from Source
+
+Building from source requires:
+* **Go 1.24+**
+* **C compiler (`gcc` or `clang`)**: Required for CGO to compile the embedded SQLite driver (`go-sqlite3`).
+* **Node.js v20+ (LTS) & npm**: Required to install the frontend toolchain (`tsc`, `vite`, `buf`) and compile the web and extension bundles.
+
+1. Clone the repository and install workspace dependencies (including local build tools such as `tsc`, `vite`, and `buf` in `node_modules/.bin/`):
+   ```bash
+   git clone https://github.com/tallclair/octodeck.git
+   cd octodeck
+   npm install
+   ```
+2. Build all components (Web App, Chrome Extension, and Go Backend):
+   ```bash
+   npm run build
+   ```
+   This runs two stages:
+   * **`npm run build:frontend`**: Runs `tsc -b` and `vite build` to compile the React Web App into `backend/frontend_dist/` and the Chrome Companion Extension into `extension_dist/`.
+   * **`npm run build:backend`** ([`./scripts/build-backend.sh`](scripts/build-backend.sh)): Embeds `backend/frontend_dist/` into the Go daemon via `//go:embed`, injects the Git version via `-ldflags`, and outputs the `./octodeck` binary in the repository root.
+
+> [!NOTE]
+> For development workflows (such as Vite HMR with `--debug-server` or regenerating Protobuf stubs with `npm run generate`), see the **[Development Guide](docs/development.md)**.
+
+### 3. Run the Daemon & Load the Extension
+
+#### Start the Backend Daemon
+
+1. Start the daemon:
+   ```bash
+   ./octodeck serve
+   ```
+2. Open **`http://127.0.0.1:38274`** in your browser to access the dashboard (the web app is embedded directly into the daemon binary).
+
+#### Load the Companion Chrome Extension
+
+1. Open Google Chrome and navigate to `chrome://extensions/`.
+2. Enable **Developer mode** using the toggle in the top-right corner.
+3. Click **Load unpacked** in the top-left corner and select the extension directory:
+   * If installed from a release zip: select the extracted `octodeck-extension` directory.
+   * If built from source: select the `extension_dist` directory in the repository root.
+4. The extension will automatically pair with your running `octodeck` daemon.
+
+### 4. Optional: Install as a Background Service (Linux)
 
 You can run OctoDeck as a persistent background service using systemd:
 
@@ -111,7 +142,7 @@ This generates and enables a user-level systemd service (`octodeck.service`) tha
 * Check service status: `systemctl --user status octodeck.service`
 * View logs: `journalctl --user -u octodeck.service -f`
 
-### 4. Optional: Remote Development & SSH Port Forwarding
+### 5. Optional: Remote Development & SSH Port Forwarding
 
 If you run the OctoDeck backend on a remote development machine or cloud workstation, forward port `38274` to your local machine:
 
