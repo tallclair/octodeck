@@ -46,14 +46,18 @@ Before creating a commit or submitting a pull request, run the repository verifi
 
 ### Verification Behavior
 - **Selective Verification:** By default, `./verify.sh` detects changed files using `git status --porcelain` and executes only the affected subsystem suites:
-  - If `api/` changed: runs `api/verify.sh` (Protobuf linting and code generation check).
+  - If `api/` changed: runs `api/verify.sh` (Protobuf linting, plus a check that the committed generated code matches a fresh `npm run generate`).
   - If `backend/` changed: runs `backend/verify.sh` (Go linting with `golangci-lint`, unit and integration tests).
   - If `frontend/` changed: runs `frontend/verify.sh` (TypeScript typecheck, ESLint, Vitest tests, and production builds).
+  - If `scripts/`, `.githooks/`, or `release.sh` changed: runs `scripts/verify.sh` (the `scripts/test-*.sh` suites).
+  - Root dependency files map to the components they affect: `go.work`/`go.work.sum` run API and backend checks; `package.json`/`package-lock.json`/`.npmrc` run API and frontend checks; changes to `verify.sh` itself run everything.
+  - API changes do not trigger backend or frontend checks on their own. Any API change that affects them must change the committed generated code under `backend/` or `frontend/`, and the generated code check enforces that.
 - **Full Verification (`--force`):**
   ```bash
   ./verify.sh --force
   ```
-  Runs all checks across the entire monorepo regardless of modified files. Used by release automation and CI gates.
+  Runs all checks across the entire monorepo regardless of modified files, using full (not incremental) backend linting. Used by release automation.
+- **Continuous Integration:** `.github/workflows/ci.yml` runs the full suite on every pull request and push to `main`, with one parallel job per component. The aggregate `CI passed` check is the one to require in branch protection.
 - **Verification Rule:** Never attempt to bypass verification failures. All tests, linters, and typechecks must pass cleanly with zero errors.
 
 ---

@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Cancel superseded runs for the same PR or branch.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # CI always runs the full suite ('verify.sh --force' equivalent), split into
+  # parallel jobs, one per component.
+  verify:
+    name: verify (${{ matrix.component }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: api
+            command: ./api/verify.sh
+          - component: backend
+            command: ./backend/verify.sh --force
+          - component: frontend
+            command: ./frontend/verify.sh
+          - component: scripts
+            command: ./scripts/verify.sh
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Script tests and release notes rely on git history and tags
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.work'
+          cache-dependency-path: '**/go.sum'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Configure git identity
+        # Script tests create throwaway repositories and commits.
+        run: |
+          git config --global user.name "OctoDeck CI"
+          git config --global user.email "ci@octodeck.invalid"
+          git config --global init.defaultBranch main
+
+      - name: Verify ${{ matrix.component }}
+        run: ${{ matrix.command }}
+
+  # Single stable check to require in branch protection.
+  ci-passed:
+    name: CI passed
+    if: always()
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        run: |
+          if [ "${{ needs.verify.result }}" != "success" ]; then
+            echo "verify jobs finished with: ${{ needs.verify.result }}"
+            exit 1
+          fi
